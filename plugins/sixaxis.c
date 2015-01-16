@@ -289,7 +289,7 @@ static bool setup_device(int fd, int index, struct btd_adapter *adapter)
 
 	device = btd_adapter_get_device(adapter, &device_bdaddr, BDADDR_BREDR);
 
-	if (g_slist_find_custom(btd_device_get_uuids(device), HID_UUID,
+	if (g_slist_find_custom(btd_device_get_sdp_uuids(device), HID_UUID,
 						(GCompareFunc)strcasecmp)) {
 		DBG("device %s already known, skipping", device_addr);
 		return true;
