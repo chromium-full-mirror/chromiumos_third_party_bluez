@@ -1,0 +1,14 @@
+Homepage: http://www.bluez.org
+Upstream Repo: http://git.kernel.org/cgit/bluetooth/bluez.git
+License: GPLv2
+License File: COPYING
+
+Description:
+
+User-space daemon for the official Linux Bluetooth stack. It provides high-level
+APIs for core Bluetooth functionality as well as several profiles used by OS
+features, such as audio and input.
+
+This repository mirrors the master branch of the upstream project while
+containing Chromium OS only additions that won't be upstream, as well as fixes
+that were sent upstream but were first merged locally.
