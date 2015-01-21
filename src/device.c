@@ -4437,8 +4437,8 @@ void device_set_rssi(struct btd_device *device, int8_t rssi)
 		else
 			delta = rssi - device->rssi;
 
-		/* only report changes of 8 dBm or more */
-		if (delta < 8)
+		/* only report changes of 2 dBm or more */
+		if (delta < 2)
 			return;
 
 		DBG("rssi %d delta %d", rssi, delta);
