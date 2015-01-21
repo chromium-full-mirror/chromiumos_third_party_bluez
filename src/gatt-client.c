@@ -567,21 +567,16 @@ static DBusMessage *descriptor_write_value(DBusConnection *conn,
 }
 
 static const GDBusPropertyTable descriptor_properties[] = {
-	{ "UUID", "s", descriptor_get_uuid, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Characteristic", "o", descriptor_get_characteristic, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Value", "ay", descriptor_get_value, NULL, descriptor_value_exists,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "UUID", "s", descriptor_get_uuid, NULL, NULL },
+	{ "Characteristic", "o", descriptor_get_characteristic, NULL, NULL },
+	{ "Value", "ay", descriptor_get_value, NULL, descriptor_value_exists },
 	{ }
 };
 
 static const GDBusMethodTable descriptor_methods[] = {
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("ReadValue", NULL,
-						GDBUS_ARGS({ "value", "ay" }),
+	{ GDBUS_ASYNC_METHOD("ReadValue", NULL, GDBUS_ARGS({ "value", "ay" }),
 						descriptor_read_value) },
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("WriteValue",
-						GDBUS_ARGS({ "value", "ay" }),
+	{ GDBUS_ASYNC_METHOD("WriteValue", GDBUS_ARGS({ "value", "ay" }),
 						NULL,
 						descriptor_write_value) },
 	{ }
@@ -1248,33 +1243,25 @@ static gboolean characteristic_get_descriptors(
 }
 
 static const GDBusPropertyTable characteristic_properties[] = {
-	{ "UUID", "s", characteristic_get_uuid, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Service", "o", characteristic_get_service, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "UUID", "s", characteristic_get_uuid, NULL, NULL },
+	{ "Service", "o", characteristic_get_service, NULL, NULL },
 	{ "Value", "ay", characteristic_get_value, NULL,
-					characteristic_value_exists,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Notifying", "b", characteristic_get_notifying, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Flags", "as", characteristic_get_flags, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Descriptors", "ao", characteristic_get_descriptors, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+					characteristic_value_exists },
+	{ "Notifying", "b", characteristic_get_notifying, NULL, NULL },
+	{ "Flags", "as", characteristic_get_flags, NULL, NULL },
+	{ "Descriptors", "ao", characteristic_get_descriptors, NULL, NULL },
 	{ }
 };
 
 static const GDBusMethodTable characteristic_methods[] = {
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("ReadValue", NULL,
-						GDBUS_ARGS({ "value", "ay" }),
+	{ GDBUS_ASYNC_METHOD("ReadValue", NULL, GDBUS_ARGS({ "value", "ay" }),
 						characteristic_read_value) },
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("WriteValue",
-						GDBUS_ARGS({ "value", "ay" }),
+	{ GDBUS_ASYNC_METHOD("WriteValue", GDBUS_ARGS({ "value", "ay" }),
 						NULL,
 						characteristic_write_value) },
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("StartNotify", NULL, NULL,
+	{ GDBUS_ASYNC_METHOD("StartNotify", NULL, NULL,
 						characteristic_start_notify) },
-	{ GDBUS_EXPERIMENTAL_METHOD("StopNotify", NULL, NULL,
+	{ GDBUS_METHOD("StopNotify", NULL, NULL,
 						characteristic_stop_notify) },
 	{ }
 };
@@ -1430,14 +1417,10 @@ static gboolean service_get_characteristics(const GDBusPropertyTable *property,
 }
 
 static const GDBusPropertyTable service_properties[] = {
-	{ "UUID", "s", service_get_uuid, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Device", "o", service_get_device, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Primary", "b", service_get_primary, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
-	{ "Characteristics", "ao", service_get_characteristics, NULL, NULL,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "UUID", "s", service_get_uuid, NULL, NULL },
+	{ "Device", "o", service_get_device, NULL, NULL },
+	{ "Primary", "b", service_get_primary, NULL, NULL },
+	{ "Characteristics", "ao", service_get_characteristics, NULL, NULL },
 	{ }
 };
 
