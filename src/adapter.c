@@ -194,6 +194,7 @@ struct btd_adapter {
 	char *short_name;		/* controller short name */
 	uint32_t supported_settings;	/* controller supported settings */
 	uint32_t current_settings;	/* current controller settings */
+	bool desired_powered;		/* powered status desired by clients */
 
 	char *path;			/* adapter object path */
 	uint16_t manufacturer;		/* adapter manufacturer */
@@ -475,6 +476,10 @@ static void store_adapter_info(struct btd_adapter *adapter)
 		g_key_file_set_string(key_file, "General", "Alias",
 							adapter->stored_alias);
 
+	/* Always store the powered status */
+	g_key_file_set_boolean(key_file, "General", "Powered",
+						adapter->desired_powered);
+
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/settings",
 						adapter_dir(adapter));
 
@@ -507,6 +512,14 @@ static void settings_changed(struct btd_adapter *adapter, uint32_t settings)
 	if (changed_mask & MGMT_SETTING_POWERED) {
 	        g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Powered");
+
+		/*
+		 * Don't store the adapter information during daemon shutdown.
+		 * It will store the adapter as powered off as part of the
+		 * shutdown.
+		 */
+		if (!powering_down)
+			store_adapter_info(adapter);
 
 		if (adapter->current_settings & MGMT_SETTING_POWERED) {
 			adapter_start(adapter);
@@ -2678,12 +2691,16 @@ static void property_set_powered(const GDBusPropertyTable *property,
 				GDBusPendingPropertySet id, void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
+	dbus_bool_t enabled;
 
 	if (powering_down) {
 		g_dbus_pending_property_error(id, ERROR_INTERFACE ".Failed",
 							"Powering down");
 		return;
 	}
+
+	dbus_message_iter_get_basic(iter, &enabled);
+	adapter->desired_powered = enabled;
 
 	property_set_mode(adapter, MGMT_SETTING_POWERED, iter, id);
 }
@@ -5168,6 +5185,8 @@ static void convert_config(struct btd_adapter *adapter, const char *filename,
 		mode = get_mode(str);
 		g_key_file_set_boolean(key_file, "General", "Discoverable",
 					mode == MODE_DISCOVERABLE);
+		g_key_file_set_boolean(key_file, "General", "Powered",
+			mode == MODE_DISCOVERABLE || mode == MODE_CONNECTABLE);
 	}
 
 	if (read_local_name(&adapter->bdaddr, str) == 0)
@@ -5249,6 +5268,7 @@ static void load_config(struct btd_adapter *adapter)
 	char filename[PATH_MAX];
 	struct stat st;
 	GError *gerr = NULL;
+	gboolean powered;
 
 	key_file = g_key_file_new();
 
@@ -5297,6 +5317,18 @@ static void load_config(struct btd_adapter *adapter)
 		g_error_free(gerr);
 		gerr = NULL;
 	}
+
+	/* Get power status */
+	powered = g_key_file_get_boolean(key_file, "General", "Powered", &gerr);
+	if (gerr) {
+		powered = false;
+		g_error_free(gerr);
+		gerr = NULL;
+	}
+
+	/* Update the power status for this adapter */
+	adapter->desired_powered = powered;
+	set_mode(adapter, MGMT_OP_SET_POWERED, powered ? 0x01 : 0x00);
 
 	g_key_file_free(key_file);
 }
