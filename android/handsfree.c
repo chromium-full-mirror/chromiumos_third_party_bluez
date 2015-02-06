@@ -1536,10 +1536,10 @@ drop:
 static void sdp_hsp_search_cb(sdp_list_t *recs, int err, gpointer data)
 {
 	struct hf_device *dev = data;
-	sdp_list_t *protos, *classes;
+	sdp_list_t *protos;
 	GError *gerr = NULL;
 	GIOChannel *io;
-	uuid_t uuid;
+	uuid_t class;
 	int channel;
 
 	DBG("");
@@ -1550,34 +1550,28 @@ static void sdp_hsp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		goto fail;
 	}
 
-	if (!recs || !recs->data) {
-		info("handsfree: no HSP SDP records found");
-		goto fail;
+	sdp_uuid16_create(&class, HEADSET_SVCLASS_ID);
+
+	/* Find record with proper service class */
+	for (; recs; recs = recs->next) {
+		sdp_record_t *rec = recs->data;
+
+		if (rec && !sdp_uuid_cmp(&rec->svclass, &class))
+			break;
 	}
 
-	if (sdp_get_service_classes(recs->data, &classes) < 0 || !classes) {
-		error("handsfree: unable to get service classes from record");
+	if (!recs || !recs->data) {
+		info("handsfree: no valid HSP SDP records found");
 		goto fail;
 	}
 
 	if (sdp_get_access_protos(recs->data, &protos) < 0) {
 		error("handsfree: unable to get access protocols from record");
-		sdp_list_free(classes, free);
 		goto fail;
 	}
 
 	/* TODO read remote version? */
 	/* TODO read volume control support */
-
-	memcpy(&uuid, classes->data, sizeof(uuid));
-	sdp_list_free(classes, free);
-
-	if (!sdp_uuid128_to_uuid(&uuid) || uuid.type != SDP_UUID16 ||
-			uuid.value.uuid16 != HEADSET_SVCLASS_ID) {
-		sdp_list_free(protos, NULL);
-		error("handsfree: invalid service record or not HSP");
-		goto fail;
-	}
 
 	channel = sdp_get_proto_port(protos, RFCOMM_UUID);
 	sdp_list_foreach(protos, (sdp_list_func_t) sdp_list_free, NULL);
@@ -1621,10 +1615,10 @@ static int sdp_search_hsp(struct hf_device *dev)
 static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 {
 	struct hf_device *dev = data;
-	sdp_list_t *protos, *classes;
+	sdp_list_t *protos;
 	GError *gerr = NULL;
 	GIOChannel *io;
-	uuid_t uuid;
+	uuid_t class;
 	int channel;
 
 	DBG("");
@@ -1633,6 +1627,16 @@ static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		error("handsfree: unable to get SDP record: %s",
 								strerror(-err));
 		goto fail;
+	}
+
+	sdp_uuid16_create(&class, HANDSFREE_SVCLASS_ID);
+
+	/* Find record with proper service class */
+	for (; recs; recs = recs->next) {
+		sdp_record_t *rec = recs->data;
+
+		if (rec && !sdp_uuid_cmp(&rec->svclass, &class))
+			break;
 	}
 
 	if (!recs || !recs->data) {
@@ -1646,26 +1650,8 @@ static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		return;
 	}
 
-	if (sdp_get_service_classes(recs->data, &classes) < 0 || !classes) {
-		error("handsfree: unable to get service classes from record");
-		goto fail;
-	}
-
 	if (sdp_get_access_protos(recs->data, &protos) < 0) {
 		error("handsfree: unable to get access protocols from record");
-		sdp_list_free(classes, free);
-		goto fail;
-	}
-
-	/* TODO read remote version? */
-
-	memcpy(&uuid, classes->data, sizeof(uuid));
-	sdp_list_free(classes, free);
-
-	if (!sdp_uuid128_to_uuid(&uuid) || uuid.type != SDP_UUID16 ||
-			uuid.value.uuid16 != HANDSFREE_SVCLASS_ID) {
-		sdp_list_free(protos, NULL);
-		error("handsfree: invalid service record or not HFP");
 		goto fail;
 	}
 
@@ -1676,6 +1662,8 @@ static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		error("handsfree: unable to get RFCOMM channel from record");
 		goto fail;
 	}
+
+	/* TODO read remote version? */
 
 	io = bt_io_connect(connect_cb, dev, NULL, &gerr,
 				BT_IO_OPT_SOURCE_BDADDR, &adapter_addr,
