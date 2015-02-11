@@ -2,7 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2012  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2014  Intel Corporation. All rights reserved.
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -21,13 +21,19 @@
  *
  */
 
-#define COLOR_OFF	"\x1B[0m"
-#define COLOR_RED	"\x1B[0;91m"
-#define COLOR_GREEN	"\x1B[0;92m"
-#define COLOR_YELLOW	"\x1B[0;93m"
-#define COLOR_BLUE	"\x1B[0;94m"
-#define COLOR_BOLDGRAY	"\x1B[1;30m"
-#define COLOR_BOLDWHITE	"\x1B[1;37m"
+void gatt_add_service(GDBusProxy *proxy);
+void gatt_remove_service(GDBusProxy *proxy);
 
-void rl_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
-void rl_hexdump(const unsigned char *buf, size_t len);
+void gatt_add_characteristic(GDBusProxy *proxy);
+void gatt_remove_characteristic(GDBusProxy *proxy);
+
+void gatt_add_descriptor(GDBusProxy *proxy);
+void gatt_remove_descriptor(GDBusProxy *proxy);
+
+void gatt_list_attributes(const char *device);
+GDBusProxy *gatt_select_attribute(const char *path);
+char *gatt_attribute_generator(const char *text, int state);
+
+void gatt_read_attribute(GDBusProxy *proxy);
+void gatt_write_attribute(GDBusProxy *proxy, const char *arg);
+void gatt_notify_attribute(GDBusProxy *proxy, bool enable);

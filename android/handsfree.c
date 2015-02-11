@@ -315,22 +315,17 @@ static void at_cmd_unknown(const char *command, void *user_data)
 	uint8_t buf[IPC_MTU];
 	struct hal_ev_handsfree_unknown_at *ev = (void *) buf;
 
-	if (dev->state != HAL_EV_HANDSFREE_CONN_STATE_SLC_CONNECTED) {
-		hfp_gw_send_result(dev->gw, HFP_RESULT_ERROR);
-		hfp_gw_disconnect(dev->gw);
-		return;
-	}
-
 	bdaddr2android(&dev->bdaddr, ev->bdaddr);
 
 	/* copy while string including terminating NULL */
 	ev->len = strlen(command) + 1;
-	memcpy(ev->buf, command, ev->len);
 
 	if (ev->len > IPC_MTU - sizeof(*ev)) {
 		hfp_gw_send_result(dev->gw, HFP_RESULT_ERROR);
 		return;
 	}
+
+	memcpy(ev->buf, command, ev->len);
 
 	ipc_send_notif(hal_ipc, HAL_SERVICE_ID_HANDSFREE,
 			HAL_EV_HANDSFREE_UNKNOWN_AT, sizeof(*ev) + ev->len, ev);
@@ -1147,6 +1142,8 @@ static void at_cmd_ckpd(struct hfp_context *result, enum hfp_gw_cmd_type type,
 
 static void register_post_slc_at(struct hf_device *dev)
 {
+	hfp_gw_set_command_handler(dev->gw, at_cmd_unknown, dev, NULL);
+
 	if (dev->hsp) {
 		hfp_gw_register(dev->gw, at_cmd_ckpd, "+CKPD", dev, NULL);
 		hfp_gw_register(dev->gw, at_cmd_vgs, "+VGS", dev, NULL);
@@ -1201,10 +1198,13 @@ static void at_cmd_cmer(struct hfp_context *result, enum hfp_gw_cmd_type type,
 		if (!hfp_context_get_number(result, &val) || val > 1)
 			break;
 
+		dev->indicators_enabled = val;
+
+		/* skip bfr if present */
+		hfp_context_get_number(result, &val);
+
 		if (hfp_context_has_next(result))
 			break;
-
-		dev->indicators_enabled = val;
 
 		hfp_gw_send_result(dev->gw, HFP_RESULT_OK);
 
@@ -1468,7 +1468,6 @@ static void connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 	g_io_channel_set_close_on_unref(chan, FALSE);
 
 	hfp_gw_set_close_on_unref(dev->gw, true);
-	hfp_gw_set_command_handler(dev->gw, at_cmd_unknown, dev, NULL);
 	hfp_gw_set_disconnect_handler(dev->gw, disconnect_watch, dev, NULL);
 
 	if (dev->hsp) {
