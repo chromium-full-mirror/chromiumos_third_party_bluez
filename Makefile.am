@@ -126,7 +126,7 @@ src_libshared_glib_la_SOURCES = $(shared_sources) \
 src_libshared_mainloop_la_SOURCES = $(shared_sources) \
 				src/shared/io-mainloop.c \
 				src/shared/timeout-mainloop.c \
-				monitor/mainloop.h monitor/mainloop.c
+				src/shared/mainloop.h src/shared/mainloop.c
 
 attrib_sources = attrib/att.h attrib/att-database.h attrib/att.c \
 		attrib/gatt.h attrib/gatt.c \
@@ -167,6 +167,7 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 			src/sdpd-server.c src/sdpd-request.c \
 			src/sdpd-service.c src/sdpd-database.c \
 			src/attrib-server.h src/attrib-server.c \
+			src/gatt-database.h src/gatt-database.c \
 			src/sdp-xml.h src/sdp-xml.c \
 			src/sdp-client.h src/sdp-client.c \
 			src/textfile.h src/textfile.c \

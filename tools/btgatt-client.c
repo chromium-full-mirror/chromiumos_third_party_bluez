@@ -39,7 +39,7 @@
 #include <bluetooth/l2cap.h>
 #include "lib/uuid.h"
 
-#include "monitor/mainloop.h"
+#include "src/shared/mainloop.h"
 #include "src/shared/util.h"
 #include "src/shared/att.h"
 #include "src/shared/queue.h"
@@ -72,6 +72,48 @@ static void print_prompt(void)
 {
 	printf(COLOR_BLUE "[GATT client]" COLOR_OFF "# ");
 	fflush(stdout);
+}
+
+static const char *ecode_to_string(uint8_t ecode)
+{
+	switch (ecode) {
+	case BT_ATT_ERROR_INVALID_HANDLE:
+		return "Invalid Handle";
+	case BT_ATT_ERROR_READ_NOT_PERMITTED:
+		return "Read Not Permitted";
+	case BT_ATT_ERROR_WRITE_NOT_PERMITTED:
+		return "Write Not Permitted";
+	case BT_ATT_ERROR_INVALID_PDU:
+		return "Invalid PDU";
+	case BT_ATT_ERROR_AUTHENTICATION:
+		return "Authentication Required";
+	case BT_ATT_ERROR_REQUEST_NOT_SUPPORTED:
+		return "Request Not Supported";
+	case BT_ATT_ERROR_INVALID_OFFSET:
+		return "Invalid Offset";
+	case BT_ATT_ERROR_AUTHORIZATION:
+		return "Authorization Required";
+	case BT_ATT_ERROR_PREPARE_QUEUE_FULL:
+		return "Prepare Write Queue Full";
+	case BT_ATT_ERROR_ATTRIBUTE_NOT_FOUND:
+		return "Attribute Not Found";
+	case BT_ATT_ERROR_ATTRIBUTE_NOT_LONG:
+		return "Attribute Not Long";
+	case BT_ATT_ERROR_INSUFFICIENT_ENCRYPTION_KEY_SIZE:
+		return "Insuficient Encryption Key Size";
+	case BT_ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LEN:
+		return "Invalid Attribute value len";
+	case BT_ATT_ERROR_UNLIKELY:
+		return "Unlikely Error";
+	case BT_ATT_ERROR_INSUFFICIENT_ENCRYPTION:
+		return "Insufficient Encryption";
+	case BT_ATT_ERROR_UNSUPPORTED_GROUP_TYPE:
+		return "Group type Not Supported";
+	case BT_ATT_ERROR_INSUFFICIENT_RESOURCES:
+		return "Insufficient Resources";
+	default:
+		return "Unknown error type";
+	}
 }
 
 static void att_disconnect_cb(int err, void *user_data)
@@ -489,7 +531,8 @@ static void read_cb(bool success, uint8_t att_ecode, const uint8_t *value,
 	int i;
 
 	if (!success) {
-		PRLOG("\nRead request failed: 0x%02x\n", att_ecode);
+		PRLOG("\nRead request failed: %s (0x%02x)\n",
+				ecode_to_string(att_ecode), att_ecode);
 		return;
 	}
 
@@ -596,7 +639,8 @@ static void write_cb(bool success, uint8_t att_ecode, void *user_data)
 	if (success) {
 		PRLOG("\nWrite successful\n");
 	} else {
-		PRLOG("\nWrite failed: 0x%02x\n", att_ecode);
+		PRLOG("\nWrite failed: %s (0x%02x)\n",
+				ecode_to_string(att_ecode), att_ecode);
 	}
 }
 
@@ -726,7 +770,8 @@ static void write_long_cb(bool success, bool reliable_error, uint8_t att_ecode,
 	} else if (reliable_error) {
 		PRLOG("Reliable write not verified\n");
 	} else {
-		PRLOG("Write failed: 0x%02x\n", att_ecode);
+		PRLOG("\nWrite failed: %s (0x%02x)\n",
+				ecode_to_string(att_ecode), att_ecode);
 	}
 }
 
@@ -938,6 +983,66 @@ static void cmd_unregister_notify(struct client *cli, char *cmd_str)
 	printf("Unregistered notify handler with id: %u\n", id);
 }
 
+static void set_sec_level_usage(void)
+{
+	printf("Usage: set_sec_level <level>\n"
+		"level: 1-3\n"
+		"e.g.:\n"
+		"\tset-sec-level 2\n");
+}
+
+static void cmd_set_sec_level(struct client *cli, char *cmd_str)
+{
+	char *argvbuf[1];
+	char **argv = argvbuf;
+	int argc = 0;
+	char *endptr = NULL;
+	int level;
+
+	if (!bt_gatt_client_is_ready(cli->gatt)) {
+		printf("GATT client not initialized\n");
+		return;
+	}
+
+	if (!parse_args(cmd_str, 1, argv, &argc)) {
+		printf("Too many arguments\n");
+		set_sec_level_usage();
+		return;
+	}
+
+	if (argc < 1) {
+		set_sec_level_usage();
+		return;
+	}
+
+	level = strtol(argv[0], &endptr, 0);
+	if (!endptr || *endptr != '\0' || level < 1 || level > 3) {
+		printf("Invalid level: %s\n", argv[0]);
+		return;
+	}
+
+	if (bt_gatt_client_set_sec_level(cli->gatt, level) < 0)
+		printf("Could not set sec level\n");
+	else
+		printf("Setting security level %d success\n", level);
+}
+
+static void cmd_get_sec_level(struct client *cli, char *cmd_str)
+{
+	int level;
+
+	if (!bt_gatt_client_is_ready(cli->gatt)) {
+		printf("GATT client not initialized\n");
+		return;
+	}
+
+	level = bt_gatt_client_get_sec_level(cli->gatt);
+	if (level < 0)
+		printf("Could not set sec level\n");
+	else
+		printf("Security level: %u\n", level);
+}
+
 static void cmd_help(struct client *cli, char *cmd_str);
 
 typedef void (*command_func_t)(struct client *cli, char *cmd_str);
@@ -962,6 +1067,10 @@ static struct {
 			"\tSubscribe to not/ind from a characteristic" },
 	{ "unregister-notify", cmd_unregister_notify,
 						"Unregister a not/ind session"},
+	{ "set-sec-level", cmd_set_sec_level,
+					"Set security level on le connection"},
+	{ "get-sec-level", cmd_get_sec_level,
+					"Get security level on le connection"},
 	{ }
 };
 

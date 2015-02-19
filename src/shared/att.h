@@ -35,6 +35,8 @@ void bt_att_unref(struct bt_att *att);
 
 bool bt_att_set_close_on_unref(struct bt_att *att, bool do_close);
 
+int bt_att_get_fd(struct bt_att *att);
+
 typedef void (*bt_att_response_func_t)(uint8_t opcode, const void *pdu,
 					uint16_t length, void *user_data);
 typedef void (*bt_att_notify_func_t)(uint8_t opcode, const void *pdu,
@@ -79,3 +81,6 @@ unsigned int bt_att_register_disconnect(struct bt_att *att,
 bool bt_att_unregister_disconnect(struct bt_att *att, unsigned int id);
 
 bool bt_att_unregister_all(struct bt_att *att);
+
+int bt_att_get_sec_level(struct bt_att *att);
+bool bt_att_set_sec_level(struct bt_att *att, int level);

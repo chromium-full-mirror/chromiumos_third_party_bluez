@@ -192,8 +192,9 @@ tools_bluemoon_LDADD = src/libshared-mainloop.la
 
 tools_hex2hcd_SOURCES = tools/hex2hcd.c
 
-tools_btmgmt_SOURCES = tools/btmgmt.c src/uuid-helper.c
-tools_btmgmt_LDADD = lib/libbluetooth-internal.la src/libshared-mainloop.la
+tools_btmgmt_SOURCES = tools/btmgmt.c src/uuid-helper.c client/display.c
+tools_btmgmt_LDADD = lib/libbluetooth-internal.la src/libshared-mainloop.la \
+				-lreadline
 
 tools_btgatt_client_SOURCES = tools/btgatt-client.c src/uuid-helper.c
 tools_btgatt_client_LDADD = src/libshared-mainloop.la \

@@ -22,6 +22,7 @@
  */
 
 #include "src/shared/att.h"
+#include "lib/bluetooth.h"
 #include "lib/uuid.h"
 #include "src/shared/gatt-helpers.h"
 #include "src/shared/util.h"
@@ -525,6 +526,9 @@ next:
 	if (!gatt_db_attribute_get_service_handles(attr, &start, &end))
 		goto failed;
 
+	if (start == end)
+		goto next;
+
 	if (bt_gatt_discover_included_services(client->att, start, end,
 							discover_incl_cb,
 							discovery_op_ref(op),
@@ -675,6 +679,9 @@ next:
 	if (!gatt_db_attribute_get_service_handles(attr, &start, &end))
 		goto failed;
 
+	if (start == end)
+		goto next;
+
 	/* Move on to the next service */
 	op->cur_svc = attr;
 	if (bt_gatt_discover_characteristics(client->att, start, end,
@@ -775,6 +782,9 @@ next:
 
 	if (!gatt_db_attribute_get_service_handles(attr, &start, &end))
 		goto failed;
+
+	if (start == end)
+		goto next;
 
 	/* Move on to the next service */
 	op->cur_svc = attr;
@@ -905,7 +915,7 @@ static void discover_primary_cb(bool success, uint8_t att_ecode,
 		util_debug(client->debug_callback, client->debug_data,
 					"Primary service discovery failed."
 					" ATT ECODE: 0x%02x", att_ecode);
-		goto done;
+		goto secondary;
 	}
 
 	if (!result || !bt_gatt_iter_init(&iter, result)) {
@@ -938,6 +948,7 @@ static void discover_primary_cb(bool success, uint8_t att_ecode,
 		queue_push_tail(op->pending_svcs, attr);
 	}
 
+secondary:
 	/* Discover secondary services */
 	if (bt_gatt_discover_secondary_services(client->att, NULL,
 							op->start, op->end,
@@ -1752,10 +1763,11 @@ static void cancel_request(void *data)
 	uint8_t pdu = 0x00;
 
 	req->removed = true;
-	bt_att_cancel(req->client->att, req->att_id);
 
-	if (!req->long_write)
+	if (!req->long_write) {
+		bt_att_cancel(req->client->att, req->att_id);
 		return;
+	}
 
 	if (!req->att_id)
 		queue_remove(req->client->long_write_queue, req);
@@ -1767,6 +1779,8 @@ static void cancel_request(void *data)
 							&pdu, sizeof(pdu),
 							cancel_long_write_cb,
 							NULL, NULL);
+
+	bt_att_cancel(req->client->att, req->att_id);
 }
 
 bool bt_gatt_client_cancel_all(struct bt_gatt_client *client)
@@ -2631,4 +2645,21 @@ bool bt_gatt_client_unregister_notify(struct bt_gatt_client *client,
 
 	complete_unregister_notify(notify_data);
 	return true;
+}
+
+bool bt_gatt_client_set_sec_level(struct bt_gatt_client *client,
+								int level)
+{
+	if (!client)
+		return false;
+
+	return bt_att_set_sec_level(client->att, level);
+}
+
+int bt_gatt_client_get_sec_level(struct bt_gatt_client *client)
+{
+	if (!client)
+		return -1;
+
+	return bt_att_get_sec_level(client->att);
 }

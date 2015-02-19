@@ -35,6 +35,7 @@
 
 #include <glib.h>
 
+#include "lib/bluetooth.h"
 #include "lib/uuid.h"
 #include "src/shared/util.h"
 #include "src/shared/att.h"
@@ -43,6 +44,7 @@
 #include "src/shared/gatt-db.h"
 #include "src/shared/gatt-server.h"
 #include "src/shared/gatt-client.h"
+#include "src/shared/tester.h"
 
 struct test_pdu {
 	bool valid;
@@ -66,7 +68,6 @@ struct test_data {
 };
 
 struct context {
-	GMainLoop *main_loop;
 	struct bt_gatt_client *client;
 	struct bt_gatt_server *server;
 	struct bt_att *att;
@@ -102,7 +103,7 @@ struct context {
 		data.source_db = db;					\
 		data.pdu_list = g_malloc(sizeof(pdus));			\
 		memcpy(data.pdu_list, pdus, sizeof(pdus));		\
-		g_test_add_data_func(name, &data, function);		\
+		tester_add(name, &data, NULL, function, NULL);		\
 	} while (0)
 
 #define define_test_att(name, function, bt_uuid, test_step, args...)	\
@@ -179,9 +180,52 @@ struct context {
 
 #define SECONDARY_DISC_SMALL_DB						\
 		raw_pdu(0x10, 0x01, 0x00, 0xff, 0xff, 0x01, 0x28),	\
-		raw_pdu(0x11, 0x06, 0x01, 0x00, 0x0F, 0x00, 0x0a, 0x18),\
-		raw_pdu(0x10, 0x10, 0x00, 0xff, 0xff, 0x01, 0x28),	\
-		raw_pdu(0x01, 0x10, 0x10, 0x00, 0x0a)
+		raw_pdu(0x11, 0x06, 0x01, 0x00, 0x10, 0x00, 0x0a, 0x18),\
+		raw_pdu(0x10, 0x11, 0x00, 0xff, 0xff, 0x01, 0x28),	\
+		raw_pdu(0x01, 0x10, 0x11, 0x00, 0x0a)
+
+#define INCLUDE_DISC_SMALL_DB						\
+		raw_pdu(0x08, 0x10, 0xf0, 0x17, 0xf0, 0x02, 0x28),	\
+		raw_pdu(0x09, 0x08, 0x11, 0xf0, 0x01, 0x00, 0x0f, 0x00,	\
+			0x0a, 0x18),					\
+		raw_pdu(0x08, 0x12, 0xf0, 0x17, 0xf0, 0x02, 0x28),	\
+		raw_pdu(0x01, 0x08, 0x12, 0xf0, 0x0a),			\
+		raw_pdu(0x08, 0x01, 0x00, 0x10, 0x00, 0x02, 0x28),	\
+		raw_pdu(0x01, 0x08, 0x01, 0x00, 0x0a)
+
+#define CHARACTERISTIC_DISC_SMALL_DB					\
+		raw_pdu(0x08, 0x10, 0xf0, 0x17, 0xf0, 0x03, 0x28),	\
+		raw_pdu(0x09, 0x07, 0x12, 0xf0, 0x02, 0x13, 0xf0, 0x00,	\
+			0x2a),						\
+		raw_pdu(0x08, 0x13, 0xf0, 0x17, 0xf0, 0x03, 0x28),	\
+		raw_pdu(0x09, 0x15, 0x14, 0xf0, 0x02, 0x15, 0xf0, 0xef,	\
+			0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01, 0x00,	\
+			0x00, 0x00, 0x00, 0x09, 0xB0, 0x00, 0x00),	\
+		raw_pdu(0x08, 0x15, 0xf0, 0x17, 0xf0, 0x03, 0x28),	\
+		raw_pdu(0x09, 0x07, 0x16, 0xf0, 0x02, 0x17, 0xf0, 0x01,	\
+			0x2a),						\
+		raw_pdu(0x08, 0x17, 0xf0, 0x17, 0xf0, 0x03, 0x28),	\
+		raw_pdu(0x01, 0x08, 0x17, 0xf0, 0x0a),			\
+		raw_pdu(0x08, 0x01, 0x00, 0x10, 0x00, 0x03, 0x28),	\
+		raw_pdu(0x09, 0x07, 0x02, 0x00, 0x32, 0x03, 0x00, 0x29,	\
+			0x2a),						\
+		raw_pdu(0x08, 0x03, 0x00, 0x10, 0x00, 0x03, 0x28),	\
+		raw_pdu(0x01, 0x08, 0x03, 0x00, 0x0a)
+
+#define DESCRIPTOR_DISC_SMALL_DB					\
+		raw_pdu(0x04, 0x04, 0x00, 0x10, 0x00),			\
+		raw_pdu(0x05, 0x01, 0x04, 0x00, 0x02, 0x29, 0x05, 0x00,	\
+			0x01, 0x29),					\
+		raw_pdu(0x04, 0x06, 0x00, 0x10, 0x00),			\
+		raw_pdu(0x01, 0x04, 0x06, 0x00, 0x0a)
+
+#define SMALL_DB_DISCOVERY_PDUS						\
+		PRIMARY_DISC_SMALL_DB,					\
+		SECONDARY_DISC_SMALL_DB,				\
+		INCLUDE_DISC_SMALL_DB,					\
+		CHARACTERISTIC_DISC_SMALL_DB,				\
+		DESCRIPTOR_DISC_SMALL_DB
+
 
 #define SERVER_MTU_EXCHANGE_PDU raw_pdu(0x02, 0x17, 0x00)
 
@@ -207,13 +251,6 @@ static bt_uuid_t uuid_char_128 = {
 			0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f}
 };
 
-static void test_debug(const char *str, void *user_data)
-{
-	const char *prefix = user_data;
-
-	g_print("%s%s\n", prefix, str);
-}
-
 static void test_free(gconstpointer user_data)
 {
 	const struct test_data *data = user_data;
@@ -222,16 +259,59 @@ static void test_free(gconstpointer user_data)
 	g_free(data->pdu_list);
 }
 
+typedef void (*test_step_t)(struct context *context);
+
+struct test_step {
+	test_step_t func;
+	test_step_t post_func;
+	uint16_t handle;
+	uint16_t end_handle;
+	uint8_t uuid[16];
+	uint8_t expected_att_ecode;
+	const uint8_t *value;
+	uint16_t length;
+};
+
+static void destroy_context(struct context *context)
+{
+	if (context->source > 0)
+		g_source_remove(context->source);
+
+	bt_gatt_client_unref(context->client);
+	bt_gatt_server_unref(context->server);
+	gatt_db_unref(context->client_db);
+	gatt_db_unref(context->server_db);
+
+	if (context->att)
+		bt_att_unref(context->att);
+
+	test_free(context->data);
+	g_free(context);
+}
+
 static gboolean context_quit(gpointer user_data)
 {
 	struct context *context = user_data;
+	const struct test_step *step = context->data->step;
 
 	if (context->process > 0)
 		g_source_remove(context->process);
 
-	g_main_loop_quit(context->main_loop);
+	if (step && step->post_func)
+		step->post_func(context);
+
+	destroy_context(context);
+
+	tester_test_passed();
 
 	return FALSE;
+}
+
+static void test_debug(const char *str, void *user_data)
+{
+	const char *prefix = user_data;
+
+	tester_debug("%s%s", prefix, str);
 }
 
 static gboolean send_pdu(gpointer user_data)
@@ -244,12 +324,19 @@ static gboolean send_pdu(gpointer user_data)
 
 	len = write(context->fd, pdu->data, pdu->size);
 
-	if (g_test_verbose())
-		util_hexdump('<', pdu->data, len, test_debug, "GATT: ");
+	util_hexdump('<', pdu->data, len, test_debug, "GATT: ");
 
 	g_assert_cmpint(len, ==, pdu->size);
 
 	context->process = 0;
+
+	pdu = &context->data->pdu_list[context->pdu_offset];
+	if (pdu->valid && (pdu->size == 0)) {
+		test_debug("(no action expected)", "GATT: ");
+		context->pdu_offset++;
+		return send_pdu(context);
+	}
+
 	return FALSE;
 }
 
@@ -268,6 +355,7 @@ static gboolean test_handler(GIOChannel *channel, GIOCondition cond,
 							gpointer user_data)
 {
 	struct context *context = user_data;
+	const struct test_step *step = context->data->step;
 	const struct test_pdu *pdu;
 	unsigned char buf[512];
 	ssize_t len;
@@ -287,12 +375,22 @@ static gboolean test_handler(GIOChannel *channel, GIOCondition cond,
 
 	g_assert(len > 0);
 
-	if (g_test_verbose())
-		util_hexdump('>', buf, len, test_debug, "GATT: ");
+	util_hexdump('>', buf, len, test_debug, "GATT: ");
 
 	g_assert_cmpint(len, ==, pdu->size);
 
 	g_assert(memcmp(buf, pdu->data, pdu->size) == 0);
+
+	/* Empty client PDU means to trigger something out-of-band. */
+	pdu = &context->data->pdu_list[context->pdu_offset];
+
+	if (pdu->valid && (pdu->size == 0)) {
+		context->pdu_offset++;
+		test_debug("triggering server action", "Empty client pdu: ");
+		g_assert(step && step->func);
+		step->func(context);
+		return TRUE;
+	}
 
 	context_process(context);
 
@@ -303,20 +401,8 @@ static void print_debug(const char *str, void *user_data)
 {
 	const char *prefix = user_data;
 
-	g_print("%s%s\n", prefix, str);
+	tester_debug("%s%s", prefix, str);
 }
-
-typedef void (*test_step_t)(struct context *context);
-
-struct test_step {
-	test_step_t func;
-	uint16_t handle;
-	uint16_t end_handle;
-	uint8_t uuid[16];
-	uint8_t expected_att_ecode;
-	const uint8_t *value;
-	uint16_t length;
-};
 
 struct db_attribute_test_data {
 	struct gatt_db_attribute *match;
@@ -494,9 +580,6 @@ static struct context *create_context(uint16_t mtu, gconstpointer data)
 	int err, sv[2];
 	struct bt_att *att;
 
-	context->main_loop = g_main_loop_new(NULL, FALSE);
-	g_assert(context->main_loop);
-
 	err = socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sv);
 	g_assert(err == 0);
 
@@ -507,9 +590,7 @@ static struct context *create_context(uint16_t mtu, gconstpointer data)
 	case ATT:
 		context->att = att;
 
-		if (g_test_verbose())
-			bt_att_set_debug(context->att, print_debug, "bt_att:",
-									NULL);
+		bt_att_set_debug(context->att, print_debug, "bt_att:", NULL);
 
 		bt_gatt_exchange_mtu(context->att, mtu, NULL, NULL, NULL);
 		break;
@@ -521,8 +602,7 @@ static struct context *create_context(uint16_t mtu, gconstpointer data)
 									mtu);
 		g_assert(context->server);
 
-		if (g_test_verbose())
-			bt_gatt_server_set_debug(context->server, print_debug,
+		bt_gatt_server_set_debug(context->server, print_debug,
 						"bt_gatt_server:", NULL);
 		bt_att_unref(att);
 		break;
@@ -534,8 +614,7 @@ static struct context *create_context(uint16_t mtu, gconstpointer data)
 									mtu);
 		g_assert(context->client);
 
-		if (g_test_verbose())
-			bt_gatt_client_set_debug(context->client, print_debug,
+		bt_gatt_client_set_debug(context->client, print_debug,
 						"bt_gatt_client:", NULL);
 
 		bt_gatt_client_set_ready_handler(context->client,
@@ -575,32 +654,6 @@ static void generic_search_cb(bool success, uint8_t att_ecode,
 	g_assert(success);
 
 	context_quit(context);
-}
-
-static void destroy_context(struct context *context)
-{
-	if (context->source > 0)
-		g_source_remove(context->source);
-
-	bt_gatt_client_unref(context->client);
-	bt_gatt_server_unref(context->server);
-	gatt_db_unref(context->client_db);
-	gatt_db_unref(context->server_db);
-
-	if (context->att)
-		bt_att_unref(context->att);
-
-	g_main_loop_unref(context->main_loop);
-
-	test_free(context->data);
-	g_free(context);
-}
-
-static void execute_context(struct context *context)
-{
-	g_main_loop_run(context->main_loop);
-
-	destroy_context(context);
 }
 
 static void test_read_cb(bool success, uint8_t att_ecode,
@@ -668,6 +721,44 @@ static const struct test_step test_read_6 = {
 	.expected_att_ecode = 0x0c,
 };
 
+static const struct test_step test_read_7 = {
+	.handle = 0x0004,
+	.func = test_read,
+	.expected_att_ecode = 0x00,
+	.value = read_data_1,
+	.length = 0x03
+};
+
+static const struct test_step test_read_8 = {
+	.handle = 0x0004,
+	.func = test_read,
+	.expected_att_ecode = 0x02,
+};
+
+static const struct test_step test_read_9 = {
+	.handle = 0x0004,
+	.func = test_read,
+	.expected_att_ecode = 0x08,
+};
+
+static const struct test_step test_read_10 = {
+	.handle = 0x0004,
+	.func = test_read,
+	.expected_att_ecode = 0x05,
+};
+
+static const struct test_step test_read_11 = {
+	.handle = 0x0004,
+	.func = test_read,
+	.expected_att_ecode = 0x0c,
+};
+
+static const struct test_step test_read_12 = {
+	.handle = 0x0003,
+	.func = test_read,
+	.expected_att_ecode = 0x80,
+};
+
 static void att_write_cb(struct gatt_db_attribute *att, int err,
 								void *user_data)
 {
@@ -691,8 +782,8 @@ static struct gatt_db_attribute *add_char_with_value(struct gatt_db *db,
 
 	g_assert(attrib != NULL);
 
-	gatt_db_attribute_write(attrib, 0, value, len, 0x00, NULL, att_write_cb,
-									NULL);
+	gatt_db_attribute_write(attrib, 0, value, len, 0x00, NULL,
+							att_write_cb, NULL);
 
 	return attrib;
 }
@@ -896,10 +987,12 @@ static struct gatt_db *make_test_spec_small_db(void)
 		SECONDARY_SERVICE(0x0001, DEVICE_INFORMATION_UUID, 16),
 		CHARACTERISTIC_STR(GATT_CHARAC_MANUFACTURER_NAME_STRING,
 						BT_ATT_PERM_READ,
-						BT_GATT_CHRC_PROP_READ,
+						BT_GATT_CHRC_PROP_READ |
+						BT_GATT_CHRC_PROP_NOTIFY |
+						BT_GATT_CHRC_PROP_INDICATE,
 						"BlueZ"),
-		DESCRIPTOR(GATT_CLIENT_CHARAC_CFG_UUID, BT_ATT_PERM_READ, 0x00,
-									0x00),
+		DESCRIPTOR(GATT_CLIENT_CHARAC_CFG_UUID, BT_ATT_PERM_READ |
+						BT_ATT_PERM_WRITE, 0x00, 0x00),
 		DESCRIPTOR_STR(GATT_CHARAC_USER_DESC_UUID, BT_ATT_PERM_READ,
 							"Manufacturer Name"),
 		PRIMARY_SERVICE(0xF010, GAP_UUID, 8),
@@ -1227,9 +1320,7 @@ static struct gatt_db *make_test_spec_large_db_1(void)
 
 static void test_client(gconstpointer data)
 {
-	struct context *context = create_context(512, data);
-
-	execute_context(context);
+	create_context(512, data);
 }
 
 static void test_server(gconstpointer data)
@@ -1242,10 +1333,7 @@ static void test_server(gconstpointer data)
 
 	g_assert_cmpint(len, ==, pdu.size);
 
-	if (g_test_verbose())
-		util_hexdump('<', pdu.data, len, test_debug, "GATT: ");
-
-	execute_context(context);
+	util_hexdump('<', pdu.data, len, test_debug, "GATT: ");
 }
 
 static void test_search_primary(gconstpointer data)
@@ -1256,8 +1344,6 @@ static void test_search_primary(gconstpointer data)
 	bt_gatt_discover_all_primary_services(context->att, test_data->uuid,
 							generic_search_cb,
 							context, NULL);
-
-	execute_context(context);
 }
 
 static void test_search_included(gconstpointer data)
@@ -1267,8 +1353,6 @@ static void test_search_included(gconstpointer data)
 	bt_gatt_discover_included_services(context->att, 0x0001, 0xffff,
 							generic_search_cb,
 							context, NULL);
-
-	execute_context(context);
 }
 
 static void test_search_chars(gconstpointer data)
@@ -1278,8 +1362,6 @@ static void test_search_chars(gconstpointer data)
 	g_assert(bt_gatt_discover_characteristics(context->att, 0x0010, 0x0020,
 							generic_search_cb,
 							context, NULL));
-
-	execute_context(context);
 }
 
 static void test_search_descs(gconstpointer data)
@@ -1289,8 +1371,6 @@ static void test_search_descs(gconstpointer data)
 	g_assert(bt_gatt_discover_descriptors(context->att, 0x0013, 0x0016,
 							generic_search_cb,
 							context, NULL));
-
-	execute_context(context);
 }
 
 static const struct test_step test_read_by_type_1 = {
@@ -1440,8 +1520,6 @@ static void test_read_by_type(gconstpointer data)
 	g_assert(bt_gatt_read_by_type(context->att, step->handle,
 					step->end_handle, test_data->uuid,
 					read_by_type_cb, context, NULL));
-
-	execute_context(context);
 }
 
 static void test_long_read(struct context *context)
@@ -1485,7 +1563,7 @@ static const struct test_step test_long_read_4 = {
 };
 
 static const struct test_step test_long_read_5 = {
-	.handle = 0x0003,
+	.handle = 0x0000,
 	.func = test_long_read,
 	.expected_att_ecode = 0x01
 };
@@ -1508,11 +1586,175 @@ static const struct test_step test_long_read_8 = {
 	.expected_att_ecode = 0x0c
 };
 
+/* Descriptor test data's */
+
+static const struct test_step test_long_read_9 = {
+	.handle = 0x0004,
+	.func = test_long_read,
+	.expected_att_ecode = 0,
+	.value = read_data_1,
+	.length = 0x03
+};
+
+static const struct test_step test_long_read_10 = {
+	.handle = 0x0004,
+	.func = test_long_read,
+	.expected_att_ecode = 0,
+	.value = long_data_2,
+	.length = sizeof(long_data_2)
+};
+
+static const struct test_step test_long_read_11 = {
+	.handle = 0x0004,
+	.func = test_long_read,
+	.expected_att_ecode = 0x02
+};
+
+static const struct test_step test_long_read_12 = {
+	.handle = 0x0004,
+	.func = test_long_read,
+	.expected_att_ecode = 0x07
+};
+
+static const struct test_step test_long_read_13 = {
+	.handle = 0x0004,
+	.func = test_long_read,
+	.expected_att_ecode = 0x08
+};
+
+static const struct test_step test_long_read_14 = {
+	.handle = 0x0004,
+	.func = test_long_read,
+	.expected_att_ecode = 0x05
+};
+
+static const struct test_step test_long_read_15 = {
+	.handle = 0x0004,
+	.func = test_long_read,
+	.expected_att_ecode = 0x0c
+};
+
+static void notification_cb(uint16_t value_handle, const uint8_t *value,
+					uint16_t length, void *user_data)
+{
+	struct context *context = user_data;
+	const struct test_step *step = context->data->step;
+
+	if (value_handle == step->handle) {
+		g_assert_cmpint(length, ==, step->length);
+
+		g_assert(memcmp(value, step->value, length) == 0);
+
+		context_quit(context);
+	}
+}
+
+static void notification_register_cb(uint16_t att_ecode, void *user_data)
+{
+	g_assert(!att_ecode);
+}
+
+static void test_notification(struct context *context)
+{
+	const struct test_step *step = context->data->step;
+
+	g_assert(bt_gatt_client_register_notify(context->client, step->handle,
+						notification_register_cb,
+						notification_cb, context,
+						NULL));
+}
+
+static const struct test_step test_notification_1 = {
+	.handle = 0x0003,
+	.func = test_notification,
+	.value = read_data_1,
+	.length = 0x03,
+};
+
+static void test_server_notification(struct context *context)
+{
+	const struct test_step *step = context->data->step;
+
+	bt_gatt_server_send_notification(context->server, step->handle,
+						step->value, step->length);
+}
+
+static const struct test_step test_notification_server_1 = {
+	.handle = 0x0003,
+	.func = test_server_notification,
+	.value = read_data_1,
+	.length = 0x03,
+};
+
+static uint8_t indication_received;
+
+static void test_indication_cb(void *user_data)
+{
+	struct context *context = user_data;
+
+	indication_received = 1;
+
+	context_quit(context);
+}
+
+static void test_server_indication_confirm(struct context *context)
+{
+	g_assert(indication_received == 1);
+}
+
+static void indication_cb(uint16_t value_handle, const uint8_t *value,
+					uint16_t length, void *user_data)
+{
+	struct context *context = user_data;
+	const struct test_step *step = context->data->step;
+
+	if (value_handle == step->handle) {
+		g_assert_cmpint(length, ==, step->length);
+
+		g_assert(memcmp(value, step->value, length) == 0);
+	}
+}
+
+static void test_indication(struct context *context)
+{
+	const struct test_step *step = context->data->step;
+
+	g_assert(bt_gatt_client_register_notify(context->client, step->handle,
+						notification_register_cb,
+						indication_cb, context,
+						NULL));
+}
+
+static const struct test_step test_indication_1 = {
+	.handle = 0x0003,
+	.func = test_indication,
+	.value = read_data_1,
+	.length = 0x03,
+};
+
+static void test_server_indication(struct context *context)
+{
+	const struct test_step *step = context->data->step;
+
+	bt_gatt_server_send_indication(context->server, step->handle,
+						step->value, step->length,
+						test_indication_cb,
+						context, NULL);
+}
+
+static const struct test_step test_indication_server_1 = {
+	.handle = 0x0003,
+	.func = test_server_indication,
+	.post_func = test_server_indication_confirm,
+	.value = read_data_1,
+	.length = 0x03,
+};
+
 int main(int argc, char *argv[])
 {
 	struct gatt_db *service_db_1, *ts_small_db, *ts_large_db_1;
 
-	g_test_init(&argc, &argv, NULL);
+	tester_init(&argc, &argv);
 
 	service_db_1 = make_service_data_1_db();
 	ts_small_db = make_test_spec_small_db();
@@ -1707,7 +1949,7 @@ int main(int argc, char *argv[])
 			NULL,
 			MTU_EXCHANGE_CLIENT_PDUS,
 			raw_pdu(0x08, 0x10, 0x00, 0x20, 0x00, 0x03, 0x28),
-			raw_pdu(0x09, 0x07, 0x11, 0x00, 02, 0x12, 0x00, 0x25,
+			raw_pdu(0x09, 0x07, 0x11, 0x00, 0x02, 0x12, 0x00, 0x25,
 					0x2a),
 			raw_pdu(0x08, 0x12, 0x00, 0x20, 0x00, 0x03, 0x28),
 			raw_pdu(0x09, 0x15, 0x13, 0x00, 0x02, 0x14, 0x00, 0x85,
@@ -1738,7 +1980,7 @@ int main(int argc, char *argv[])
 			ts_small_db, NULL,
 			raw_pdu(0x03, 0x00, 0x02),
 			raw_pdu(0x08, 0x01, 0x00, 0x0f, 0x00, 0x03, 0x28),
-			raw_pdu(0x09, 0x07, 0x02, 0x00, 0x02, 0x03, 0x00, 0x29,
+			raw_pdu(0x09, 0x07, 0x02, 0x00, 0x32, 0x03, 0x00, 0x29,
 					0x2a),
 			raw_pdu(0x08, 0x03, 0x00, 0x0f, 0x00, 0x03, 0x28),
 			raw_pdu(0x01, 0x08, 0x03, 0x00, 0x0a));
@@ -1760,7 +2002,7 @@ int main(int argc, char *argv[])
 			NULL,
 			MTU_EXCHANGE_CLIENT_PDUS,
 			raw_pdu(0x08, 0x10, 0x00, 0x20, 0x00, 0x03, 0x28),
-			raw_pdu(0x09, 0x07, 0x11, 0x00, 02, 0x12, 0x00, 0x25,
+			raw_pdu(0x09, 0x07, 0x11, 0x00, 0x02, 0x12, 0x00, 0x25,
 					0x2a),
 			raw_pdu(0x08, 0x12, 0x00, 0x20, 0x00, 0x03, 0x28),
 			raw_pdu(0x09, 0x15, 0x13, 0x00, 0x02, 0x14, 0x00, 0x85,
@@ -1791,7 +2033,7 @@ int main(int argc, char *argv[])
 			ts_small_db, NULL,
 			raw_pdu(0x03, 0x00, 0x02),
 			raw_pdu(0x08, 0x01, 0x00, 0x0f, 0x00, 0x03, 0x28),
-			raw_pdu(0x09, 0x07, 0x02, 0x00, 0x02, 0x03, 0x00, 0x29,
+			raw_pdu(0x09, 0x07, 0x02, 0x00, 0x32, 0x03, 0x00, 0x29,
 					0x2a),
 			raw_pdu(0x08, 0x03, 0x00, 0x0f, 0x00, 0x03, 0x28),
 			raw_pdu(0x01, 0x08, 0x03, 0x00, 0x0a));
@@ -2193,8 +2435,8 @@ int main(int argc, char *argv[])
 	define_test_client("/TP/GAR/CL/BI-14-C", test_client, service_db_1,
 			&test_long_read_5,
 			SERVICE_DATA_1_PDUS,
-			raw_pdu(0x0c, 0x03, 0x00, 0x00, 0x00),
-			raw_pdu(0x01, 0x0c, 0x03, 0x00, 0x01));
+			raw_pdu(0x0c, 0x00, 0x00, 0x00, 0x00),
+			raw_pdu(0x01, 0x0c, 0x00, 0x00, 0x01));
 
 	define_test_client("/TP/GAR/CL/BI-15-C", test_client, service_db_1,
 			&test_long_read_6,
@@ -2367,5 +2609,241 @@ int main(int argc, char *argv[])
 			raw_pdu(0x0C, 0xF0, 0x0F, 0x00, 0x00),
 			raw_pdu(0x01, 0x0C, 0xF0, 0x0F, 0x01));
 
-	return g_test_run();
+	define_test_client("/TP/GAN/CL/BV-01-C", test_client, ts_small_db,
+			&test_notification_1,
+			MTU_EXCHANGE_CLIENT_PDUS,
+			SMALL_DB_DISCOVERY_PDUS,
+			raw_pdu(0x12, 0x04, 0x00, 0x03, 0x00),
+			raw_pdu(0x13),
+			raw_pdu(),
+			raw_pdu(0x1B, 0x03, 0x00, 0x01, 0x02, 0x03));
+
+	define_test_server("/TP/GAN/SR/BV-01-C", test_server, ts_small_db,
+			&test_notification_server_1,
+			raw_pdu(0x03, 0x00, 0x02),
+			raw_pdu(0x12, 0x04, 0x00, 0x01, 0x00),
+			raw_pdu(0x13),
+			raw_pdu(),
+			raw_pdu(0x1B, 0x03, 0x00, 0x01, 0x02, 0x03));
+
+	define_test_server("/TP/GAI/SR/BV-01-C", test_server, ts_small_db,
+			&test_indication_server_1,
+			raw_pdu(0x03, 0x00, 0x02),
+			raw_pdu(0x12, 0x04, 0x00, 0x02, 0x00),
+			raw_pdu(0x13),
+			raw_pdu(),
+			raw_pdu(0x1D, 0x03, 0x00, 0x01, 0x02, 0x03),
+			raw_pdu(0x1E));
+
+	define_test_client("/TP/GAI/CL/BV-01-C", test_client, ts_small_db,
+			&test_indication_1,
+			MTU_EXCHANGE_CLIENT_PDUS,
+			SMALL_DB_DISCOVERY_PDUS,
+			raw_pdu(0x12, 0x04, 0x00, 0x03, 0x00),
+			raw_pdu(0x13),
+			raw_pdu(),
+			raw_pdu(0x1D, 0x03, 0x00, 0x01, 0x02, 0x03),
+			raw_pdu(0x1E));
+
+	define_test_client("/TP/GAR/CL/BV-06-C", test_client, service_db_1,
+			&test_read_7,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x04, 0x00),
+			raw_pdu(0x0b, 0x01, 0x02, 0x03));
+
+	define_test_client("/TP/GAR/CL/BI-23-C", test_client, service_db_1,
+			&test_read_8,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x04, 0x00),
+			raw_pdu(0x01, 0x0a, 0x04, 0x00, 0x02));
+
+	define_test_client("/TP/GAR/CL/BI-24-C", test_client, service_db_1,
+			&test_read_2,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x00, 0x00),
+			raw_pdu(0x01, 0x0a, 0x00, 0x00, 0x01));
+
+	define_test_client("/TP/GAR/CL/BI-25-C", test_client, service_db_1,
+			&test_read_9,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x04, 0x00),
+			raw_pdu(0x01, 0x0a, 0x04, 0x00, 0x08));
+
+	define_test_client("/TP/GAR/CL/BI-26-C", test_client, service_db_1,
+			&test_read_10,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x04, 0x00),
+			raw_pdu(0x01, 0x0a, 0x04, 0x00, 0x05));
+
+	define_test_client("/TP/GAR/CL/BI-27-C", test_client, service_db_1,
+			&test_read_11,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x04, 0x00),
+			raw_pdu(0x01, 0x0a, 0x04, 0x00, 0x0c));
+
+	define_test_client("/TP/GAR/CL/BV-07-C", test_client, service_db_1,
+			&test_long_read_9,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x04, 0x00, 0x00, 0x00),
+			raw_pdu(0x0b, 0x01, 0x02, 0x03));
+
+	define_test_client("/TP/GAR/CL/BV-07-C/512B", test_client, service_db_1,
+			&test_long_read_10,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x04, 0x00, 0x00, 0x00),
+			raw_pdu(0x0d, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff, 0xff, 0xff,
+				0xff, 0xff, 0xff),
+			raw_pdu(0x0c, 0x04, 0x00, 0xff, 0x01),
+			raw_pdu(0x0d, 0xff));
+
+	define_test_client("/TP/GAR/CL/BI-28-C", test_client, service_db_1,
+			&test_long_read_11,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x04, 0x00, 0x00, 0x00),
+			raw_pdu(0x01, 0x0c, 0x04, 0x00, 0x02));
+
+	define_test_client("/TP/GAR/CL/BI-29-C", test_client, service_db_1,
+			&test_long_read_12,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x04, 0x00, 0x00, 0x00),
+			raw_pdu(0x01, 0x0c, 0x04, 0x00, 0x07));
+
+	define_test_client("/TP/GAR/CL/BI-30-C", test_client, service_db_1,
+			&test_long_read_5,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x00, 0x00, 0x00, 0x00),
+			raw_pdu(0x01, 0x0c, 0x00, 0x00, 0x01));
+
+	define_test_client("/TP/GAR/CL/BI-31-C", test_client, service_db_1,
+			&test_long_read_13,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x04, 0x00, 0x00, 0x00),
+			raw_pdu(0x01, 0x0c, 0x04, 0x00, 0x08));
+
+	define_test_client("/TP/GAR/CL/BI-32-C", test_client, service_db_1,
+			&test_long_read_14,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x04, 0x00, 0x00, 0x00),
+			raw_pdu(0x01, 0x0c, 0x04, 0x00, 0x05));
+
+	define_test_client("/TP/GAR/CL/BI-33-C", test_client, service_db_1,
+			&test_long_read_15,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0c, 0x04, 0x00, 0x00, 0x00),
+			raw_pdu(0x01, 0x0c, 0x04, 0x00, 0x0c));
+
+	define_test_client("/TP/GAR/CL/BI-34-C", test_client, service_db_1,
+			&test_read_12,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x03, 0x00),
+			raw_pdu(0x01, 0x0a, 0x03, 0x00, 0x80));
+
+	define_test_client("/TP/GAR/CL/BI-35-C", test_client, service_db_1,
+			&test_read_12,
+			SERVICE_DATA_1_PDUS,
+			raw_pdu(0x0a, 0x03, 0x00),
+			raw_pdu(0x01, 0x0a, 0x03, 0x00, 0x80));
+
+	return tester_run();
 }

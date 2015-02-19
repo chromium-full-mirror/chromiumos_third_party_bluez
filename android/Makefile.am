@@ -102,6 +102,7 @@ noinst_PROGRAMS += android/avdtptest
 android_avdtptest_SOURCES = android/avdtptest.c \
 				src/log.h src/log.c \
 				btio/btio.h btio/btio.c \
+				src/shared/util.h src/shared/util.c \
 				android/avdtp.h android/avdtp.c
 android_avdtptest_CFLAGS = $(AM_CFLAGS)
 android_avdtptest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
@@ -218,6 +219,9 @@ android_test_ipc_LDADD = src/libshared-glib.la @GLIB_LIBS@
 endif
 
 EXTRA_DIST += android/Android.mk android/README \
+				android/compat/readline/history.h \
+				android/compat/readline/readline.h \
+				android/compat/wordexp.h \
 				android/bluetoothd-wrapper.c \
 				android/log.c \
 				android/bluetoothd.te \

@@ -261,6 +261,7 @@ LOCAL_SRC_FILES := \
 	bluez/btio/btio.c \
 	bluez/lib/bluetooth.c \
 	bluez/lib/hci.c \
+	bluez/src/shared/util.c \
 
 LOCAL_C_INCLUDES += \
 	$(LOCAL_PATH)/bluez \
@@ -289,7 +290,6 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
 	bluez/monitor/main.c \
-	bluez/monitor/mainloop.c \
 	bluez/monitor/display.c \
 	bluez/monitor/hcidump.c \
 	bluez/monitor/control.c \
@@ -311,6 +311,7 @@ LOCAL_SRC_FILES := \
 	bluez/src/shared/queue.c \
 	bluez/src/shared/crypto.c \
 	bluez/src/shared/btsnoop.c \
+	bluez/src/shared/mainloop.c \
 	bluez/lib/hci.c \
 	bluez/lib/bluetooth.c \
 
@@ -338,7 +339,7 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
 	bluez/tools/btproxy.c \
-	bluez/monitor/mainloop.c \
+	bluez/src/shared/mainloop.c \
 	bluez/src/shared/util.c \
 
 LOCAL_C_INCLUDES := \
@@ -445,7 +446,7 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
 	bluez/android/bluetoothd-snoop.c \
-	bluez/monitor/mainloop.c \
+	bluez/src/shared/mainloop.c \
 	bluez/src/shared/btsnoop.c \
 	bluez/android/log.c \
 
@@ -486,16 +487,18 @@ LOCAL_SRC_FILES := \
 	bluez/tools/btmgmt.c \
 	bluez/lib/bluetooth.c \
 	bluez/lib/sdp.c \
-	bluez/monitor/mainloop.c \
+	bluez/src/shared/mainloop.c \
 	bluez/src/shared/io-mainloop.c \
 	bluez/src/shared/mgmt.c \
 	bluez/src/shared/queue.c \
 	bluez/src/shared/util.c \
 	bluez/src/shared/gap.c \
 	bluez/src/uuid-helper.c \
+	bluez/client/display.c \
 
 LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/bluez \
+	$(LOCAL_PATH)/bluez/android/compat \
 
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
 

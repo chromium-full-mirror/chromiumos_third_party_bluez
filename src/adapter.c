@@ -53,6 +53,9 @@
 #include "lib/mgmt.h"
 #include "src/shared/mgmt.h"
 #include "src/shared/util.h"
+#include "src/shared/queue.h"
+#include "src/shared/att.h"
+#include "src/shared/gatt-db.h"
 
 #include "hcid.h"
 #include "sdpd.h"
@@ -68,6 +71,7 @@
 #include "attrib/att.h"
 #include "attrib/gatt.h"
 #include "attrib-server.h"
+#include "gatt-database.h"
 #include "eir.h"
 
 #define ADAPTER_INTERFACE	"org.bluez.Adapter1"
@@ -204,6 +208,8 @@ struct btd_adapter {
 	struct btd_device *connect_le;	/* LE device waiting to be connected */
 	sdp_list_t *services;		/* Services associated to adapter */
 
+	struct btd_gatt_database *database;
+
 	gboolean initialized;
 
 	GSList *pin_callbacks;
@@ -222,6 +228,8 @@ struct btd_adapter {
 
 	unsigned int pair_device_id;
 	guint pair_device_timeout;
+
+	unsigned int db_id;		/* Service event handler for GATT db */
 
 	bool is_default;		/* true if adapter is default one */
 };
@@ -279,7 +287,6 @@ static void dev_class_changed_callback(uint16_t index, uint16_t length,
 {
 	struct btd_adapter *adapter = user_data;
 	const struct mgmt_cod *rp = param;
-	uint8_t appearance[3];
 	uint32_t dev_class;
 
 	if (length < sizeof(*rp)) {
@@ -298,12 +305,6 @@ static void dev_class_changed_callback(uint16_t index, uint16_t length,
 
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Class");
-
-	appearance[0] = rp->val[0];
-	appearance[1] = rp->val[1] & 0x1f;	/* removes service class */
-	appearance[2] = rp->val[2];
-
-	attrib_gap_set(adapter, GATT_CHARAC_APPEARANCE, appearance, 2);
 }
 
 static void set_dev_class_complete(uint8_t status, uint16_t length,
@@ -2204,16 +2205,37 @@ static gboolean property_get_discovering(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static void add_gatt_uuid(struct gatt_db_attribute *attrib, void *user_data)
+{
+	DBusMessageIter *iter = user_data;
+	bt_uuid_t uuid, u128;
+	char uuidstr[MAX_LEN_UUID_STR + 1];
+	const char *ptr = uuidstr;
+
+	if (!gatt_db_service_get_active(attrib))
+		return;
+
+	if (!gatt_db_attribute_get_service_uuid(attrib, &uuid))
+		return;
+
+	bt_uuid_to_uuid128(&uuid, &u128);
+	bt_uuid_to_string(&u128, uuidstr, sizeof(uuidstr));
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &ptr);
+}
+
 static gboolean property_get_uuids(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
 	DBusMessageIter entry;
 	sdp_list_t *l;
+	struct gatt_db *db;
 
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_TYPE_STRING_AS_STRING, &entry);
 
+	/* SDP records */
 	for (l = adapter->services; l != NULL; l = l->next) {
 		sdp_record_t *rec = l->data;
 		char *uuid;
@@ -2226,6 +2248,11 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 								&uuid);
 		free(uuid);
 	}
+
+	/* GATT services */
+	db = btd_gatt_database_get_db(adapter->database);
+	if (db)
+		gatt_db_foreach_service(db, NULL, add_gatt_uuid, &entry);
 
 	dbus_message_iter_close_container(iter, &entry);
 
@@ -3175,6 +3202,14 @@ bool btd_adapter_get_connectable(struct btd_adapter *adapter)
 	return false;
 }
 
+struct btd_gatt_database *btd_adapter_get_database(struct btd_adapter *adapter)
+{
+	if (!adapter)
+		return NULL;
+
+	return adapter->database;
+}
+
 uint32_t btd_adapter_get_class(struct btd_adapter *adapter)
 {
 	return adapter->dev_class;
@@ -4035,6 +4070,7 @@ static void convert_sdp_entry(char *key, char *value, void *user_data)
 	if (record_has_uuid(rec, att_uuid))
 		goto failed;
 
+	/* TODO: Do this through btd_gatt_database */
 	if (!gatt_parse_record(rec, &uuid, &psm, &start, &end))
 		goto failed;
 
@@ -4559,6 +4595,7 @@ static struct btd_adapter *btd_adapter_new(uint16_t index)
 static void adapter_remove(struct btd_adapter *adapter)
 {
 	GSList *l;
+	struct gatt_db *db;
 
 	DBG("Removing adapter %s", adapter->path);
 
@@ -4584,7 +4621,12 @@ static void adapter_remove(struct btd_adapter *adapter)
 	adapter->devices = NULL;
 
 	unload_drivers(adapter);
-	btd_adapter_gatt_server_stop(adapter);
+
+	db = btd_gatt_database_get_db(adapter->database);
+	gatt_db_unregister(db, adapter->db_id);
+	adapter->db_id = 0;
+
+	btd_gatt_database_destroy(adapter->database);
 
 	g_slist_free(adapter->pin_callbacks);
 	adapter->pin_callbacks = NULL;
@@ -6593,9 +6635,18 @@ static int set_did(struct btd_adapter *adapter, uint16_t vendor,
 	return -EIO;
 }
 
+static void services_modified(struct gatt_db_attribute *attrib, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+
+	g_dbus_emit_property_changed(dbus_conn, adapter->path,
+						ADAPTER_INTERFACE, "UUIDs");
+}
+
 static int adapter_register(struct btd_adapter *adapter)
 {
 	struct agent *agent;
+	struct gatt_db *db;
 
 	if (powering_down)
 		return -EBUSY;
@@ -6626,7 +6677,14 @@ static int adapter_register(struct btd_adapter *adapter)
 		agent_unref(agent);
 	}
 
-	btd_adapter_gatt_server_start(adapter);
+	adapter->database = btd_gatt_database_new(adapter);
+	if (!adapter->database)
+		error("Failed to create GATT database for adapter");
+
+	db = btd_gatt_database_get_db(adapter->database);
+	adapter->db_id = gatt_db_register(db, services_modified,
+							services_modified,
+							adapter, NULL);
 
 	load_config(adapter);
 	fix_storage(adapter);

@@ -41,10 +41,12 @@
 
 #include "lib/bluetooth.h"
 #include "src/log.h"
+#include "src/shared/util.h"
 #include "avdtp.h"
 #include "../profiles/audio/a2dp-codecs.h"
 
 #define MAX_SEID 0x3E
+static unsigned int seids;
 
 #ifndef MAX
 # define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -3350,6 +3352,10 @@ struct avdtp_local_sep *avdtp_register_sep(uint8_t type, uint8_t media_type,
 						void *user_data)
 {
 	struct avdtp_local_sep *sep;
+	uint8_t seid = util_get_uid(&seids, MAX_SEID);
+
+	if (!seid)
+		return NULL;
 
 	if (g_slist_length(lseps) > MAX_SEID)
 		return NULL;
@@ -3357,7 +3363,7 @@ struct avdtp_local_sep *avdtp_register_sep(uint8_t type, uint8_t media_type,
 	sep = g_new0(struct avdtp_local_sep, 1);
 
 	sep->state = AVDTP_STATE_IDLE;
-	sep->info.seid = g_slist_length(lseps) + 1;
+	sep->info.seid = seid;
 	sep->info.type = type;
 	sep->info.media_type = media_type;
 	sep->codec = codec_type;
@@ -3393,6 +3399,7 @@ int avdtp_unregister_sep(struct avdtp_local_sep *sep)
 	DBG("SEP %p unregistered: type:%d codec:%d seid:%d", sep,
 			sep->info.type, sep->codec, sep->info.seid);
 
+	util_clear_uid(&seids, sep->info.seid);
 	g_free(sep);
 
 	return 0;
