@@ -2133,10 +2133,10 @@ static DBusMessage *manager_unregister_service(DBusConnection *conn,
 }
 
 static const GDBusMethodTable manager_methods[] = {
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("RegisterService",
+	{ GDBUS_ASYNC_METHOD("RegisterService",
 			GDBUS_ARGS({ "service", "o" }, { "options", "a{sv}" }),
 			NULL, manager_register_service) },
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("UnregisterService",
+	{ GDBUS_ASYNC_METHOD("UnregisterService",
 					GDBUS_ARGS({ "service", "o" }),
 					NULL, manager_unregister_service) },
 	{ }
