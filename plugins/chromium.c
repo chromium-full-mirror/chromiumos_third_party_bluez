@@ -18,6 +18,7 @@
 #include <bluetooth/bluetooth.h>
 
 #include "lib/mgmt.h"
+#include "lib/sdp.h"
 #include "src/adapter.h"
 #include "src/dbus-common.h"
 #include "src/device.h"
