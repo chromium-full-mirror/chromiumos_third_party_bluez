@@ -35,17 +35,17 @@
 #include <dirent.h>
 #include <time.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
-
 #include <glib.h>
 #include <dbus/dbus.h>
-#include <gdbus/gdbus.h>
+
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
+#include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
 
 #include "log.h"
-
-#include "lib/uuid.h"
 #include "src/shared/util.h"
 #include "src/shared/att.h"
 #include "src/shared/queue.h"
@@ -174,6 +174,11 @@ struct bearer_state {
 	GSList *uuids;
 };
 
+struct csrk_info {
+	uint8_t key[16];
+	uint32_t counter;
+};
+
 struct btd_device {
 	int ref_count;
 
@@ -231,6 +236,9 @@ struct btd_device {
 
 	struct bearer_state bredr_state;
 	struct bearer_state le_state;
+
+	struct csrk_info *local_csrk;
+	struct csrk_info *remote_csrk;
 
 	sdp_list_t	*tmp_records;
 
@@ -360,6 +368,19 @@ static char **store_service_uuids(GKeyFile *key_file, gchar *key, GSList *uuids)
 	return array;
 }
 
+static void store_csrk(struct csrk_info *csrk, GKeyFile *key_file,
+							const char *group)
+{
+	char key[33];
+	int i;
+
+	for (i = 0; i < 16; i++)
+		sprintf(key + (i * 2), "%2.2X", csrk->key[i]);
+
+	g_key_file_set_string(key_file, group, "Key", key);
+	g_key_file_set_integer(key_file, group, "Counter", csrk->counter);
+}
+
 static gboolean store_device_info_cb(gpointer user_data)
 {
 	struct btd_device *device = user_data;
@@ -436,6 +457,12 @@ static gboolean store_device_info_cb(gpointer user_data)
 	} else {
 		g_key_file_remove_group(key_file, "DeviceID", NULL);
 	}
+
+	if (device->local_csrk)
+		store_csrk(device->local_csrk, key_file, "LocalSignatureKey");
+
+	if (device->remote_csrk)
+		store_csrk(device->remote_csrk, key_file, "RemoteSignatureKey");
 
 	create_file(filename, S_IRUSR | S_IWUSR);
 
@@ -652,6 +679,8 @@ static void device_free(gpointer user_data)
 	if (device->eir_uuids)
 		g_slist_free_full(device->eir_uuids, g_free);
 
+	g_free(device->local_csrk);
+	g_free(device->remote_csrk);
 	g_free(device->path);
 	g_free(device->alias);
 	free(device->modalias);
@@ -2388,6 +2417,40 @@ static void device_remove_gatt_uuid(struct btd_device *device, const char *uuid)
 	device->le_state.uuids = g_slist_delete_link(device->le_state.uuids, l);
 }
 
+static struct csrk_info *load_csrk(GKeyFile *key_file, const char *group)
+{
+	struct csrk_info *csrk;
+	char *str;
+	int i;
+
+	str = g_key_file_get_string(key_file, group, "Key", NULL);
+	if (!str)
+		return NULL;
+
+	csrk = g_new0(struct csrk_info, 1);
+
+	for (i = 0; i < 16; i++) {
+		if (sscanf(str + (i * 2), "%2hhx", &csrk->key[i]) != 1)
+			goto fail;
+	}
+
+	/*
+	 * In case of older storage this will return 0 which is fine since it
+	 * didn't support signing at that point the counter should never have
+	 * been used.
+	 */
+	csrk->counter = g_key_file_get_integer(key_file, group, "Counter",
+									NULL);
+	g_free(str);
+
+	return csrk;
+
+fail:
+	g_free(str);
+	g_free(csrk);
+	return NULL;
+}
+
 static void load_info(struct btd_device *device, const char *local,
 			const char *peer, GKeyFile *key_file)
 {
@@ -2463,6 +2526,9 @@ static void load_info(struct btd_device *device, const char *local,
 			error("Unknown LE device technology");
 
 		g_free(str);
+
+		device->local_csrk = load_csrk(key_file, "LocalSignatureKey");
+		device->remote_csrk = load_csrk(key_file, "RemoteSignatureKey");
 	}
 
 	g_strfreev(techno);
@@ -4141,6 +4207,34 @@ static void gatt_server_init(struct btd_device *device, struct gatt_db *db)
 		error("Failed to initialize bt_gatt_server");
 }
 
+static bool local_counter(uint32_t *sign_cnt, void *user_data)
+{
+	struct btd_device *dev = user_data;
+
+	if (!dev->local_csrk)
+		return false;
+
+	*sign_cnt = dev->local_csrk->counter++;
+
+	store_device_info(dev);
+
+	return true;
+}
+
+static bool remote_counter(uint32_t *sign_cnt, void *user_data)
+{
+	struct btd_device *dev = user_data;
+
+	if (!dev->remote_csrk || *sign_cnt < dev->remote_csrk->counter)
+		return false;
+
+	dev->remote_csrk->counter = *sign_cnt;
+
+	store_device_info(dev);
+
+	return true;
+}
+
 bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 {
 	GError *gerr = NULL;
@@ -4189,6 +4283,14 @@ bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 	dev->att_disconn_id = bt_att_register_disconnect(dev->att,
 						att_disconnected_cb, dev, NULL);
 	bt_att_set_close_on_unref(dev->att, true);
+
+	if (dev->local_csrk)
+		bt_att_set_local_key(dev->att, dev->local_csrk->key,
+							local_counter, dev);
+
+	if (dev->remote_csrk)
+		bt_att_set_remote_key(dev->att, dev->remote_csrk->key,
+							remote_counter, dev);
 
 	database = btd_adapter_get_database(dev->adapter);
 

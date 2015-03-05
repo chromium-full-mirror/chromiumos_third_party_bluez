@@ -31,10 +31,13 @@
 #include <inttypes.h>
 
 #include <glib.h>
-#include <gdbus/gdbus.h>
 
 #include "lib/bluetooth.h"
+#include "lib/sdp.h"
 #include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
+
 #include "src/plugin.h"
 #include "src/adapter.h"
 #include "src/device.h"
@@ -44,6 +47,7 @@
 #include "src/uuid-helper.h"
 #include "src/log.h"
 #include "src/error.h"
+#include "src/shared/queue.h"
 
 #include "avdtp.h"
 #include "media.h"

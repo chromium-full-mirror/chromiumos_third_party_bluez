@@ -15,6 +15,8 @@ pathmap_INCL += glib:external/bluetooth/glib \
 BLUEZ_COMMON_CFLAGS := -DVERSION=\"$(BLUEZ_VERSION)\" \
 			-DANDROID_VERSION=$(ANDROID_VERSION) \
 			-DANDROID_STORAGEDIR=\"/data/misc/bluetooth\" \
+			-DHAVE_LINUX_IF_ALG_H \
+			-DHAVE_LINUX_TYPES_H \
 
 # Enable warnings enabled in autotools build
 BLUEZ_COMMON_CFLAGS += -Wall -Wextra \
@@ -154,10 +156,15 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
 
 LOCAL_MODULE := bluetooth.default
-LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_CLASS := SHARED_LIBRARIES
 LOCAL_REQUIRED_MODULES := bluetoothd bluetoothd-snoop init.bluetooth.rc
+
+ifeq ($(ANDROID_GE_5_0_0), 1)
+LOCAL_MODULE_RELATIVE_PATH := hw
+else
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -262,6 +269,7 @@ LOCAL_SRC_FILES := \
 	bluez/lib/bluetooth.c \
 	bluez/lib/hci.c \
 	bluez/src/shared/util.c \
+	bluez/src/shared/queue.c \
 
 LOCAL_C_INCLUDES += \
 	$(LOCAL_PATH)/bluez \
@@ -379,9 +387,14 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS) -Wno-declaration-after-statement
 LOCAL_LDFLAGS := -ldl
 
-LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE := audio.a2dp.default
+
+ifeq ($(ANDROID_GE_5_0_0), 1)
+LOCAL_MODULE_RELATIVE_PATH := hw
+else
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -405,9 +418,14 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS) -Wno-declaration-after-statement
 
-LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE := audio.sco.default
+
+ifeq ($(ANDROID_GE_5_0_0), 1)
+LOCAL_MODULE_RELATIVE_PATH := hw
+else
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 
@@ -580,6 +598,9 @@ LOCAL_SRC_FILES := \
 	bluez/lib/bluetooth.c \
 	bluez/lib/hci.c \
 
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/bluez \
+
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
 
 LOCAL_STATIC_LIBRARIES := \
@@ -603,6 +624,9 @@ LOCAL_SRC_FILES := \
 	bluez/tools/avtest.c \
 	bluez/lib/bluetooth.c \
 	bluez/lib/hci.c \
+
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/bluez \
 
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
 
@@ -634,6 +658,9 @@ LOCAL_SRC_FILES := \
 	bluez/tools/hciattach_bcm43xx.c \
 	bluez/lib/bluetooth.c \
 	bluez/lib/hci.c \
+
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/bluez \
 
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
 

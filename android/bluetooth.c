@@ -120,10 +120,12 @@ struct device {
 	unsigned int confirm_id; /* mgtm command id if command pending */
 
 	bool valid_remote_csrk;
+	bool remote_csrk_auth;
 	uint8_t remote_csrk[16];
 	uint32_t remote_sign_cnt;
 
 	bool valid_local_csrk;
+	bool local_csrk_auth;
 	uint8_t local_csrk[16];
 	uint32_t local_sign_cnt;
 	uint16_t gatt_ccc;
@@ -885,7 +887,7 @@ static void send_paired_notification(void *data, void *user_data)
 	bt_paired_device_cb cb = data;
 	struct device *dev = user_data;
 
-	cb(&dev->bdaddr, dev->bdaddr_type);
+	cb(&dev->bdaddr);
 }
 
 static void update_device_state(struct device *dev, uint8_t addr_type,
@@ -1944,8 +1946,7 @@ static void update_found_device(const bdaddr_t *bdaddr, uint8_t bdaddr_type,
 
 	/* Notify Gatt if its registered for LE events */
 	if (bdaddr_type != BDADDR_BREDR && gatt_device_found_cb) {
-		bdaddr_t *addr;
-		uint8_t addr_type;
+		const bdaddr_t *addr;
 
 		/*
 		 * If RPA is set it means that IRK was received and ID address
@@ -1953,16 +1954,13 @@ static void update_found_device(const bdaddr_t *bdaddr, uint8_t bdaddr_type,
 		 * it needs to be used also in GATT notifications. Also GATT
 		 * HAL implementation is using RPA for devices matching.
 		 */
-		if (bacmp(&dev->rpa, BDADDR_ANY)) {
+		if (bacmp(&dev->rpa, BDADDR_ANY))
 			addr = &dev->rpa;
-			addr_type = dev->rpa_type;
-		} else {
+		else
 			addr = &dev->bdaddr;
-			addr_type = dev->bdaddr_type;
-		}
 
-		gatt_device_found_cb(addr, addr_type, rssi, data_len, data,
-						connectable, dev->le_bonded);
+		gatt_device_found_cb(addr, rssi, data_len, data, connectable,
+								dev->le_bonded);
 	}
 
 	if (!dev->bredr_paired && !dev->le_paired)
@@ -2320,6 +2318,9 @@ static void store_csrk(struct device *dev)
 							dev->local_csrk[i]);
 
 		g_key_file_set_string(key_file, addr, "LocalCSRK", key_str);
+
+		g_key_file_set_boolean(key_file, addr, "LocalCSRKAuthenticated",
+							dev->local_csrk_auth);
 	}
 
 	if (dev->valid_remote_csrk) {
@@ -2328,6 +2329,10 @@ static void store_csrk(struct device *dev)
 							dev->remote_csrk[i]);
 
 		g_key_file_set_string(key_file, addr, "RemoteCSRK", key_str);
+
+		g_key_file_set_boolean(key_file, addr,
+						"RemoteCSRKAuthenticated",
+						dev->remote_csrk_auth);
 	}
 
 	data = g_key_file_to_data(key_file, &length, NULL);
@@ -2354,19 +2359,23 @@ static void new_csrk_callback(uint16_t index, uint16_t length,
 	if (!dev)
 		return;
 
-	switch (ev->key.master) {
+	switch (ev->key.type) {
 	case 0x00:
+	case 0x02:
 		memcpy(dev->local_csrk, ev->key.val, 16);
 		dev->local_sign_cnt = 0;
 		dev->valid_local_csrk = true;
+		dev->local_csrk_auth = ev->key.type == 0x02;
 		break;
 	case 0x01:
+	case 0x03:
 		memcpy(dev->remote_csrk, ev->key.val, 16);
 		dev->remote_sign_cnt = 0;
 		dev->valid_remote_csrk = true;
+		dev->remote_csrk_auth = ev->key.type == 0x03;
 		break;
 	default:
-		error("Unknown CSRK key type 02%02x", ev->key.master);
+		error("Unknown CSRK key type 02%02x", ev->key.type);
 		return;
 	}
 
@@ -2948,27 +2957,6 @@ static struct device *create_device_from_info(GKeyFile *key_file,
 		dev->bredr = g_key_file_get_boolean(key_file, peer, "BREDR",
 									NULL);
 
-	str = g_key_file_get_string(key_file, peer, "LinkKey", NULL);
-	if (str) {
-		g_free(str);
-		dev->bredr_paired = true;
-		dev->bredr_bonded = true;
-	}
-
-	str = g_key_file_get_string(key_file, peer, "LongTermKey", NULL);
-	if (str) {
-		g_free(str);
-		dev->le_paired = true;
-		dev->le_bonded = true;
-	}
-
-	str = g_key_file_get_string(key_file, peer, "SlaveLongTermKey", NULL);
-	if (str) {
-		g_free(str);
-		dev->le_paired = true;
-		dev->le_bonded = true;
-	}
-
 	str = g_key_file_get_string(key_file, peer, "LocalCSRK", NULL);
 	if (str) {
 		int i;
@@ -2981,6 +2969,9 @@ static struct device *create_device_from_info(GKeyFile *key_file,
 
 		dev->local_sign_cnt = g_key_file_get_integer(key_file, peer,
 						"LocalCSRKSignCounter", NULL);
+
+		dev->local_csrk_auth = g_key_file_get_boolean(key_file, peer,
+						"LocalCSRKAuthenticated", NULL);
 	}
 
 	str = g_key_file_get_string(key_file, peer, "RemoteCSRK", NULL);
@@ -2995,6 +2986,10 @@ static struct device *create_device_from_info(GKeyFile *key_file,
 
 		dev->remote_sign_cnt = g_key_file_get_integer(key_file, peer,
 						"RemoteCSRKSignCounter", NULL);
+
+		dev->remote_csrk_auth = g_key_file_get_boolean(key_file, peer,
+						"RemoteCSRKAuthenticated",
+						NULL);
 	}
 
 	str = g_key_file_get_string(key_file, peer, "GattCCC", NULL);
@@ -3221,19 +3216,30 @@ static void load_devices_info(bt_bluetooth_ready cb)
 		struct mgmt_ltk_info *slave_ltk_info;
 		struct device *dev;
 
+		dev = create_device_from_info(key_file, devs[i]);
+
 		key_info = get_key_info(key_file, devs[i]);
 		irk_info = get_irk_info(key_file, devs[i]);
 		ltk_info = get_ltk_info(key_file, devs[i], true);
 		slave_ltk_info = get_ltk_info(key_file, devs[i], false);
 
-		if (!key_info && !ltk_info && !slave_ltk_info) {
+		/*
+		 * Skip devices that have no permanent keys
+		 * (CSRKs are loaded by create_device_from_info())
+		 */
+		if (!dev->valid_local_csrk && !dev->valid_remote_csrk &&
+						!key_info && !ltk_info &&
+						!slave_ltk_info && !irk_info) {
 			error("Failed to load keys for %s, skipping", devs[i]);
-
+			free_device(dev);
 			continue;
 		}
 
-		if (key_info)
+		if (key_info) {
 			keys = g_slist_prepend(keys, key_info);
+			dev->bredr_paired = true;
+			dev->bredr_bonded = true;
+		}
 
 		if (irk_info)
 			irks = g_slist_prepend(irks, irk_info);
@@ -3244,7 +3250,11 @@ static void load_devices_info(bt_bluetooth_ready cb)
 		if (slave_ltk_info)
 			ltks = g_slist_prepend(ltks, slave_ltk_info);
 
-		dev = create_device_from_info(key_file, devs[i]);
+		if (dev->valid_local_csrk || dev->valid_remote_csrk ||
+				irk_info || ltk_info || slave_ltk_info) {
+			dev->le_paired = true;
+			dev->le_bonded = true;
+		}
 
 		bonded_devices = g_slist_prepend(bonded_devices, dev);
 	}
@@ -4084,22 +4094,33 @@ bool bt_read_device_rssi(const bdaddr_t *addr, bt_read_device_rssi_done cb,
 	return true;
 }
 
-bool bt_get_csrk(const bdaddr_t *addr, enum bt_csrk_type type, uint8_t key[16],
-							uint32_t *sign_cnt)
+bool bt_get_csrk(const bdaddr_t *addr, bool local, uint8_t key[16],
+					uint32_t *sign_cnt, bool *authenticated)
 {
 	struct device *dev;
-	bool local = (type == LOCAL_CSRK);
 
 	dev = find_device(addr);
 	if (!dev)
 		return false;
 
 	if (local && dev->valid_local_csrk) {
-		memcpy(key, dev->local_csrk, 16);
-		*sign_cnt = dev->local_sign_cnt;
+		if (key)
+			memcpy(key, dev->local_csrk, 16);
+
+		if (sign_cnt)
+			*sign_cnt = dev->local_sign_cnt;
+
+		if (authenticated)
+			*authenticated = dev->local_csrk_auth;
 	} else if (!local && dev->valid_remote_csrk) {
-		memcpy(key, dev->remote_csrk, 16);
-		*sign_cnt = dev->remote_sign_cnt;
+		if (key)
+			memcpy(key, dev->remote_csrk, 16);
+
+		if (sign_cnt)
+			*sign_cnt = dev->remote_sign_cnt;
+
+		if (authenticated)
+			*authenticated = dev->remote_csrk_auth;
 	} else {
 		return false;
 	}
@@ -4107,12 +4128,11 @@ bool bt_get_csrk(const bdaddr_t *addr, enum bt_csrk_type type, uint8_t key[16],
 	return true;
 }
 
-static void store_sign_counter(struct device *dev, enum bt_csrk_type type)
+static void store_sign_counter(struct device *dev, bool local)
 {
 	const char *sign_cnt_s;
 	uint32_t sign_cnt;
 	GKeyFile *key_file;
-	bool local = (type == LOCAL_CSRK);
 
 	gsize length = 0;
 	char addr[18];
@@ -4138,8 +4158,7 @@ static void store_sign_counter(struct device *dev, enum bt_csrk_type type)
 	g_key_file_free(key_file);
 }
 
-void bt_update_sign_counter(const bdaddr_t *addr, enum bt_csrk_type type,
-								uint32_t val)
+void bt_update_sign_counter(const bdaddr_t *addr, bool local, uint32_t val)
 {
 	struct device *dev;
 
@@ -4147,12 +4166,12 @@ void bt_update_sign_counter(const bdaddr_t *addr, enum bt_csrk_type type,
 	if (!dev)
 		return;
 
-	if (type == LOCAL_CSRK)
+	if (local)
 		dev->local_sign_cnt = val;
 	else
 		dev->remote_sign_cnt = val;
 
-	store_sign_counter(dev, type);
+	store_sign_counter(dev, local);
 }
 
 static uint8_t set_adapter_scan_mode(const void *buf, uint16_t len)
@@ -4380,7 +4399,7 @@ static void send_unpaired_notification(void *data, void *user_data)
 	bt_unpaired_device_cb cb = data;
 	struct mgmt_addr_info *addr = user_data;
 
-	cb(&addr->bdaddr, addr->type);
+	cb(&addr->bdaddr);
 }
 
 static void unpair_device_complete(uint8_t status, uint16_t length,
@@ -4402,7 +4421,9 @@ static void unpair_device_complete(uint8_t status, uint16_t length,
 								false, false);
 
 	/* Cast rp->addr to (void *) since queue_foreach don't take const */
-	queue_foreach(unpaired_cb_list, send_unpaired_notification,
+
+	if (!dev->le_paired && !dev->bredr_paired)
+		queue_foreach(unpaired_cb_list, send_unpaired_notification,
 							(void *)&rp->addr);
 }
 

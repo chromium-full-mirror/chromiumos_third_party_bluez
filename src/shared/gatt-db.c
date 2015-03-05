@@ -38,7 +38,7 @@
 
 #define MAX_CHAR_DECL_VALUE_LEN 19
 #define MAX_INCLUDED_VALUE_LEN 6
-#define ATTRIBUTE_TIMEOUT 1000
+#define ATTRIBUTE_TIMEOUT 5000
 
 static const bt_uuid_t primary_service_uuid = { .type = BT_UUID16,
 					.value.u16 = GATT_PRIM_SVC_UUID };
@@ -109,14 +109,49 @@ struct gatt_db_service {
 	struct gatt_db_attribute **attributes;
 };
 
+static void pending_read_result(struct pending_read *p, int err,
+					const uint8_t *data, size_t length)
+{
+	if (p->timeout_id > 0)
+		timeout_remove(p->timeout_id);
+
+	p->func(p->attrib, err, data, length, p->user_data);
+
+	free(p);
+}
+
+static void pending_read_free(void *data)
+{
+	struct pending_read *p = data;
+
+	pending_read_result(p, -ECANCELED, NULL, 0);
+}
+
+static void pending_write_result(struct pending_write *p, int err)
+{
+	if (p->timeout_id > 0)
+		timeout_remove(p->timeout_id);
+
+	p->func(p->attrib, err, p->user_data);
+
+	free(p);
+}
+
+static void pending_write_free(void *data)
+{
+	struct pending_write *p = data;
+
+	pending_write_result(p, -ECANCELED);
+}
+
 static void attribute_destroy(struct gatt_db_attribute *attribute)
 {
 	/* Attribute was not initialized by user */
 	if (!attribute)
 		return;
 
-	queue_destroy(attribute->pending_reads, free);
-	queue_destroy(attribute->pending_writes, free);
+	queue_destroy(attribute->pending_reads, pending_read_free);
+	queue_destroy(attribute->pending_writes, pending_write_free);
 
 	free(attribute->value);
 	free(attribute);
@@ -859,6 +894,7 @@ struct find_by_type_value_data {
 	void *user_data;
 	const void *value;
 	size_t value_len;
+	unsigned int num_of_res;
 };
 
 static void find_by_type(void *data, void *user_data)
@@ -890,11 +926,12 @@ static void find_by_type(void *data, void *user_data)
 							search_data->value_len))
 			continue;
 
+		search_data->num_of_res++;
 		search_data->func(attribute, search_data->user_data);
 	}
 }
 
-void gatt_db_find_by_type(struct gatt_db *db, uint16_t start_handle,
+unsigned int gatt_db_find_by_type(struct gatt_db *db, uint16_t start_handle,
 						uint16_t end_handle,
 						const bt_uuid_t *type,
 						gatt_db_attribute_cb_t func,
@@ -911,9 +948,12 @@ void gatt_db_find_by_type(struct gatt_db *db, uint16_t start_handle,
 	data.user_data = user_data;
 
 	queue_foreach(db->services, find_by_type, &data);
+
+	return data.num_of_res;
 }
 
-void gatt_db_find_by_type_value(struct gatt_db *db, uint16_t start_handle,
+unsigned int gatt_db_find_by_type_value(struct gatt_db *db,
+						uint16_t start_handle,
 						uint16_t end_handle,
 						const bt_uuid_t *type,
 						const void *value,
@@ -932,6 +972,8 @@ void gatt_db_find_by_type_value(struct gatt_db *db, uint16_t start_handle,
 	data.value_len = value_len;
 
 	queue_foreach(db->services, find_by_type, &data);
+
+	return data.num_of_res;
 }
 
 struct read_by_type_data {
@@ -1403,17 +1445,6 @@ gatt_db_attribute_get_permissions(const struct gatt_db_attribute *attrib)
 	return attrib->permissions;
 }
 
-static void pending_read_result(struct pending_read *p, int err,
-					const uint8_t *data, size_t length)
-{
-	if (p->timeout_id > 0)
-		timeout_remove(p->timeout_id);
-
-	p->func(p->attrib, err, data, length, p->user_data);
-
-	free(p);
-}
-
 static bool read_timeout(void *user_data)
 {
 	struct pending_read *p = user_data;
@@ -1496,16 +1527,6 @@ bool gatt_db_attribute_read_result(struct gatt_db_attribute *attrib,
 	pending_read_result(p, err, value, length);
 
 	return true;
-}
-
-static void pending_write_result(struct pending_write *p, int err)
-{
-	if (p->timeout_id > 0)
-		timeout_remove(p->timeout_id);
-
-	p->func(p->attrib, err, p->user_data);
-
-	free(p);
 }
 
 static bool write_timeout(void *user_data)

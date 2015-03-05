@@ -153,7 +153,6 @@ struct notification_data {
 
 struct gatt_device {
 	bdaddr_t bdaddr;
-	uint8_t bdaddr_type;
 
 	gatt_device_state_t state;
 
@@ -574,6 +573,9 @@ static void device_set_state(struct gatt_device *dev, uint32_t state)
 {
 	char bda[18];
 
+	if (dev->state == state)
+		return;
+
 	ba2str(&dev->bdaddr, bda);
 	DBG("gatt: Device %s state changed %s -> %s", bda,
 			device_state_str[dev->state], device_state_str[state]);
@@ -585,32 +587,17 @@ static bool auto_connect_le(struct gatt_device *dev)
 {
 	/*  For LE devices use auto connect feature if possible */
 	if (bt_kernel_conn_control()) {
-		const bdaddr_t *bdaddr;
-
-		/*
-		 * If address type is random it might be that IRK was received
-		 * and random is just for faking Android Framework. ID address
-		 * should be used for connection if present.
-		 */
-		if (dev->bdaddr_type == BDADDR_LE_RANDOM) {
-			bdaddr = bt_get_id_addr(&dev->bdaddr, NULL);
-			if (!bdaddr)
-				return -EINVAL;
-		} else {
-			bdaddr = &dev->bdaddr;
-		}
-
-		return bt_auto_connect_add(bdaddr);
-	}
-
-	/* Trigger discovery if not already started */
-	if (!scanning) {
-		if (!bt_le_discovery_start()) {
+		if (!bt_auto_connect_add(bt_get_id_addr(&dev->bdaddr, NULL)))
+			return false;
+	} else {
+		/* Trigger discovery if not already started */
+		if (!scanning && !bt_le_discovery_start()) {
 			error("gatt: Could not start scan");
 			return false;
 		}
 	}
 
+	device_set_state(dev, DEVICE_CONNECT_INIT);
 	return true;
 }
 
@@ -657,12 +644,10 @@ static void connection_cleanup(struct gatt_device *device)
 
 	device_set_state(device, DEVICE_DISCONNECTED);
 
-	if (!queue_isempty(device->autoconnect_apps)) {
+	if (!queue_isempty(device->autoconnect_apps))
 		auto_connect_le(device);
-		device_set_state(device, DEVICE_CONNECT_INIT);
-	} else {
+	else
 		bt_auto_connect_remove(&device->bdaddr);
-	}
 }
 
 static void destroy_gatt_app(void *data)
@@ -1642,19 +1627,7 @@ static int connect_le(struct gatt_device *dev)
 
 	DBG("Connection attempt to: %s", addr);
 
-	/*
-	 * If address type is random it might be that IRK was received and
-	 * random is just for faking Android Framework. ID address should be
-	 * used for connection if present.
-	 */
-	if (dev->bdaddr_type == BDADDR_LE_RANDOM) {
-		bdaddr = bt_get_id_addr(&dev->bdaddr, &bdaddr_type);
-		if (!bdaddr)
-			return -EINVAL;
-	} else {
-		bdaddr = &dev->bdaddr;
-		bdaddr_type = dev->bdaddr_type;
-	}
+	bdaddr = bt_get_id_addr(&dev->bdaddr, &bdaddr_type);
 
 	/*
 	 * This connection will help us catch any PDUs that comes before
@@ -1677,6 +1650,8 @@ static int connect_le(struct gatt_device *dev)
 
 	/* Keep this, so we can cancel the connection */
 	dev->att_io = io;
+
+	device_set_state(dev, DEVICE_CONNECT_READY);
 
 	return 0;
 }
@@ -1703,10 +1678,9 @@ static void bt_le_discovery_stop_cb(void)
 		bt_le_discovery_start();
 }
 
-static void le_device_found_handler(const bdaddr_t *addr, uint8_t addr_type,
-						int rssi, uint16_t eir_len,
-						const void *eir,
-						bool connectable, bool bonded)
+static void le_device_found_handler(const bdaddr_t *addr, int rssi,
+					uint16_t eir_len, const void *eir,
+					bool connectable, bool bonded)
 {
 	uint8_t buf[IPC_MTU];
 	struct hal_ev_gatt_client_scan_result *ev = (void *) buf;
@@ -1749,7 +1723,6 @@ done:
 		return;
 
 	device_set_state(dev, DEVICE_CONNECT_READY);
-	dev->bdaddr_type = addr_type;
 
 	/*
 	 * We are ok to perform connect now. Stop discovery
@@ -1928,10 +1901,8 @@ static int connect_bredr(struct gatt_device *dev)
 	return 0;
 }
 
-static bool trigger_connection(struct app_connection *conn)
+static bool trigger_connection(struct app_connection *conn, bool direct)
 {
-	bool ret;
-
 	switch (conn->device->state) {
 	case DEVICE_DISCONNECTED:
 		/*
@@ -1942,24 +1913,19 @@ static bool trigger_connection(struct app_connection *conn)
 								BDADDR_BREDR)
 			return connect_bredr(conn->device) == 0;
 
-		/* For LE use auto connect feature */
-		ret = auto_connect_le(conn->device);
-		if (ret)
-			device_set_state(conn->device, DEVICE_CONNECT_INIT);
-		break;
+		if (direct)
+			return connect_le(conn->device) == 0;
+
+		return auto_connect_le(conn->device);
 	case DEVICE_CONNECTED:
 		notify_app_connect_status(conn, GATT_SUCCESS);
-		ret = true;
-		break;
+		return true;
 	case DEVICE_CONNECT_READY:
 	case DEVICE_CONNECT_INIT:
 	default:
 		/* In those cases connection is already triggered. */
-		ret = true;
-		break;
+		return true;
 	}
-
-	return ret;
 }
 
 static void remove_autoconnect_device(struct gatt_device *dev)
@@ -2103,7 +2069,7 @@ reply:
 					HAL_OP_GATT_CLIENT_UNREGISTER, status);
 }
 
-static uint8_t handle_connect(int32_t app_id, const bdaddr_t *addr)
+static uint8_t handle_connect(int32_t app_id, const bdaddr_t *addr, bool direct)
 {
 	struct app_connection conn_match;
 	struct app_connection *conn;
@@ -2134,7 +2100,7 @@ static uint8_t handle_connect(int32_t app_id, const bdaddr_t *addr)
 			return HAL_STATUS_NOMEM;
 	}
 
-	if (!trigger_connection(conn))
+	if (!trigger_connection(conn, direct))
 		return HAL_STATUS_FAILED;
 
 	return HAL_STATUS_SUCCESS;
@@ -2146,15 +2112,13 @@ static void handle_client_connect(const void *buf, uint16_t len)
 	uint8_t status;
 	bdaddr_t addr;
 
-	DBG("");
+	DBG("is_direct:%u transport:%u", cmd->is_direct, cmd->transport);
 
 	android2bdaddr(&cmd->bdaddr, &addr);
 
-	/* TODO handle is_direct flag */
-
 	/* TODO handle transport flag */
 
-	status = handle_connect(cmd->client_if, &addr);
+	status = handle_connect(cmd->client_if, &addr, cmd->is_direct);
 
 	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_GATT, HAL_OP_GATT_CLIENT_CONNECT,
 								status);
@@ -2725,12 +2689,20 @@ static void discover_char_cb(uint8_t status, GSList *characteristics,
 	struct discover_char_data *data = user_data;
 	struct service *srvc = data->service;
 
+	if (status) {
+		error("gatt: Failed to get characteristics: %s",
+							att_ecode2str(status));
+		convert_send_client_char_notify(NULL, data->conn_id, srvc);
+		goto done;
+	}
+
 	if (queue_isempty(srvc->chars))
 		cache_all_srvc_chars(srvc, characteristics);
 
 	convert_send_client_char_notify(queue_peek_head(srvc->chars),
 							data->conn_id, srvc);
 
+done:
 	free(data);
 }
 
@@ -3263,7 +3235,7 @@ static guint signed_write_cmd(struct gatt_device *dev, uint16_t handle,
 
 	memset(csrk, 0, 16);
 
-	if (!bt_get_csrk(&dev->bdaddr, LOCAL_CSRK, csrk, &sign_cnt)) {
+	if (!bt_get_csrk(&dev->bdaddr, true, csrk, &sign_cnt, NULL)) {
 		error("gatt: Could not get csrk key");
 		return 0;
 	}
@@ -3271,11 +3243,11 @@ static guint signed_write_cmd(struct gatt_device *dev, uint16_t handle,
 	res = gatt_signed_write_cmd(dev->attrib, handle, value, vlen, crypto,
 						csrk, sign_cnt, NULL, NULL);
 	if (!res) {
-		error("gatt: Could write signed cmd");
+		error("gatt: Signed write command failed");
 		return 0;
 	}
 
-	bt_update_sign_counter(&dev->bdaddr, LOCAL_CSRK, ++sign_cnt);
+	bt_update_sign_counter(&dev->bdaddr, true, ++sign_cnt);
 
 	return res;
 }
@@ -3358,14 +3330,14 @@ static void handle_client_write_characteristic(const void *buf, uint16_t len)
 			goto failed;
 		}
 
-		if (get_sec_level(conn->device) != BT_SECURITY_LOW) {
-			error("gatt: Cannot write signed on encrypted link");
-			status = HAL_STATUS_FAILED;
-			goto failed;
-		}
-
-		res = signed_write_cmd(conn->device, ch->ch.value_handle,
-							cmd->value, cmd->len);
+		if (get_sec_level(conn->device) > BT_SECURITY_LOW)
+			res = gatt_write_cmd(conn->device->attrib,
+						ch->ch.value_handle, cmd->value,
+						cmd->len, NULL, NULL);
+		else
+			res = signed_write_cmd(conn->device,
+						ch->ch.value_handle, cmd->value,
+						cmd->len);
 		break;
 	default:
 		error("gatt: Write type %d unsupported", cmd->write_type);
@@ -4203,7 +4175,7 @@ static void handle_client_test_command(const void *buf, uint16_t len)
 		break;
 	case GATT_CLIENT_TEST_CMD_CONNECT:
 		/* TODO u1 holds device type, for now assume BLE */
-		status = handle_connect(test_client_if, &bdaddr);
+		status = handle_connect(test_client_if, &bdaddr, false);
 		break;
 	case GATT_CLIENT_TEST_CMD_DISCONNECT:
 		app = queue_find(gatt_apps, match_app_by_id,
@@ -4287,7 +4259,7 @@ static void handle_server_connect(const void *buf, uint16_t len)
 
 	/* TODO: Handle transport flag */
 
-	status = handle_connect(cmd->server_if, &addr);
+	status = handle_connect(cmd->server_if, &addr, cmd->is_direct);
 
 	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_GATT, HAL_OP_GATT_SERVER_CONNECT,
 								status);
@@ -4683,9 +4655,15 @@ static uint8_t check_device_permissions(struct gatt_device *device,
 		if (!(permissions & GATT_PERM_WRITE_SIGNED))
 				return ATT_ECODE_WRITE_NOT_PERM;
 
-		if ((permissions & GATT_PERM_WRITE_SIGNED_MITM) &&
-						sec_level < BT_SECURITY_HIGH)
+		if (permissions & GATT_PERM_WRITE_SIGNED_MITM) {
+			bool auth;
+
+			if (bt_get_csrk(&device->bdaddr, true, NULL, NULL,
+					&auth) && auth)
+				break;
+
 			return ATT_ECODE_AUTHENTICATION;
+		}
 		break;
 	case ATT_OP_READ_BY_TYPE_REQ:
 	case ATT_OP_READ_REQ:
@@ -6282,7 +6260,11 @@ static void find_by_type_request_cb(struct gatt_db_attribute *attrib,
 	memcpy(request_data->filter_value, find_data->search_value,
 							find_data->search_vlen);
 
-	queue_push_tail(find_data->device->pending_requests, request_data);
+	if (!queue_push_tail(find_data->device->pending_requests,
+							request_data)) {
+		destroy_pending_request(request_data);
+		find_data->error = ATT_ECODE_INSUFF_RESOURCES;
+	}
 }
 
 static uint8_t find_by_type_request(const uint8_t *cmd, uint16_t cmd_len,
@@ -6310,10 +6292,8 @@ static uint8_t find_by_type_request(const uint8_t *cmd, uint16_t cmd_len,
 	data.search_value = search_value;
 	data.device = device;
 
-	gatt_db_find_by_type(gatt_db, start, end, &uuid,
-						find_by_type_request_cb, &data);
-
-	if (data.error == ATT_ECODE_ATTR_NOT_FOUND) {
+	if (gatt_db_find_by_type(gatt_db, start, end, &uuid,
+					find_by_type_request_cb, &data) == 0) {
 		size_t mtu;
 		uint8_t *rsp = g_attrib_get_buffer(device->attrib, &mtu);
 
@@ -6394,7 +6374,7 @@ static void write_signed_cmd_request(const uint8_t *cmd, uint16_t cmd_len,
 		return;
 	}
 
-	if (!bt_get_csrk(&dev->bdaddr, REMOTE_CSRK, csrk, &sign_cnt)) {
+	if (!bt_get_csrk(&dev->bdaddr, false, csrk, &sign_cnt, NULL)) {
 		error("gatt: No valid csrk from remote device");
 		return;
 	}
@@ -6436,7 +6416,7 @@ static void write_signed_cmd_request(const uint8_t *cmd, uint16_t cmd_len,
 			return;
 		}
 		/* Signature OK, proceed with write */
-		bt_update_sign_counter(&dev->bdaddr, REMOTE_CSRK, r_sign_cnt);
+		bt_update_sign_counter(&dev->bdaddr, false, r_sign_cnt);
 		gatt_db_attribute_write(attrib, 0, value, vlen, cmd[0],
 						g_attrib_get_att(dev->attrib),
 						write_confirm, NULL);
@@ -6700,16 +6680,12 @@ done:
 static void connect_confirm(GIOChannel *io, void *user_data)
 {
 	struct gatt_device *dev;
-	uint8_t dst_type;
 	bdaddr_t dst;
 	GError *gerr = NULL;
 
 	DBG("");
 
-	bt_io_get(io, &gerr,
-			BT_IO_OPT_DEST_BDADDR, &dst,
-			BT_IO_OPT_DEST_TYPE, &dst_type,
-			BT_IO_OPT_INVALID);
+	bt_io_get(io, &gerr, BT_IO_OPT_DEST_BDADDR, &dst, BT_IO_OPT_INVALID);
 	if (gerr) {
 		error("gatt: bt_io_get: %s", gerr->message);
 		g_error_free(gerr);
@@ -6736,8 +6712,6 @@ static void connect_confirm(GIOChannel *io, void *user_data)
 			goto drop;
 		}
 	}
-
-	dev->bdaddr_type = dst_type;
 
 	if (!bt_io_accept(io, connect_cb, device_ref(dev), NULL, NULL)) {
 		error("gatt: failed to accept connection");
@@ -7103,7 +7077,7 @@ static bool start_listening(void)
 	return true;
 }
 
-static void gatt_paired_cb(const bdaddr_t *addr, uint8_t type)
+static void gatt_paired_cb(const bdaddr_t *addr)
 {
 	struct gatt_device *dev;
 	char address[18];
@@ -7111,9 +7085,6 @@ static void gatt_paired_cb(const bdaddr_t *addr, uint8_t type)
 
 	dev = find_device_by_addr(addr);
 	if (!dev)
-		return;
-
-	if (dev->bdaddr_type != type)
 		return;
 
 	ba2str(addr, address);
@@ -7132,16 +7103,13 @@ static void gatt_paired_cb(const bdaddr_t *addr, uint8_t type)
 	search_dev_for_srvc(conn, NULL);
 }
 
-static void gatt_unpaired_cb(const bdaddr_t *addr, uint8_t type)
+static void gatt_unpaired_cb(const bdaddr_t *addr)
 {
 	struct gatt_device *dev;
 	char address[18];
 
 	dev = find_device_by_addr(addr);
 	if (!dev)
-		return;
-
-	if (dev->bdaddr_type != type)
 		return;
 
 	ba2str(addr, address);
@@ -7334,7 +7302,7 @@ bool bt_gatt_connect_app(unsigned int id, const bdaddr_t *addr)
 {
 	uint8_t status;
 
-	status = handle_connect(id, addr);
+	status = handle_connect(id, addr, false);
 
 	return status != HAL_STATUS_FAILED;
 }

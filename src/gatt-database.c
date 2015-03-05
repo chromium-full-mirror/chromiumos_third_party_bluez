@@ -29,15 +29,18 @@
 #include "lib/sdp_lib.h"
 #include "lib/uuid.h"
 #include "btio/btio.h"
+#include "gdbus/gdbus.h"
 #include "src/shared/util.h"
 #include "src/shared/queue.h"
 #include "src/shared/att.h"
 #include "src/shared/gatt-db.h"
 #include "src/shared/gatt-server.h"
 #include "log.h"
+#include "error.h"
 #include "adapter.h"
 #include "device.h"
 #include "gatt-database.h"
+#include "dbus-common.h"
 
 #ifndef ATT_CID
 #define ATT_CID 4
@@ -47,8 +50,17 @@
 #define ATT_PSM 31
 #endif
 
+#define GATT_MANAGER_IFACE	"org.bluez.GattManager1"
+#define GATT_SERVICE_IFACE	"org.bluez.GattService1"
+#define GATT_CHRC_IFACE		"org.bluez.GattCharacteristic1"
+#define GATT_DESC_IFACE		"org.bluez.GattDescriptor1"
+
 #define UUID_GAP	0x1800
 #define UUID_GATT	0x1801
+
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
 
 struct btd_gatt_database {
 	struct btd_adapter *adapter;
@@ -59,8 +71,54 @@ struct btd_gatt_database {
 	uint32_t gap_handle;
 	uint32_t gatt_handle;
 	struct queue *device_states;
+	struct queue *ccc_callbacks;
 	struct gatt_db_attribute *svc_chngd;
 	struct gatt_db_attribute *svc_chngd_ccc;
+	struct queue *services;
+};
+
+struct external_service {
+	struct btd_gatt_database *database;
+	bool failed;
+	char *owner;
+	char *path;	/* Path to GattService1 */
+	DBusMessage *reg;
+	GDBusClient *client;
+	GDBusProxy *proxy;
+	struct gatt_db_attribute *attrib;
+	uint16_t attr_cnt;
+	struct queue *chrcs;
+	struct queue *descs;
+};
+
+struct external_chrc {
+	struct external_service *service;
+	char *path;
+	GDBusProxy *proxy;
+	uint8_t props;
+	uint8_t ext_props;
+	struct gatt_db_attribute *attrib;
+	struct gatt_db_attribute *ccc;
+	struct queue *pending_reads;
+	struct queue *pending_writes;
+	unsigned int ntfy_cnt;
+};
+
+struct external_desc {
+	struct external_service *service;
+	char *chrc_path;
+	GDBusProxy *proxy;
+	struct gatt_db_attribute *attrib;
+	bool handled;
+	struct queue *pending_reads;
+	struct queue *pending_writes;
+};
+
+struct pending_op {
+	unsigned int id;
+	struct gatt_db_attribute *attrib;
+	struct queue *owner_queue;
+	void *setup_data;
 };
 
 struct device_state {
@@ -74,10 +132,47 @@ struct ccc_state {
 	uint8_t value[2];
 };
 
+struct ccc_cb_data {
+	uint16_t handle;
+	btd_gatt_database_ccc_write_t callback;
+	btd_gatt_database_destroy_t destroy;
+	void *user_data;
+};
+
 struct device_info {
 	bdaddr_t bdaddr;
 	uint8_t bdaddr_type;
 };
+
+static void ccc_cb_free(void *data)
+{
+	struct ccc_cb_data *ccc_cb = data;
+
+	if (ccc_cb->destroy)
+		ccc_cb->destroy(ccc_cb->user_data);
+
+	free(ccc_cb);
+}
+
+static bool ccc_cb_match_service(const void *data, const void *match_data)
+{
+	const struct ccc_cb_data *ccc_cb = data;
+	const struct gatt_db_attribute *attrib = match_data;
+	uint16_t start, end;
+
+	if (!gatt_db_attribute_get_service_handles(attrib, &start, &end))
+		return false;
+
+	return ccc_cb->handle >= start && ccc_cb->handle <= end;
+}
+
+static bool ccc_cb_match_handle(const void *data, const void *match_data)
+{
+	const struct ccc_cb_data *ccc_cb = data;
+	uint16_t handle = PTR_TO_UINT(match_data);
+
+	return ccc_cb->handle == handle;
+}
 
 static bool dev_state_match(const void *a, const void *b)
 {
@@ -195,6 +290,80 @@ static void device_state_free(void *data)
 	free(state);
 }
 
+static void cancel_pending_read(void *data)
+{
+	struct pending_op *op = data;
+
+	gatt_db_attribute_read_result(op->attrib, op->id,
+					BT_ATT_ERROR_REQUEST_NOT_SUPPORTED,
+					NULL, 0);
+	op->owner_queue = NULL;
+}
+
+static void cancel_pending_write(void *data)
+{
+	struct pending_op *op = data;
+
+	gatt_db_attribute_write_result(op->attrib, op->id,
+					BT_ATT_ERROR_REQUEST_NOT_SUPPORTED);
+	op->owner_queue = NULL;
+}
+
+static void chrc_free(void *data)
+{
+	struct external_chrc *chrc = data;
+
+	queue_destroy(chrc->pending_reads, cancel_pending_read);
+	queue_destroy(chrc->pending_writes, cancel_pending_write);
+
+	g_free(chrc->path);
+
+	g_dbus_proxy_set_property_watch(chrc->proxy, NULL, NULL);
+	g_dbus_proxy_unref(chrc->proxy);
+
+	free(chrc);
+}
+
+static void desc_free(void *data)
+{
+	struct external_desc *desc = data;
+
+	queue_destroy(desc->pending_reads, cancel_pending_read);
+	queue_destroy(desc->pending_writes, cancel_pending_write);
+
+	g_dbus_proxy_unref(desc->proxy);
+	g_free(desc->chrc_path);
+
+	free(desc);
+}
+
+static void service_free(void *data)
+{
+	struct external_service *service = data;
+
+	queue_destroy(service->chrcs, chrc_free);
+	queue_destroy(service->descs, desc_free);
+
+	gatt_db_remove_service(service->database->db, service->attrib);
+
+	if (service->client) {
+		g_dbus_client_set_disconnect_watch(service->client, NULL, NULL);
+		g_dbus_client_set_proxy_handlers(service->client, NULL, NULL,
+								NULL, NULL);
+		g_dbus_client_set_ready_watch(service->client, NULL, NULL);
+		g_dbus_proxy_unref(service->proxy);
+		g_dbus_client_unref(service->client);
+	}
+
+	if (service->reg)
+		dbus_message_unref(service->reg);
+
+	g_free(service->owner);
+	g_free(service->path);
+
+	free(service);
+}
+
 static void gatt_database_free(void *data)
 {
 	struct btd_gatt_database *database = data;
@@ -217,9 +386,16 @@ static void gatt_database_free(void *data)
 		adapter_service_remove(database->adapter, database->gap_handle);
 
 	/* TODO: Persistently store CCC states before freeing them */
-	queue_destroy(database->device_states, device_state_free);
 	gatt_db_unregister(database->db, database->db_id);
+
+	queue_destroy(database->device_states, device_state_free);
+	queue_destroy(database->services, service_free);
+	queue_destroy(database->ccc_callbacks, ccc_cb_free);
+	database->device_states = NULL;
+	database->ccc_callbacks = NULL;
+
 	gatt_db_unref(database->db);
+
 	btd_adapter_unref(database->adapter);
 	free(database);
 }
@@ -510,6 +686,7 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 {
 	struct btd_gatt_database *database = user_data;
 	struct ccc_state *ccc;
+	struct ccc_cb_data *ccc_cb;
 	uint16_t handle;
 	uint8_t ecode = 0;
 	bdaddr_t bdaddr;
@@ -540,23 +717,74 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 		goto done;
 	}
 
-	/*
-	 * TODO: Perform this after checking with a callback to the upper
-	 * layer.
-	 */
-	ccc->value[0] = value[0];
-	ccc->value[1] = value[1];
+	ccc_cb = queue_find(database->ccc_callbacks, ccc_cb_match_handle,
+			UINT_TO_PTR(gatt_db_attribute_get_handle(attrib)));
+	if (!ccc_cb) {
+		ecode = BT_ATT_ERROR_UNLIKELY;
+		goto done;
+	}
+
+	/* If value is identical, then just succeed */
+	if (ccc->value[0] == value[0] && ccc->value[1] == value[1])
+		goto done;
+
+	if (ccc_cb->callback)
+		ecode = ccc_cb->callback(get_le16(value), ccc_cb->user_data);
+
+	if (!ecode) {
+		ccc->value[0] = value[0];
+		ccc->value[1] = value[1];
+	}
 
 done:
 	gatt_db_attribute_write_result(attrib, id, ecode);
 }
 
 static struct gatt_db_attribute *
-gatt_database_add_ccc(struct btd_gatt_database *database,
-							uint16_t service_handle)
+service_add_ccc(struct gatt_db_attribute *service,
+				struct btd_gatt_database *database,
+				btd_gatt_database_ccc_write_t write_callback,
+				void *user_data,
+				btd_gatt_database_destroy_t destroy)
+{
+	struct gatt_db_attribute *ccc;
+	struct ccc_cb_data *ccc_cb;
+	bt_uuid_t uuid;
+
+	ccc_cb = new0(struct ccc_cb_data, 1);
+	if (!ccc_cb) {
+		error("Could not allocate memory for callback data");
+		return NULL;
+	}
+
+	bt_uuid16_create(&uuid, GATT_CLIENT_CHARAC_CFG_UUID);
+	ccc = gatt_db_service_add_descriptor(service, &uuid,
+				BT_ATT_PERM_READ | BT_ATT_PERM_WRITE,
+				gatt_ccc_read_cb, gatt_ccc_write_cb, database);
+	if (!ccc) {
+		error("Failed to create CCC entry in database");
+		free(ccc_cb);
+		return NULL;
+	}
+
+	ccc_cb->handle = gatt_db_attribute_get_handle(ccc);
+	ccc_cb->callback = write_callback;
+	ccc_cb->destroy = destroy;
+	ccc_cb->user_data = user_data;
+
+	queue_push_tail(database->ccc_callbacks, ccc_cb);
+
+	return ccc;
+}
+
+struct gatt_db_attribute *
+btd_gatt_database_add_ccc(struct btd_gatt_database *database,
+				uint16_t service_handle,
+				btd_gatt_database_ccc_write_t write_callback,
+				void *user_data,
+				btd_gatt_database_destroy_t destroy)
 {
 	struct gatt_db_attribute *service;
-	bt_uuid_t uuid;
 
 	if (!database || !service_handle)
 		return NULL;
@@ -567,17 +795,14 @@ gatt_database_add_ccc(struct btd_gatt_database *database,
 		return NULL;
 	}
 
-	bt_uuid16_create(&uuid, GATT_CLIENT_CHARAC_CFG_UUID);
-	return gatt_db_service_add_descriptor(service, &uuid,
-				BT_ATT_PERM_READ | BT_ATT_PERM_WRITE,
-				gatt_ccc_read_cb, gatt_ccc_write_cb, database);
+	return service_add_ccc(service, database, write_callback, user_data,
+								destroy);
 }
 
 static void populate_gatt_service(struct btd_gatt_database *database)
 {
 	bt_uuid_t uuid;
 	struct gatt_db_attribute *service;
-	uint16_t start_handle;
 
 	/* Add the GATT service */
 	bt_uuid16_create(&uuid, UUID_GATT);
@@ -585,14 +810,14 @@ static void populate_gatt_service(struct btd_gatt_database *database)
 	database->gatt_handle = database_add_record(database, UUID_GATT,
 						service,
 						"Generic Attribute Profile");
-	gatt_db_attribute_get_service_handles(service, &start_handle, NULL);
 
 	bt_uuid16_create(&uuid, GATT_CHARAC_SERVICE_CHANGED);
 	database->svc_chngd = gatt_db_service_add_characteristic(service, &uuid,
 				BT_ATT_PERM_READ, BT_GATT_CHRC_PROP_INDICATE,
 				NULL, NULL, database);
 
-	database->svc_chngd_ccc = gatt_database_add_ccc(database, start_handle);
+	database->svc_chngd_ccc = service_add_ccc(service, database, NULL, NULL,
+									NULL);
 
 	gatt_db_service_set_active(service, true);
 }
@@ -744,7 +969,1178 @@ static void gatt_db_service_removed(struct gatt_db_attribute *attrib,
 	send_service_changed(database, attrib);
 
 	queue_foreach(database->device_states, remove_device_ccc, attrib);
+	queue_remove_all(database->ccc_callbacks, ccc_cb_match_service, attrib,
+								ccc_cb_free);
 }
+
+struct svc_match_data {
+	const char *path;
+	const char *sender;
+};
+
+static bool match_service(const void *a, const void *b)
+{
+	const struct external_service *service = a;
+	const struct svc_match_data *data = b;
+
+	return g_strcmp0(service->path, data->path) == 0 &&
+				g_strcmp0(service->owner, data->sender) == 0;
+}
+
+static gboolean service_free_idle_cb(void *data)
+{
+	service_free(data);
+
+	return FALSE;
+}
+
+static void service_remove_helper(void *data)
+{
+	struct external_service *service = data;
+
+	queue_remove(service->database->services, service);
+
+	/*
+	 * Do not run in the same loop, this may be a disconnect
+	 * watch call and GDBusClient should not be destroyed.
+	 */
+	g_idle_add(service_free_idle_cb, service);
+}
+
+static void client_disconnect_cb(DBusConnection *conn, void *user_data)
+{
+	DBG("Client disconnected");
+
+	service_remove_helper(user_data);
+}
+
+static void service_remove(void *data)
+{
+	struct external_service *service = data;
+
+	/*
+	 * Set callback to NULL to avoid potential race condition
+	 * when calling remove_service and GDBusClient unref.
+	 */
+	g_dbus_client_set_disconnect_watch(service->client, NULL, NULL);
+
+	/*
+	 * Set proxy handlers to NULL, so that this gets called only once when
+	 * the first proxy that belongs to this service gets removed.
+	 */
+	g_dbus_client_set_proxy_handlers(service->client, NULL, NULL,
+								NULL, NULL);
+
+	service_remove_helper(service);
+}
+
+static struct external_chrc *chrc_create(struct external_service *service,
+							GDBusProxy *proxy,
+							const char *path)
+{
+	struct external_chrc *chrc;
+
+	chrc = new0(struct external_chrc, 1);
+	if (!chrc)
+		return NULL;
+
+	chrc->pending_reads = queue_new();
+	if (!chrc->pending_reads) {
+		free(chrc);
+		return NULL;
+	}
+
+	chrc->pending_writes = queue_new();
+	if (!chrc->pending_writes) {
+		queue_destroy(chrc->pending_reads, NULL);
+		free(chrc);
+		return NULL;
+	}
+
+	chrc->path = g_strdup(path);
+	if (!chrc->path) {
+		queue_destroy(chrc->pending_reads, NULL);
+		queue_destroy(chrc->pending_writes, NULL);
+		free(chrc);
+		return NULL;
+	}
+
+	chrc->service = service;
+	chrc->proxy = g_dbus_proxy_ref(proxy);
+
+	return chrc;
+}
+
+static struct external_desc *desc_create(struct external_service *service,
+							GDBusProxy *proxy,
+							const char *chrc_path)
+{
+	struct external_desc *desc;
+
+	desc = new0(struct external_desc, 1);
+	if (!desc)
+		return NULL;
+
+	desc->pending_reads = queue_new();
+	if (!desc->pending_reads) {
+		free(desc);
+		return NULL;
+	}
+
+	desc->pending_writes = queue_new();
+	if (!desc->pending_writes) {
+		queue_destroy(desc->pending_reads, NULL);
+		free(desc);
+		return NULL;
+	}
+
+	desc->chrc_path = g_strdup(chrc_path);
+	if (!desc->chrc_path) {
+		queue_destroy(desc->pending_reads, NULL);
+		queue_destroy(desc->pending_writes, NULL);
+		free(desc);
+		return NULL;
+	}
+
+	desc->service = service;
+	desc->proxy = g_dbus_proxy_ref(proxy);
+
+	return desc;
+}
+
+static bool incr_attr_count(struct external_service *service, uint16_t incr)
+{
+	if (service->attr_cnt > UINT16_MAX - incr)
+		return false;
+
+	service->attr_cnt += incr;
+
+	return true;
+}
+
+static bool parse_path(GDBusProxy *proxy, const char *name, const char **path)
+{
+	DBusMessageIter iter;
+
+	if (!g_dbus_proxy_get_property(proxy, name, &iter))
+		return false;
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_OBJECT_PATH)
+		return false;
+
+	dbus_message_iter_get_basic(&iter, path);
+
+	return true;
+}
+
+static bool check_service_path(GDBusProxy *proxy,
+					struct external_service *service)
+{
+	const char *service_path;
+
+	if (!parse_path(proxy, "Service", &service_path))
+		return false;
+
+	return g_strcmp0(service_path, service->path) == 0;
+}
+
+static bool parse_flags(GDBusProxy *proxy, uint8_t *props, uint8_t *ext_props)
+{
+	DBusMessageIter iter, array;
+	const char *flag;
+
+	*props = *ext_props = 0;
+
+	if (!g_dbus_proxy_get_property(proxy, "Flags", &iter))
+		return false;
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
+		return false;
+
+	dbus_message_iter_recurse(&iter, &array);
+
+	do {
+		if (dbus_message_iter_get_arg_type(&array) != DBUS_TYPE_STRING)
+			return false;
+
+		dbus_message_iter_get_basic(&array, &flag);
+
+		if (!strcmp("broadcast", flag))
+			*props |= BT_GATT_CHRC_PROP_BROADCAST;
+		else if (!strcmp("read", flag))
+			*props |= BT_GATT_CHRC_PROP_READ;
+		else if (!strcmp("write-without-response", flag))
+			*props |= BT_GATT_CHRC_PROP_WRITE_WITHOUT_RESP;
+		else if (!strcmp("write", flag))
+			*props |= BT_GATT_CHRC_PROP_WRITE;
+		else if (!strcmp("notify", flag))
+			*props |= BT_GATT_CHRC_PROP_NOTIFY;
+		else if (!strcmp("indicate", flag))
+			*props |= BT_GATT_CHRC_PROP_INDICATE;
+		else if (!strcmp("authenticated-signed-writes", flag))
+			*props |= BT_GATT_CHRC_PROP_AUTH;
+		else if (!strcmp("reliable-write", flag))
+			*ext_props |= BT_GATT_CHRC_EXT_PROP_RELIABLE_WRITE;
+		else if (!strcmp("writable-auxiliaries", flag))
+			*ext_props |= BT_GATT_CHRC_EXT_PROP_WRITABLE_AUX;
+		else {
+			error("Invalid characteristic flag: %s", flag);
+			return false;
+		}
+	} while (dbus_message_iter_next(&array));
+
+	if (*ext_props)
+		*props |= BT_GATT_CHRC_PROP_EXT_PROP;
+
+	return true;
+}
+
+static void proxy_added_cb(GDBusProxy *proxy, void *user_data)
+{
+	struct external_service *service = user_data;
+	const char *iface, *path;
+
+	if (service->failed || service->attrib)
+		return;
+
+	iface = g_dbus_proxy_get_interface(proxy);
+	path = g_dbus_proxy_get_path(proxy);
+
+	if (!g_str_has_prefix(path, service->path))
+		return;
+
+	if (g_strcmp0(iface, GATT_SERVICE_IFACE) == 0) {
+		if (service->proxy)
+			return;
+
+		/*
+		 * TODO: We may want to support adding included services in a
+		 * single hierarchy.
+		 */
+		if (g_strcmp0(path, service->path) != 0) {
+			error("Multiple services added within hierarchy");
+			service->failed = true;
+			return;
+		}
+
+		/* Add 1 for the service declaration */
+		if (!incr_attr_count(service, 1)) {
+			error("Failed to increment attribute count");
+			service->failed = true;
+			return;
+		}
+
+		service->proxy = g_dbus_proxy_ref(proxy);
+	} else if (g_strcmp0(iface, GATT_CHRC_IFACE) == 0) {
+		struct external_chrc *chrc;
+
+		if (g_strcmp0(path, service->path) == 0) {
+			error("Characteristic path same as service path");
+			service->failed = true;
+			return;
+		}
+
+		chrc = chrc_create(service, proxy, path);
+		if (!chrc) {
+			service->failed = true;
+			return;
+		}
+
+		/*
+		 * Add 2 for the characteristic declaration and the value
+		 * attribute.
+		 */
+		if (!incr_attr_count(service, 2)) {
+			error("Failed to increment attribute count");
+			service->failed = true;
+			return;
+		}
+
+		/*
+		 * Parse characteristic flags (i.e. properties) here since they
+		 * are used to determine if any special descriptors should be
+		 * created.
+		 */
+		if (!parse_flags(proxy, &chrc->props, &chrc->ext_props)) {
+			error("Failed to parse characteristic properties");
+			service->failed = true;
+			return;
+		}
+
+		if ((chrc->props & BT_GATT_CHRC_PROP_NOTIFY ||
+				chrc->props & BT_GATT_CHRC_PROP_INDICATE) &&
+				!incr_attr_count(service, 1)) {
+			error("Failed to increment attribute count for CCC");
+			service->failed = true;
+			return;
+		}
+
+		if (chrc->ext_props && !incr_attr_count(service, 1)) {
+			error("Failed to increment attribute count for CEP");
+			service->failed = true;
+			return;
+		}
+
+		queue_push_tail(service->chrcs, chrc);
+	} else if (g_strcmp0(iface, GATT_DESC_IFACE) == 0) {
+		struct external_desc *desc;
+		const char *chrc_path;
+
+		if (!parse_path(proxy, "Characteristic", &chrc_path)) {
+			error("Failed to obtain characteristic path for "
+								"descriptor");
+			service->failed = true;
+			return;
+		}
+
+		desc = desc_create(service, proxy, chrc_path);
+		if (!desc) {
+			service->failed = true;
+			return;
+		}
+
+		/* Add 1 for the descriptor attribute */
+		if (!incr_attr_count(service, 1)) {
+			error("Failed to increment attribute count");
+			service->failed = true;
+			return;
+		}
+
+		queue_push_tail(service->descs, desc);
+	} else {
+		DBG("Ignoring unrelated interface: %s", iface);
+		return;
+	}
+
+	DBG("Object added to service - path: %s, iface: %s", path, iface);
+}
+
+static void proxy_removed_cb(GDBusProxy *proxy, void *user_data)
+{
+	struct external_service *service = user_data;
+	const char *path;
+
+	path = g_dbus_proxy_get_path(proxy);
+
+	if (!g_str_has_prefix(path, service->path))
+		return;
+
+	DBG("Proxy removed - removing service: %s", service->path);
+
+	service_remove(service);
+}
+
+static bool parse_uuid(GDBusProxy *proxy, bt_uuid_t *uuid)
+{
+	DBusMessageIter iter;
+	bt_uuid_t tmp;
+	const char *uuidstr;
+
+	if (!g_dbus_proxy_get_property(proxy, "UUID", &iter))
+		return false;
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING)
+		return false;
+
+	dbus_message_iter_get_basic(&iter, &uuidstr);
+
+	if (bt_string_to_uuid(uuid, uuidstr) < 0)
+		return false;
+
+	/* GAP & GATT services are created and managed by BlueZ */
+	bt_uuid16_create(&tmp, UUID_GAP);
+	if (!bt_uuid_cmp(&tmp, uuid)) {
+		error("GAP service must be handled by BlueZ");
+		return false;
+	}
+
+	bt_uuid16_create(&tmp, UUID_GATT);
+	if (!bt_uuid_cmp(&tmp, uuid)) {
+		error("GATT service must be handled by BlueZ");
+		return false;
+	}
+
+	return true;
+}
+
+static bool parse_primary(GDBusProxy *proxy, bool *primary)
+{
+	DBusMessageIter iter;
+
+	if (!g_dbus_proxy_get_property(proxy, "Primary", &iter))
+		return false;
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_BOOLEAN)
+		return false;
+
+	dbus_message_iter_get_basic(&iter, primary);
+	return true;
+}
+
+static uint8_t dbus_error_to_att_ecode(const char *error_name)
+{
+	/* TODO: Parse error ATT ecode from error_message */
+
+	if (strcmp(error_name, "org.bluez.Error.Failed") == 0)
+		return 0x80;  /* For now return this "application error" */
+
+	if (strcmp(error_name, "org.bluez.Error.NotSupported") == 0)
+		return BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+
+	if (strcmp(error_name, "org.bluez.Error.NotAuthorized") == 0)
+		return BT_ATT_ERROR_AUTHORIZATION;
+
+	if (strcmp(error_name, "org.bluez.Error.InvalidValueLength") == 0)
+		return BT_ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LEN;
+
+	return 0;
+}
+
+static void read_reply_cb(DBusMessage *message, void *user_data)
+{
+	struct pending_op *op = user_data;
+	DBusError err;
+	DBusMessageIter iter, array;
+	uint8_t ecode = 0;
+	uint8_t *value = NULL;
+	int len = 0;
+
+	if (!op->owner_queue) {
+		DBG("Pending read was canceled when object got removed");
+		return;
+	}
+
+	dbus_error_init(&err);
+
+	if (dbus_set_error_from_message(&err, message) == TRUE) {
+		DBG("Failed to read value: %s: %s", err.name, err.message);
+		ecode = dbus_error_to_att_ecode(err.name);
+		ecode = ecode ? ecode : BT_ATT_ERROR_READ_NOT_PERMITTED;
+		dbus_error_free(&err);
+		goto done;
+	}
+
+	dbus_message_iter_init(message, &iter);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY) {
+		/*
+		 * Return not supported for this, as the external app basically
+		 * doesn't properly support reading from this characteristic.
+		 */
+		ecode = BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+		error("Invalid return value received for \"ReadValue\"");
+		goto done;
+	}
+
+	dbus_message_iter_recurse(&iter, &array);
+	dbus_message_iter_get_fixed_array(&array, &value, &len);
+
+	if (len < 0) {
+		ecode = BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+		value = NULL;
+		len = 0;
+		goto done;
+	}
+
+	/* Truncate the value if it's too large */
+	len = MIN(BT_ATT_MAX_VALUE_LEN, len);
+	value = len ? value : NULL;
+
+done:
+	gatt_db_attribute_read_result(op->attrib, op->id, ecode, value, len);
+}
+
+static void pending_op_free(void *data)
+{
+	struct pending_op *op = data;
+
+	if (op->owner_queue)
+		queue_remove(op->owner_queue, op);
+
+	free(op);
+}
+
+static struct pending_op *pending_read_new(struct queue *owner_queue,
+					struct gatt_db_attribute *attrib,
+					unsigned int id)
+{
+	struct pending_op *op;
+
+	op = new0(struct pending_op, 1);
+	if (!op)
+		return NULL;
+
+	op->owner_queue = owner_queue;
+	op->attrib = attrib;
+	op->id = id;
+	queue_push_tail(owner_queue, op);
+
+	return op;
+}
+
+static void send_read(struct gatt_db_attribute *attrib, GDBusProxy *proxy,
+						struct queue *owner_queue,
+						unsigned int id)
+{
+	struct pending_op *op;
+	uint8_t ecode = BT_ATT_ERROR_UNLIKELY;
+
+	op = pending_read_new(owner_queue, attrib, id);
+	if (!op) {
+		error("Failed to allocate memory for pending read call");
+		ecode = BT_ATT_ERROR_INSUFFICIENT_RESOURCES;
+		goto error;
+	}
+
+	if (g_dbus_proxy_method_call(proxy, "ReadValue", NULL, read_reply_cb,
+						op, pending_op_free) == TRUE)
+		return;
+
+	pending_op_free(op);
+
+error:
+	gatt_db_attribute_read_result(attrib, id, ecode, NULL, 0);
+}
+
+static void write_setup_cb(DBusMessageIter *iter, void *user_data)
+{
+	struct pending_op *op = user_data;
+	struct iovec *iov = op->setup_data;
+	DBusMessageIter array;
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y", &array);
+	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE,
+						&iov->iov_base, iov->iov_len);
+	dbus_message_iter_close_container(iter, &array);
+}
+
+static void write_reply_cb(DBusMessage *message, void *user_data)
+{
+	struct pending_op *op = user_data;
+	DBusError err;
+	DBusMessageIter iter;
+	uint8_t ecode = 0;
+
+	if (!op->owner_queue) {
+		DBG("Pending write was canceled when object got removed");
+		return;
+	}
+
+	dbus_error_init(&err);
+
+	if (dbus_set_error_from_message(&err, message) == TRUE) {
+		DBG("Failed to write value: %s: %s", err.name, err.message);
+		ecode = dbus_error_to_att_ecode(err.name);
+		ecode = ecode ? ecode : BT_ATT_ERROR_WRITE_NOT_PERMITTED;
+		dbus_error_free(&err);
+		goto done;
+	}
+
+	dbus_message_iter_init(message, &iter);
+	if (dbus_message_iter_has_next(&iter)) {
+		/*
+		 * Return not supported for this, as the external app basically
+		 * doesn't properly support the "WriteValue" API.
+		 */
+		ecode = BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+		error("Invalid return value received for \"WriteValue\"");
+	}
+
+done:
+	gatt_db_attribute_write_result(op->attrib, op->id, ecode);
+}
+
+static struct pending_op *pending_write_new(struct queue *owner_queue,
+					struct gatt_db_attribute *attrib,
+					unsigned int id,
+					const uint8_t *value,
+					size_t len)
+{
+	struct pending_op *op;
+	struct iovec iov;
+
+	op = new0(struct pending_op, 1);
+	if (!op)
+		return NULL;
+
+	iov.iov_base = (uint8_t *) value;
+	iov.iov_len = len;
+
+	op->owner_queue = owner_queue;
+	op->attrib = attrib;
+	op->id = id;
+	op->setup_data = &iov;
+	queue_push_tail(owner_queue, op);
+
+	return op;
+}
+
+static void send_write(struct gatt_db_attribute *attrib, GDBusProxy *proxy,
+					struct queue *owner_queue,
+					unsigned int id,
+					const uint8_t *value, size_t len)
+{
+	struct pending_op *op;
+	uint8_t ecode = BT_ATT_ERROR_UNLIKELY;
+
+	op = pending_write_new(owner_queue, attrib, id, value, len);
+	if (!op) {
+		error("Failed to allocate memory for pending read call");
+		ecode = BT_ATT_ERROR_INSUFFICIENT_RESOURCES;
+		goto error;
+	}
+
+	if (g_dbus_proxy_method_call(proxy, "WriteValue", write_setup_cb,
+						write_reply_cb, op,
+						pending_op_free) == TRUE)
+		return;
+
+	pending_op_free(op);
+
+error:
+	gatt_db_attribute_write_result(attrib, id, ecode);
+}
+
+static uint32_t permissions_from_props(uint8_t props, uint8_t ext_props)
+{
+	uint32_t perm = 0;
+
+	if (props & BT_GATT_CHRC_PROP_WRITE ||
+			props & BT_GATT_CHRC_PROP_WRITE_WITHOUT_RESP ||
+			ext_props & BT_GATT_CHRC_EXT_PROP_RELIABLE_WRITE)
+		perm |= BT_ATT_PERM_WRITE;
+
+	if (props & BT_GATT_CHRC_PROP_READ)
+		perm |= BT_ATT_PERM_READ;
+
+	return perm;
+}
+
+static uint8_t ccc_write_cb(uint16_t value, void *user_data)
+{
+	struct external_chrc *chrc = user_data;
+
+	DBG("External CCC write received with value: 0x%04x", value);
+
+	/* Notifications/indications disabled */
+	if (!value) {
+		if (!chrc->ntfy_cnt)
+			return 0;
+
+		if (__sync_sub_and_fetch(&chrc->ntfy_cnt, 1))
+			return 0;
+
+		/*
+		 * Send request to stop notifying. This is best-effort
+		 * operation, so simply ignore the return the value.
+		 */
+		g_dbus_proxy_method_call(chrc->proxy, "StopNotify", NULL,
+							NULL, NULL, NULL);
+		return 0;
+	}
+
+	/*
+	 * TODO: All of the errors below should fall into the so called
+	 * "Application Error" range. Since there is no well defined error for
+	 * these, we return a generic ATT protocol error for now.
+	 */
+
+	if (chrc->ntfy_cnt == UINT_MAX) {
+		/* Maximum number of per-device CCC descriptors configured */
+		return BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+	}
+
+	/* Don't support undefined CCC values yet */
+	if (value > 2 ||
+		(value == 1 && !(chrc->props & BT_GATT_CHRC_PROP_NOTIFY)) ||
+		(value == 2 && !(chrc->props & BT_GATT_CHRC_PROP_INDICATE)))
+		return BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+
+	/*
+	 * Always call StartNotify for an incoming enable and ignore the return
+	 * value for now.
+	 */
+	if (g_dbus_proxy_method_call(chrc->proxy,
+						"StartNotify", NULL, NULL,
+						NULL, NULL) == FALSE)
+		return BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+
+	__sync_fetch_and_add(&chrc->ntfy_cnt, 1);
+
+	return 0;
+}
+
+static void property_changed_cb(GDBusProxy *proxy, const char *name,
+					DBusMessageIter *iter, void *user_data)
+{
+	struct external_chrc *chrc = user_data;
+	DBusMessageIter array;
+	uint8_t *value = NULL;
+	int len = 0;
+
+	if (strcmp(name, "Value"))
+		return;
+
+	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_ARRAY) {
+		DBG("Malformed \"Value\" property received");
+		return;
+	}
+
+	dbus_message_iter_recurse(iter, &array);
+	dbus_message_iter_get_fixed_array(&array, &value, &len);
+
+	if (len < 0) {
+		DBG("Malformed \"Value\" property received");
+		return;
+	}
+
+	/* Truncate the value if it's too large */
+	len = MIN(BT_ATT_MAX_VALUE_LEN, len);
+	value = len ? value : NULL;
+
+	send_notification_to_devices(chrc->service->database,
+				gatt_db_attribute_get_handle(chrc->attrib),
+				value, len,
+				gatt_db_attribute_get_handle(chrc->ccc),
+				chrc->props & BT_GATT_CHRC_PROP_INDICATE);
+}
+
+static bool database_add_ccc(struct external_service *service,
+						struct external_chrc *chrc)
+{
+	if (!(chrc->props & BT_GATT_CHRC_PROP_NOTIFY) &&
+				!(chrc->props & BT_GATT_CHRC_PROP_INDICATE))
+		return true;
+
+	chrc->ccc = service_add_ccc(service->attrib, service->database,
+						ccc_write_cb, chrc, NULL);
+	if (!chrc->ccc) {
+		error("Failed to create CCC entry for characteristic");
+		return false;
+	}
+
+	if (g_dbus_proxy_set_property_watch(chrc->proxy, property_changed_cb,
+							chrc) == FALSE) {
+		error("Failed to set up property watch for characteristic");
+		return false;
+	}
+
+	DBG("Created CCC entry for characteristic");
+
+	return true;
+}
+
+static void cep_write_cb(struct gatt_db_attribute *attrib, int err,
+								void *user_data)
+{
+	if (err)
+		DBG("Failed to store CEP value in the database");
+	else
+		DBG("Stored CEP value in the database");
+}
+
+static bool database_add_cep(struct external_service *service,
+						struct external_chrc *chrc)
+{
+	struct gatt_db_attribute *cep;
+	bt_uuid_t uuid;
+	uint8_t value[2];
+
+	if (!chrc->ext_props)
+		return true;
+
+	bt_uuid16_create(&uuid, GATT_CHARAC_EXT_PROPER_UUID);
+	cep = gatt_db_service_add_descriptor(service->attrib, &uuid,
+							BT_ATT_PERM_READ,
+							NULL, NULL, NULL);
+	if (!cep) {
+		error("Failed to create CEP entry for characteristic");
+		return false;
+	}
+
+	memset(value, 0, sizeof(value));
+	value[0] = chrc->ext_props;
+
+	if (!gatt_db_attribute_write(cep, 0, value, sizeof(value), 0, NULL,
+							cep_write_cb, NULL)) {
+		DBG("Failed to store CEP value in the database");
+		return false;
+	}
+
+	DBG("Created CEP entry for characteristic");
+
+	return true;
+}
+
+static void desc_read_cb(struct gatt_db_attribute *attrib,
+					unsigned int id, uint16_t offset,
+					uint8_t opcode, struct bt_att *att,
+					void *user_data)
+{
+	struct external_desc *desc = user_data;
+
+	if (desc->attrib != attrib) {
+		error("Read callback called with incorrect attribute");
+		return;
+	}
+
+	send_read(attrib, desc->proxy, desc->pending_reads, id);
+}
+
+static void desc_write_cb(struct gatt_db_attribute *attrib,
+					unsigned int id, uint16_t offset,
+					const uint8_t *value, size_t len,
+					uint8_t opcode, struct bt_att *att,
+					void *user_data)
+{
+	struct external_desc *desc = user_data;
+
+	if (desc->attrib != attrib) {
+		error("Read callback called with incorrect attribute");
+		return;
+	}
+
+	send_write(attrib, desc->proxy, desc->pending_writes, id, value, len);
+}
+
+static bool database_add_desc(struct external_service *service,
+						struct external_desc *desc)
+{
+	bt_uuid_t uuid;
+
+	if (!parse_uuid(desc->proxy, &uuid)) {
+		error("Failed to read \"UUID\" property of descriptor");
+		return false;
+	}
+
+	/*
+	 * TODO: Set permissions based on a D-Bus property of the external
+	 * descriptor.
+	 */
+	desc->attrib = gatt_db_service_add_descriptor(service->attrib, &uuid,
+					BT_ATT_PERM_READ | BT_ATT_PERM_WRITE,
+					desc_read_cb, desc_write_cb, desc);
+	if (!desc->attrib) {
+		error("Failed to create descriptor entry in database");
+		return false;
+	}
+
+	desc->handled = true;
+
+	return true;
+}
+
+static void chrc_read_cb(struct gatt_db_attribute *attrib,
+					unsigned int id, uint16_t offset,
+					uint8_t opcode, struct bt_att *att,
+					void *user_data)
+{
+	struct external_chrc *chrc = user_data;
+
+	if (chrc->attrib != attrib) {
+		error("Read callback called with incorrect attribute");
+		return;
+	}
+
+	send_read(attrib, chrc->proxy, chrc->pending_reads, id);
+}
+
+static void chrc_write_cb(struct gatt_db_attribute *attrib,
+					unsigned int id, uint16_t offset,
+					const uint8_t *value, size_t len,
+					uint8_t opcode, struct bt_att *att,
+					void *user_data)
+{
+	struct external_chrc *chrc = user_data;
+
+	if (chrc->attrib != attrib) {
+		error("Write callback called with incorrect attribute");
+		return;
+	}
+
+	send_write(attrib, chrc->proxy, chrc->pending_writes, id, value, len);
+}
+
+static bool database_add_chrc(struct external_service *service,
+						struct external_chrc *chrc)
+{
+	bt_uuid_t uuid;
+	uint32_t perm;
+	const struct queue_entry *entry;
+
+	if (!parse_uuid(chrc->proxy, &uuid)) {
+		error("Failed to read \"UUID\" property of characteristic");
+		return false;
+	}
+
+	if (!check_service_path(chrc->proxy, service)) {
+		error("Invalid service path for characteristic");
+		return false;
+	}
+
+	/*
+	 * TODO: Once shared/gatt-server properly supports permission checks,
+	 * set the permissions based on a D-Bus property of the external
+	 * characteristic.
+	 */
+	perm = permissions_from_props(chrc->props, chrc->ext_props);
+	chrc->attrib = gatt_db_service_add_characteristic(service->attrib,
+						&uuid, perm,
+						chrc->props, chrc_read_cb,
+						chrc_write_cb, chrc);
+	if (!chrc->attrib) {
+		error("Failed to create characteristic entry in database");
+		return false;
+	}
+
+	if (!database_add_ccc(service, chrc))
+		return false;
+
+	if (!database_add_cep(service, chrc))
+		return false;
+
+	/* Handle the descriptors that belong to this characteristic. */
+	entry = queue_get_entries(service->descs);
+	while (entry) {
+		struct external_desc *desc = entry->data;
+
+		if (desc->handled || g_strcmp0(desc->chrc_path, chrc->path))
+			continue;
+
+		if (!database_add_desc(service, desc)) {
+			chrc->attrib = NULL;
+			error("Failed to create descriptor entry");
+			return false;
+		}
+
+		entry = entry->next;
+	}
+
+	return true;
+}
+
+static bool match_desc_unhandled(const void *a, const void *b)
+{
+	const struct external_desc *desc = a;
+
+	return !desc->handled;
+}
+
+static bool create_service_entry(struct external_service *service)
+{
+	bt_uuid_t uuid;
+	bool primary;
+	const struct queue_entry *entry;
+
+	if (!parse_uuid(service->proxy, &uuid)) {
+		error("Failed to read \"UUID\" property of service");
+		return false;
+	}
+
+	if (!parse_primary(service->proxy, &primary)) {
+		error("Failed to read \"Primary\" property of service");
+		return false;
+	}
+
+	service->attrib = gatt_db_add_service(service->database->db, &uuid,
+						primary, service->attr_cnt);
+	if (!service->attrib)
+		return false;
+
+	entry = queue_get_entries(service->chrcs);
+	while (entry) {
+		struct external_chrc *chrc = entry->data;
+
+		if (!database_add_chrc(service, chrc)) {
+			error("Failed to add characteristic");
+			goto fail;
+		}
+
+		entry = entry->next;
+	}
+
+	/* If there are any unhandled descriptors, return an error */
+	if (queue_find(service->descs, match_desc_unhandled, NULL)) {
+		error("Found descriptor with no matching characteristic!");
+		goto fail;
+	}
+
+	gatt_db_service_set_active(service->attrib, true);
+
+	return true;
+
+fail:
+	gatt_db_remove_service(service->database->db, service->attrib);
+	service->attrib = NULL;
+
+	return false;
+}
+
+static void client_ready_cb(GDBusClient *client, void *user_data)
+{
+	struct external_service *service = user_data;
+	DBusMessage *reply;
+	bool fail = false;
+
+	if (!service->proxy || service->failed) {
+		error("No valid external GATT objects found");
+		fail = true;
+		reply = btd_error_failed(service->reg,
+					"No valid service object found");
+		goto reply;
+	}
+
+	if (!create_service_entry(service)) {
+		error("Failed to create GATT service entry in local database");
+		fail = true;
+		reply = btd_error_failed(service->reg,
+					"Failed to create entry in database");
+		goto reply;
+	}
+
+	DBG("GATT service registered: %s", service->path);
+
+	reply = dbus_message_new_method_return(service->reg);
+
+reply:
+	g_dbus_send_message(btd_get_dbus_connection(), reply);
+	dbus_message_unref(service->reg);
+	service->reg = NULL;
+
+	if (fail)
+		service_remove(service);
+}
+
+static struct external_service *service_create(DBusConnection *conn,
+					DBusMessage *msg, const char *path)
+{
+	struct external_service *service;
+	const char *sender = dbus_message_get_sender(msg);
+
+	if (!path || !g_str_has_prefix(path, "/"))
+		return NULL;
+
+	service = new0(struct external_service, 1);
+	if (!service)
+		return NULL;
+
+	service->client = g_dbus_client_new_full(conn, sender, path, path);
+	if (!service->client)
+		goto fail;
+
+	service->owner = g_strdup(sender);
+	if (!service->owner)
+		goto fail;
+
+	service->path = g_strdup(path);
+	if (!service->path)
+		goto fail;
+
+	service->chrcs = queue_new();
+	if (!service->chrcs)
+		goto fail;
+
+	service->descs = queue_new();
+	if (!service->descs)
+		goto fail;
+
+	service->reg = dbus_message_ref(msg);
+
+	g_dbus_client_set_disconnect_watch(service->client,
+						client_disconnect_cb, service);
+	g_dbus_client_set_proxy_handlers(service->client, proxy_added_cb,
+							proxy_removed_cb, NULL,
+							service);
+	g_dbus_client_set_ready_watch(service->client, client_ready_cb,
+								service);
+
+	return service;
+
+fail:
+	service_free(service);
+	return NULL;
+}
+
+static DBusMessage *manager_register_service(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_gatt_database *database = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	DBusMessageIter args;
+	const char *path;
+	struct external_service *service;
+	struct svc_match_data match_data;
+
+	if (!dbus_message_iter_init(msg, &args))
+		return btd_error_invalid_args(msg);
+
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_OBJECT_PATH)
+		return btd_error_invalid_args(msg);
+
+	dbus_message_iter_get_basic(&args, &path);
+
+	match_data.path = path;
+	match_data.sender = sender;
+
+	if (queue_find(database->services, match_service, &match_data))
+		return btd_error_already_exists(msg);
+
+	dbus_message_iter_next(&args);
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_ARRAY)
+		return btd_error_invalid_args(msg);
+
+	service = service_create(conn, msg, path);
+	if (!service)
+		return btd_error_failed(msg, "Failed to register service");
+
+	DBG("Registering service - path: %s", path);
+
+	service->database = database;
+	queue_push_tail(database->services, service);
+
+	return NULL;
+}
+
+static DBusMessage *manager_unregister_service(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_gatt_database *database = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	const char *path;
+	DBusMessageIter args;
+	struct external_service *service;
+	struct svc_match_data match_data;
+
+	if (!dbus_message_iter_init(msg, &args))
+		return btd_error_invalid_args(msg);
+
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_OBJECT_PATH)
+		return btd_error_invalid_args(msg);
+
+	dbus_message_iter_get_basic(&args, &path);
+
+	match_data.path = path;
+	match_data.sender = sender;
+
+	service = queue_remove_if(database->services, match_service,
+								&match_data);
+	if (!service)
+		return btd_error_does_not_exist(msg);
+
+	service_free(service);
+
+	return dbus_message_new_method_return(msg);
+}
+
+static const GDBusMethodTable manager_methods[] = {
+	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("RegisterService",
+			GDBUS_ARGS({ "service", "o" }, { "options", "a{sv}" }),
+			NULL, manager_register_service) },
+	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("UnregisterService",
+					GDBUS_ARGS({ "service", "o" }),
+					NULL, manager_unregister_service) },
+	{ }
+};
 
 struct btd_gatt_database *btd_gatt_database_new(struct btd_adapter *adapter)
 {
@@ -766,6 +2162,14 @@ struct btd_gatt_database *btd_gatt_database_new(struct btd_adapter *adapter)
 
 	database->device_states = queue_new();
 	if (!database->device_states)
+		goto fail;
+
+	database->services = queue_new();
+	if (!database->services)
+		goto fail;
+
+	database->ccc_callbacks = queue_new();
+	if (!database->ccc_callbacks)
 		goto fail;
 
 	database->db_id = gatt_db_register(database->db, gatt_db_service_added,
@@ -799,6 +2203,14 @@ struct btd_gatt_database *btd_gatt_database_new(struct btd_adapter *adapter)
 		goto fail;
 	}
 
+	if (g_dbus_register_interface(btd_get_dbus_connection(),
+						adapter_get_path(adapter),
+						GATT_MANAGER_IFACE,
+						manager_methods, NULL, NULL,
+						database, NULL))
+		DBG("GATT Manager registered for adapter: %s",
+						adapter_get_path(adapter));
+
 	register_core_services(database);
 
 	return database;
@@ -813,6 +2225,10 @@ void btd_gatt_database_destroy(struct btd_gatt_database *database)
 {
 	if (!database)
 		return;
+
+	g_dbus_unregister_interface(btd_get_dbus_connection(),
+					adapter_get_path(database->adapter),
+					GATT_MANAGER_IFACE);
 
 	gatt_database_free(database);
 }

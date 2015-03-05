@@ -99,12 +99,6 @@ Low Energy
 ATT/GATT (new shared stack)
 ===========================
 
-- shared/att currently doesn't handle signed writes. It should be extended to
-  support signing outgoing and verify incoming ATT PDUs.
-
-  Priority: High
-  Complexity: C1
-
 - Add complete GATT test coverage in unit/test-gatt following the GATT test
   spec. This could use shared/gatt-client and shared/gatt-server at the same
   time to test both against eachother. We should definitely have tests for
@@ -193,6 +187,22 @@ ATT/GATT (new shared stack)
 - Support included services in the GATT D-Bus client API.
 
   Priority: Medium
+  Complexity: C1
+
+- The recently added support for ATT signed writes requires the following kernel
+  modules to be enabled:
+
+     CONFIG_CRYPTO_USER_API
+     CONFIG_CRYPTO_USER_API_HASH
+     CONFIG_CRYPTO_USER_API_SKCIPHER
+
+  Currently, if these are not enabled, bt_att_new silently returns NULL. We
+  should handle this more gracefully by not supporting signed writes if we can't
+  initialize bt_crypto while succeeding bt_att initialization regardless.
+
+  This behavior should be documented in the README.
+
+  Priority: High
   Complexity: C1
 
 

@@ -25,15 +25,17 @@
 #include <stdint.h>
 
 #include <dbus/dbus.h>
-#include <gdbus/gdbus.h>
 
-#include <bluetooth/bluetooth.h>
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
 
 #include "log.h"
 #include "error.h"
 #include "adapter.h"
 #include "device.h"
-#include "lib/uuid.h"
 #include "src/shared/queue.h"
 #include "src/shared/att.h"
 #include "src/shared/gatt-db.h"
@@ -292,7 +294,7 @@ static DBusMessage *create_gatt_dbus_error(DBusMessage *msg, uint8_t att_ecode)
 	case 0:
 		return btd_error_failed(msg, "Operation failed");
 	default:
-		return g_dbus_create_error(msg, ERROR_INTERFACE,
+		return g_dbus_create_error(msg, ERROR_INTERFACE ".Failed",
 				"Operation failed with ATT error: 0x%02x",
 				att_ecode);
 	}
@@ -921,9 +923,9 @@ static DBusMessage *characteristic_write_value(DBusConnection *conn,
 
 	supported = true;
 	chrc->write_id = bt_gatt_client_write_without_response(gatt,
-							chrc->value_handle,
-							false, value,
-							value_len);
+					chrc->value_handle,
+					chrc->props & BT_GATT_CHRC_PROP_AUTH,
+					value, value_len);
 	if (chrc->write_id)
 		return dbus_message_new_method_return(msg);
 
@@ -1556,8 +1558,9 @@ static void read_ext_props_cb(bool success, uint8_t att_ecode,
 	chrc->ext_props = get_le16(value);
 	if (chrc->ext_props)
 		g_dbus_emit_property_changed(btd_get_dbus_connection(),
-						service->path,
-						GATT_SERVICE_IFACE, "Flags");
+						chrc->path,
+						GATT_CHARACTERISTIC_IFACE,
+						"Flags");
 
 	queue_remove(service->pending_ext_props, chrc);
 

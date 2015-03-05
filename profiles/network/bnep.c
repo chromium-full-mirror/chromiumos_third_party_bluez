@@ -36,15 +36,15 @@
 #include <net/if.h>
 #include <linux/sockios.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/l2cap.h>
-#include <bluetooth/bnep.h>
-
 #include <glib.h>
+
+#include "lib/bluetooth.h"
+#include "lib/l2cap.h"
+#include "lib/bnep.h"
+#include "lib/uuid.h"
 
 #include "src/log.h"
 #include "src/shared/util.h"
-#include "lib/uuid.h"
 #include "btio/btio.h"
 
 #include "bnep.h"
@@ -508,8 +508,9 @@ static int bnep_add_to_bridge(const char *devname, const char *bridge)
 		err = -errno;
 		error("bnep: Can't add %s to the bridge %s: %s(%d)",
 					devname, bridge, strerror(-err), -err);
-	} else
+	} else {
 		info("bridge %s: interface %s added", bridge, devname);
+	}
 
 	close(sk);
 
@@ -539,8 +540,9 @@ static int bnep_del_from_bridge(const char *devname, const char *bridge)
 		err = -errno;
 		error("bnep: Can't delete %s from the bridge %s: %s(%d)",
 					devname, bridge, strerror(-err), -err);
-	} else
+	} else {
 		info("bridge %s: interface %s removed", bridge, devname);
+	}
 
 	close(sk);
 

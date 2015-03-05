@@ -127,7 +127,7 @@ struct hf_device {
 	int num_active;
 	int num_held;
 	int setup_state;
-	bool call_hanging_up;
+	guint call_hanging_up;
 
 	uint8_t negotiated_codec;
 	uint8_t proposed_codec;
@@ -262,6 +262,9 @@ static void device_destroy(struct hf_device *dev)
 		g_source_remove(dev->ring);
 
 	g_free(dev->clip);
+
+	if (dev->call_hanging_up)
+		g_source_remove(dev->call_hanging_up);
 
 	set_audio_state(dev, HAL_EV_HANDSFREE_AUDIO_STATE_DISCONNECTED);
 	set_state(dev, HAL_EV_HANDSFREE_CONN_STATE_DISCONNECTED);
@@ -2248,6 +2251,11 @@ static gboolean ring_cb(gpointer user_data)
 static void phone_state_dialing(struct hf_device *dev, int num_active,
 								int num_held)
 {
+	if (dev->call_hanging_up) {
+		g_source_remove(dev->call_hanging_up);
+		dev->call_hanging_up = 0;
+	}
+
 	update_indicator(dev, IND_CALLSETUP, 2);
 
 	if (num_active == 0 && num_held > 0)
@@ -2260,6 +2268,11 @@ static void phone_state_dialing(struct hf_device *dev, int num_active,
 static void phone_state_alerting(struct hf_device *dev, int num_active,
 								int num_held)
 {
+	if (dev->call_hanging_up) {
+		g_source_remove(dev->call_hanging_up);
+		dev->call_hanging_up = 0;
+	}
+
 	update_indicator(dev, IND_CALLSETUP, 3);
 }
 
@@ -2291,6 +2304,9 @@ static void phone_state_incoming(struct hf_device *dev, int num_active,
 	if (dev->setup_state == HAL_HANDSFREE_CALL_STATE_INCOMING) {
 		if (dev->num_active != num_active ||
 						dev->num_held != num_held) {
+			if (dev->num_active == num_held &&
+						dev->num_held == num_active)
+				return;
 			/*
 			 * calls changed while waiting call ie. due to
 			 * termination of active call
@@ -2334,6 +2350,17 @@ static void phone_state_incoming(struct hf_device *dev, int num_active,
 	}
 }
 
+static gboolean hang_up_cb(gpointer user_data)
+{
+	struct hf_device *dev = user_data;
+
+	DBG("");
+
+	dev->call_hanging_up = 0;
+
+	return FALSE;
+}
+
 static void phone_state_idle(struct hf_device *dev, int num_active,
 								int num_held)
 {
@@ -2356,14 +2383,16 @@ static void phone_state_idle(struct hf_device *dev, int num_active,
 				connect_audio(dev);
 		}
 
-		if (num_held > dev->num_held)
+		if (num_held >= dev->num_held && num_held != 0)
 			update_indicator(dev, IND_CALLHELD, 1);
 
 		update_indicator(dev, IND_CALLSETUP, 0);
 
-		if (num_active == dev->num_active && num_held == dev->num_held)
-			dev->call_hanging_up = true;
-
+		if (num_active == 0 && num_held == 0 &&
+				num_active == dev->num_active &&
+				num_held == dev->num_held)
+			dev->call_hanging_up = g_timeout_add(800, hang_up_cb,
+									dev);
 		break;
 	case HAL_HANDSFREE_CALL_STATE_DIALING:
 	case HAL_HANDSFREE_CALL_STATE_ALERTING:
@@ -2374,11 +2403,15 @@ static void phone_state_idle(struct hf_device *dev, int num_active,
 					num_held ? (num_active ? 1 : 2) : 0);
 
 		update_indicator(dev, IND_CALLSETUP, 0);
+
+		/* disconnect SCO if we hang up while dialing or alerting */
+		if (num_active == 0 && num_held == 0)
+			disconnect_sco(dev);
 		break;
 	case HAL_HANDSFREE_CALL_STATE_IDLE:
-
 		if (dev->call_hanging_up) {
-			dev->call_hanging_up = false;
+			g_source_remove(dev->call_hanging_up);
+			dev->call_hanging_up = 0;
 			return;
 		}
 

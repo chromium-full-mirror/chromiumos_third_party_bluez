@@ -37,20 +37,22 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
-
 #include <glib.h>
 #include <dbus/dbus.h>
-#include <gdbus/gdbus.h>
+
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/hci.h"
+#include "bluetooth/hci_lib.h"
+#include "bluetooth/sdp.h"
+#include "bluetooth/sdp_lib.h"
+#include "lib/uuid.h"
+#include "lib/mgmt.h"
+
+#include "gdbus/gdbus.h"
 
 #include "log.h"
 #include "textfile.h"
 
-#include "lib/uuid.h"
-#include "lib/mgmt.h"
 #include "src/shared/mgmt.h"
 #include "src/shared/util.h"
 #include "src/shared/queue.h"
@@ -2207,10 +2209,9 @@ static gboolean property_get_discovering(const GDBusPropertyTable *property,
 
 static void add_gatt_uuid(struct gatt_db_attribute *attrib, void *user_data)
 {
-	DBusMessageIter *iter = user_data;
+	GHashTable *uuids = user_data;
 	bt_uuid_t uuid, u128;
 	char uuidstr[MAX_LEN_UUID_STR + 1];
-	const char *ptr = uuidstr;
 
 	if (!gatt_db_service_get_active(attrib))
 		return;
@@ -2221,7 +2222,15 @@ static void add_gatt_uuid(struct gatt_db_attribute *attrib, void *user_data)
 	bt_uuid_to_uuid128(&uuid, &u128);
 	bt_uuid_to_string(&u128, uuidstr, sizeof(uuidstr));
 
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &ptr);
+	g_hash_table_add(uuids, strdup(uuidstr));
+}
+
+static void iter_append_uuid(gpointer key, gpointer value, gpointer user_data)
+{
+	DBusMessageIter *iter = user_data;
+	const char *uuid = key;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &uuid);
 }
 
 static gboolean property_get_uuids(const GDBusPropertyTable *property,
@@ -2231,9 +2240,11 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 	DBusMessageIter entry;
 	sdp_list_t *l;
 	struct gatt_db *db;
+	GHashTable *uuids;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	uuids = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
+	if (!uuids)
+		return FALSE;
 
 	/* SDP records */
 	for (l = adapter->services; l != NULL; l = l->next) {
@@ -2244,17 +2255,20 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 		if (uuid == NULL)
 			continue;
 
-		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
-								&uuid);
-		free(uuid);
+		g_hash_table_add(uuids, uuid);
 	}
 
 	/* GATT services */
 	db = btd_gatt_database_get_db(adapter->database);
 	if (db)
-		gatt_db_foreach_service(db, NULL, add_gatt_uuid, &entry);
+		gatt_db_foreach_service(db, NULL, add_gatt_uuid, uuids);
 
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry);
+	g_hash_table_foreach(uuids, iter_append_uuid, &entry);
 	dbus_message_iter_close_container(iter, &entry);
+
+	g_hash_table_destroy(uuids);
 
 	return TRUE;
 }
@@ -4627,6 +4641,7 @@ static void adapter_remove(struct btd_adapter *adapter)
 	adapter->db_id = 0;
 
 	btd_gatt_database_destroy(adapter->database);
+	adapter->database = NULL;
 
 	g_slist_free(adapter->pin_callbacks);
 	adapter->pin_callbacks = NULL;
@@ -6192,7 +6207,7 @@ static void new_long_term_key_callback(uint16_t index, uint16_t length,
 
 static void store_csrk(const bdaddr_t *local, const bdaddr_t *peer,
 				uint8_t bdaddr_type, const unsigned char *key,
-				uint8_t master)
+				uint32_t counter, uint8_t type)
 {
 	const char *group;
 	char adapter_addr[18];
@@ -6201,15 +6216,29 @@ static void store_csrk(const bdaddr_t *local, const bdaddr_t *peer,
 	GKeyFile *key_file;
 	char key_str[33];
 	gsize length = 0;
+	gboolean auth;
 	char *str;
 	int i;
 
-	if (master == 0x00)
+	switch (type) {
+	case 0x00:
 		group = "LocalSignatureKey";
-	else if (master == 0x01)
+		auth = FALSE;
+		break;
+	case 0x01:
 		group = "RemoteSignatureKey";
-	else {
-		warn("Unsupported CSRK type %u", master);
+		auth = FALSE;
+		break;
+	case 0x02:
+		group = "LocalSignatureKey";
+		auth = TRUE;
+		break;
+	case 0x03:
+		group = "RemoteSignatureKey";
+		auth = TRUE;
+		break;
+	default:
+		warn("Unsupported CSRK type %u", type);
 		return;
 	}
 
@@ -6226,6 +6255,8 @@ static void store_csrk(const bdaddr_t *local, const bdaddr_t *peer,
 		sprintf(key_str + (i * 2), "%2.2X", key[i]);
 
 	g_key_file_set_string(key_file, group, "Key", key_str);
+	g_key_file_set_integer(key_file, group, "Counter", counter);
+	g_key_file_set_boolean(key_file, group, "Authenticated", auth);
 
 	create_file(filename, S_IRUSR | S_IWUSR);
 
@@ -6254,8 +6285,8 @@ static void new_csrk_callback(uint16_t index, uint16_t length,
 
 	ba2str(&addr->bdaddr, dst);
 
-	DBG("hci%u new CSRK for %s master %u", adapter->dev_id, dst,
-								ev->key.master);
+	DBG("hci%u new CSRK for %s type %u", adapter->dev_id, dst,
+								ev->key.type);
 
 	device = btd_adapter_get_device(adapter, &addr->bdaddr, addr->type);
 	if (!device) {
@@ -6266,8 +6297,8 @@ static void new_csrk_callback(uint16_t index, uint16_t length,
 	if (!ev->store_hint)
 		return;
 
-	store_csrk(bdaddr, &key->addr.bdaddr, key->addr.type, key->val,
-								key->master);
+	store_csrk(bdaddr, &key->addr.bdaddr, key->addr.type, key->val, 0,
+								key->type);
 
 	if (device_is_temporary(device))
 		btd_device_set_temporary(device, FALSE);
@@ -6678,8 +6709,11 @@ static int adapter_register(struct btd_adapter *adapter)
 	}
 
 	adapter->database = btd_gatt_database_new(adapter);
-	if (!adapter->database)
+	if (!adapter->database) {
 		error("Failed to create GATT database for adapter");
+		adapters = g_slist_remove(adapters, adapter);
+		return -EINVAL;
+	}
 
 	db = btd_gatt_database_get_db(adapter->database);
 	adapter->db_id = gatt_db_register(db, services_modified,

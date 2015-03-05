@@ -29,6 +29,7 @@ typedef enum {
 } avdtp_session_state_t;
 
 struct avdtp;
+struct avdtp_server;
 struct avdtp_stream;
 struct avdtp_local_sep;
 struct avdtp_remote_sep;
@@ -213,8 +214,6 @@ struct avdtp_sep_ind {
 typedef void (*avdtp_discover_cb_t) (struct avdtp *session, GSList *seps,
 					struct avdtp_error *err, void *user_data);
 
-struct avdtp *avdtp_get(struct btd_device *device);
-
 void avdtp_unref(struct avdtp *session);
 struct avdtp *avdtp_ref(struct avdtp *session);
 
@@ -268,8 +267,7 @@ int avdtp_abort(struct avdtp *session, struct avdtp_stream *stream);
 int avdtp_delay_report(struct avdtp *session, struct avdtp_stream *stream,
 							uint16_t delay);
 
-struct avdtp_local_sep *avdtp_register_sep(struct btd_adapter *adapter,
-						uint8_t type,
+struct avdtp_local_sep *avdtp_register_sep(struct queue *lseps, uint8_t type,
 						uint8_t media_type,
 						uint8_t codec_type,
 						gboolean delay_reporting,
@@ -281,7 +279,7 @@ struct avdtp_local_sep *avdtp_register_sep(struct btd_adapter *adapter,
 struct avdtp_remote_sep *avdtp_find_remote_sep(struct avdtp *session,
 						struct avdtp_local_sep *lsep);
 
-int avdtp_unregister_sep(struct avdtp_local_sep *sep);
+int avdtp_unregister_sep(struct queue *lseps, struct avdtp_local_sep *sep);
 
 avdtp_state_t avdtp_sep_get_state(struct avdtp_local_sep *sep);
 
@@ -293,3 +291,14 @@ int avdtp_error_posix_errno(struct avdtp_error *err);
 
 struct btd_adapter *avdtp_get_adapter(struct avdtp *session);
 struct btd_device *avdtp_get_device(struct avdtp *session);
+struct avdtp_server *avdtp_get_server(struct avdtp_local_sep *lsep);
+
+struct avdtp *avdtp_new(struct avdtp_server *server, GSList *sessions,
+						GIOChannel *chan,
+						struct btd_device *device);
+void avdtp_free(void *data);
+void connection_lost(struct avdtp *session, int err);
+void avdtp_accept(struct avdtp *session);
+bool avdtp_request_authorization(struct avdtp *session, const bdaddr_t *src,
+							const bdaddr_t *dst,
+							service_auth_cb cb);

@@ -39,7 +39,10 @@ static bool use_bredr = false;
 static bool use_le = false;
 static bool use_sc = false;
 static bool use_sconly = false;
+static bool use_legacy = false;
+static bool use_random = false;
 static bool use_debug = false;
+static bool use_cross = false;
 static bool provide_p192 = false;
 static bool provide_p256 = false;
 
@@ -49,18 +52,73 @@ static uint16_t index2 = MGMT_INDEX_NONE;
 static bdaddr_t bdaddr1;
 static bdaddr_t bdaddr2;
 
+static void pin_code_request_event(uint16_t index, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_pin_code_request *ev = param;
+	struct mgmt_cp_pin_code_reply cp;
+	char str[18];
+
+	ba2str(&ev->addr.bdaddr, str);
+
+	printf("[Index %u]\n", index);
+	printf("  Pin code request: %s\n", str);
+
+	memset(&cp, 0, sizeof(cp));
+	memcpy(&cp.addr, &ev->addr, sizeof(cp.addr));
+	cp.pin_len = 4;
+	memset(cp.pin_code, '0', 4);
+
+	mgmt_reply(mgmt, MGMT_OP_PIN_CODE_REPLY, index, sizeof(cp), &cp,
+							NULL, NULL, NULL);
+}
+
 static void new_link_key_event(uint16_t index, uint16_t len,
 					const void *param, void *user_data)
 {
 	const struct mgmt_ev_new_link_key *ev = param;
+	const char *type;
 	char str[18];
 	int i;
 
 	ba2str(&ev->key.addr.bdaddr, str);
 
+	switch (ev->key.type) {
+	case 0x00:
+		type = "Legacy";
+		break;
+	case 0x01:
+		type = "Local Unit";
+		break;
+	case 0x02:
+		type = "Remote Unit";
+		break;
+	case 0x03:
+		type = "Debug";
+		break;
+	case 0x04:
+		type = "Unauthenticated, P-192";
+		break;
+	case 0x05:
+		type = "Authenticated, P-192";
+		break;
+	case 0x06:
+		type = "Changed";
+		break;
+	case 0x07:
+		type = "Unauthenticated, P-256";
+		break;
+	case 0x08:
+		type = "Authenticated, P-256";
+		break;
+	default:
+		type = "<unknown>";
+		break;
+	}
+
 	printf("[Index %u]\n", index);
 	printf("  New link key: %s\n", str);
-	printf("  Type: %u\n", ev->key.type);
+	printf("  Type: %s (%u)\n", type, ev->key.type);
 	printf("  Key: ");
 	for (i = 0; i < 16; i++)
 		printf("%02x", ev->key.val[i]);
@@ -71,14 +129,42 @@ static void new_long_term_key_event(uint16_t index, uint16_t len,
 					const void *param, void *user_data)
 {
 	const struct mgmt_ev_new_long_term_key *ev = param;
+	const char *type;
 	char str[18];
 	int i;
 
 	ba2str(&ev->key.addr.bdaddr, str);
 
+	switch (ev->key.type) {
+	case 0x00:
+		if (ev->key.master)
+			type = "Unauthenticated, Master";
+		else
+			type = "Unauthenticated, Slave";
+		break;
+	case 0x01:
+		if (ev->key.master)
+			type = "Authenticated, Master";
+		else
+			type = "Authenticated, Slave";
+		break;
+	case 0x02:
+		type = "Unauthenticated, P-256";
+		break;
+	case 0x03:
+		type = "Authenticated, P-256";
+		break;
+	case 0x04:
+		type = "Debug";
+		break;
+	default:
+		type = "<unknown>";
+		break;
+	}
+
 	printf("[Index %u]\n", index);
 	printf("  New long term key: %s\n", str);
-	printf("  Type: %u\n", ev->key.type);
+	printf("  Type: %s (%u)\n", type, ev->key.type);
 	printf("  Key: ");
 	for (i = 0; i < 16; i++)
 		printf("%02x", ev->key.val[i]);
@@ -112,6 +198,8 @@ static void pair_device(uint16_t index, const bdaddr_t *bdaddr)
 	bacpy(&cp.addr.bdaddr, bdaddr);
 	if (use_bredr)
 		cp.addr.type = BDADDR_BREDR;
+	else if (use_random)
+		cp.addr.type = BDADDR_LE_RANDOM;
 	else
 		cp.addr.type = BDADDR_LE_PUBLIC;
 	cp.io_cap = 0x03;
@@ -162,6 +250,8 @@ static void add_remote_oob_data(uint16_t index, const bdaddr_t *bdaddr,
 	bacpy(&cp.addr.bdaddr, bdaddr);
 	if (use_bredr)
 		cp.addr.type = BDADDR_BREDR;
+	else if (use_random)
+		cp.addr.type = BDADDR_LE_RANDOM;
 	else
 		cp.addr.type = BDADDR_LE_PUBLIC;
 	if (hash192 && rand192) {
@@ -369,7 +459,7 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 		return;
 	}
 
-	if (use_bredr && !(supported_settings & MGMT_SETTING_SSP)) {
+	if (!use_legacy && !(supported_settings & MGMT_SETTING_SSP)) {
 		fprintf(stderr, "Secure Simple Pairing support missing\n");
 		mainloop_quit();
 		return;
@@ -399,6 +489,17 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 		return;
 	}
 
+	if (use_cross && (!(supported_settings & MGMT_SETTING_BREDR) ||
+				!(supported_settings & MGMT_SETTING_LE))) {
+		fprintf(stderr, "Dual-mode support is support missing\n");
+		mainloop_quit();
+		return;
+	}
+
+	mgmt_register(mgmt, MGMT_EV_PIN_CODE_REQUEST, index,
+						pin_code_request_event,
+						UINT_TO_PTR(index), NULL);
+
 	mgmt_register(mgmt, MGMT_EV_NEW_LINK_KEY, index,
 						new_link_key_event,
 						UINT_TO_PTR(index), NULL);
@@ -420,11 +521,11 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 		mgmt_send(mgmt, MGMT_OP_SET_BREDR, index, 1, &val,
 							NULL, NULL, NULL);
 
-		val = 0x00;
+		val = use_cross ? 0x01 : 0x00;
 		mgmt_send(mgmt, MGMT_OP_SET_LE, index, 1, &val,
 							NULL, NULL, NULL);
 
-		val = 0x01;
+		val = use_legacy ? 0x00 : 0x01;
 		mgmt_send(mgmt, MGMT_OP_SET_SSP, index, 1, &val,
 							NULL, NULL, NULL);
 	} else if (use_le) {
@@ -432,13 +533,35 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 		mgmt_send(mgmt, MGMT_OP_SET_LE, index, 1, &val,
 							NULL, NULL, NULL);
 
-		val = 0x00;
+		val = use_cross ? 0x01 : 0x00;
 		mgmt_send(mgmt, MGMT_OP_SET_BREDR, index, 1, &val,
 							NULL, NULL, NULL);
 	} else {
 		fprintf(stderr, "Invalid transport for pairing\n");
 		mainloop_quit();
 		return;
+	}
+
+	if (use_random) {
+		bdaddr_t bdaddr;
+
+		str2ba("c0:00:aa:bb:00:00", &bdaddr);
+		bdaddr.b[0] = index;
+
+		mgmt_send(mgmt, MGMT_OP_SET_STATIC_ADDRESS, index,
+						6, &bdaddr, NULL, NULL, NULL);
+
+		if (index == index1)
+			bacpy(&bdaddr1, &bdaddr);
+		else if (index == index2)
+			bacpy(&bdaddr2, &bdaddr);
+	} else {
+		bdaddr_t bdaddr;
+
+		bacpy(&bdaddr, BDADDR_ANY);
+
+		mgmt_send(mgmt, MGMT_OP_SET_STATIC_ADDRESS, index,
+						6, &bdaddr, NULL, NULL, NULL);
 	}
 
 	if (use_sc) {
@@ -534,7 +657,10 @@ static void usage(void)
 		"\t-L, --le               Use LE transport\n"
 		"\t-S, --sc               Use Secure Connections\n"
 		"\t-O, --sconly           Use Secure Connections Only\n"
+		"\t-P, --legacy           Use Legacy Pairing\n"
+		"\t-R, --random           Use Static random address\n"
 		"\t-D, --debug            Use Pairing debug keys\n"
+		"\t-C, --cross            Use cross-transport pairing\n"
 		"\t-1, --p192             Provide P-192 OOB data\n"
 		"\t-2, --p256             Provide P-256 OOB data\n"
 		"\t-h, --help             Show help options\n");
@@ -545,7 +671,12 @@ static const struct option main_options[] = {
 	{ "le",      no_argument,       NULL, 'L' },
 	{ "sc",      no_argument,       NULL, 'S' },
 	{ "sconly",  no_argument,       NULL, 'O' },
+	{ "legacy",  no_argument,       NULL, 'P' },
+	{ "random",  no_argument,       NULL, 'R' },
+	{ "static",  no_argument,       NULL, 'R' },
 	{ "debug",   no_argument,       NULL, 'D' },
+	{ "cross",   no_argument,       NULL, 'C' },
+	{ "dual",    no_argument,       NULL, 'C' },
 	{ "p192",    no_argument,       NULL, '1' },
 	{ "p256",    no_argument,       NULL, '2' },
 	{ "version", no_argument,       NULL, 'v' },
@@ -561,7 +692,8 @@ int main(int argc ,char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "BLSOD12vh", main_options, NULL);
+		opt = getopt_long(argc, argv, "BLSOPRDC12vh",
+						main_options, NULL);
 		if (opt < 0)
 			break;
 
@@ -578,8 +710,17 @@ int main(int argc ,char *argv[])
 		case 'O':
 			use_sconly = true;
 			break;
+		case 'P':
+			use_legacy = true;
+			break;
+		case 'R':
+			use_random = true;
+			break;
 		case 'D':
 			use_debug = true;
+			break;
+		case 'C':
+			use_cross = true;
 			break;
 		case '1':
 			provide_p192 = true;
@@ -605,6 +746,21 @@ int main(int argc ,char *argv[])
 
 	if (use_bredr == use_le) {
 		fprintf(stderr, "Specify either --bredr or --le\n");
+		return EXIT_FAILURE;
+	}
+
+	if (use_legacy && !use_bredr) {
+		fprintf(stderr, "Specify --legacy with --bredr\n");
+		return EXIT_FAILURE;
+	}
+
+	if (use_random && !use_le) {
+		fprintf(stderr, "Specify --random with --le\n");
+		return EXIT_FAILURE;
+	}
+
+	if (use_random && use_cross) {
+		fprintf(stderr, "Only --random or --cross can be used\n");
 		return EXIT_FAILURE;
 	}
 

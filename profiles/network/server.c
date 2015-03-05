@@ -29,18 +29,19 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
-
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/bnep.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
 #include <netinet/in.h>
 
 #include <glib.h>
-#include <gdbus/gdbus.h>
+
+#include "lib/bluetooth.h"
+#include "lib/bnep.h"
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
+#include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
 
 #include "btio/btio.h"
-#include "lib/uuid.h"
 #include "src/dbus-common.h"
 #include "src/adapter.h"
 #include "src/log.h"
@@ -434,13 +435,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	}
 
 	ns = find_server(na->servers, BNEP_SVC_NAP);
-	if (!ns)
-		goto drop;
-
-	if (!ns->record_id)
-		goto drop;
-
-	if (!ns->bridge)
+	if (!ns || !ns->record_id || !ns->bridge)
 		goto drop;
 
 	na->setup = g_new0(struct network_session, 1);
@@ -650,8 +645,7 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 	na = g_new0(struct network_adapter, 1);
 	na->adapter = btd_adapter_ref(adapter);
 
-	na->io = bt_io_listen(NULL, confirm_event, na,
-				NULL, &err,
+	na->io = bt_io_listen(NULL, confirm_event, na, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR,
 				btd_adapter_get_address(adapter),
 				BT_IO_OPT_PSM, BNEP_PSM,
@@ -697,10 +691,10 @@ int server_register(struct btd_adapter *adapter, uint16_t id)
 	if (g_slist_length(na->servers) > 0)
 		goto done;
 
-	if (!g_dbus_register_interface(btd_get_dbus_connection(),
-					path, NETWORK_SERVER_INTERFACE,
-					server_methods, NULL, NULL,
-					na, path_unregister)) {
+	if (!g_dbus_register_interface(btd_get_dbus_connection(), path,
+						NETWORK_SERVER_INTERFACE,
+						server_methods, NULL, NULL, na,
+						path_unregister)) {
 		error("D-Bus failed to register %s interface",
 						NETWORK_SERVER_INTERFACE);
 		server_free(ns);

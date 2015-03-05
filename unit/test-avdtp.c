@@ -36,12 +36,11 @@
 #include <glib.h>
 
 #include "src/shared/util.h"
+#include "src/shared/queue.h"
 #include "src/log.h"
 #include "android/avdtp.h"
 
 #define MAX_SEID 0x3E
-
-GSList *lseps = NULL;
 
 struct test_pdu {
 	bool valid;
@@ -89,6 +88,7 @@ struct context {
 	struct avdtp *session;
 	struct avdtp_local_sep *sep;
 	struct avdtp_stream *stream;
+	struct queue *lseps;
 	guint source;
 	guint process;
 	int fd;
@@ -233,7 +233,11 @@ static struct context *context_new(uint16_t version, uint16_t imtu,
 	err = socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sv);
 	g_assert(err == 0);
 
-	context->session = avdtp_new(sv[0], imtu, omtu, version);
+	context->lseps = queue_new();
+	g_assert(context->lseps);
+
+	context->session = avdtp_new(sv[0], imtu, omtu, version,
+								context->lseps);
 	g_assert(context->session != NULL);
 
 	channel = g_io_channel_unix_new(sv[1]);
@@ -260,10 +264,16 @@ static struct context *create_context(uint16_t version, gconstpointer data)
 	return context_new(version, 672, 672, data);
 }
 
-static void execute_context(struct context *context)
+static void unregister_sep(void *data)
 {
-	g_main_loop_run(context->main_loop);
+	struct avdtp_local_sep *sep = data;
 
+	/* Removed from the queue by caller */
+	avdtp_unregister_sep(NULL, sep);
+}
+
+static void destroy_context(struct context *context)
+{
 	if (context->source > 0)
 		g_source_remove(context->source);
 	avdtp_unref(context->session);
@@ -271,7 +281,16 @@ static void execute_context(struct context *context)
 	g_main_loop_unref(context->main_loop);
 
 	test_free(context->data);
+	queue_destroy(context->lseps, unregister_sep);
+
 	g_free(context);
+}
+
+static void execute_context(struct context *context)
+{
+	g_main_loop_run(context->main_loop);
+
+	destroy_context(context);
 }
 
 static gboolean sep_getcap_ind(struct avdtp *session,
@@ -505,15 +524,15 @@ static void test_server(gconstpointer data)
 	struct context *context = create_context(0x0100, data);
 	struct avdtp_local_sep *sep;
 
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SOURCE, AVDTP_MEDIA_TYPE_AUDIO,
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SOURCE,
+					AVDTP_MEDIA_TYPE_AUDIO,
 					0x00, FALSE, &sep_ind, &sep_cfm,
 					context);
+	g_assert(sep);
 
 	g_idle_add(send_pdu, context);
 
 	execute_context(context);
-
-	avdtp_unregister_sep(sep);
 }
 
 static void test_server_1_3(gconstpointer data)
@@ -521,14 +540,14 @@ static void test_server_1_3(gconstpointer data)
 	struct context *context = create_context(0x0103, data);
 	struct avdtp_local_sep *sep;
 
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SOURCE, AVDTP_MEDIA_TYPE_AUDIO,
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SOURCE,
+					AVDTP_MEDIA_TYPE_AUDIO,
 					0x00, TRUE, &sep_ind, NULL, context);
+	g_assert(sep);
 
 	g_idle_add(send_pdu, context);
 
 	execute_context(context);
-
-	avdtp_unregister_sep(sep);
 }
 
 static void test_server_1_3_sink(gconstpointer data)
@@ -536,14 +555,14 @@ static void test_server_1_3_sink(gconstpointer data)
 	struct context *context = create_context(0x0103, data);
 	struct avdtp_local_sep *sep;
 
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK, AVDTP_MEDIA_TYPE_AUDIO,
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
+					AVDTP_MEDIA_TYPE_AUDIO,
 					0x00, TRUE, &sep_ind, NULL, context);
+	g_assert(sep);
 
 	g_idle_add(send_pdu, context);
 
 	execute_context(context);
-
-	avdtp_unregister_sep(sep);
 }
 
 static void test_server_0_sep(gconstpointer data)
@@ -555,13 +574,6 @@ static void test_server_0_sep(gconstpointer data)
 	execute_context(context);
 }
 
-static void unregister_sep(void *data)
-{
-	struct avdtp_local_sep *sep = data;
-
-	avdtp_unregister_sep(sep);
-}
-
 static void test_server_seid(gconstpointer data)
 {
 	struct context *context = create_context(0x0103, data);
@@ -569,25 +581,21 @@ static void test_server_seid(gconstpointer data)
 	unsigned int i;
 
 	for (i = 0; i < sizeof(int) * 8; i++) {
-		sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK,
+		sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
 						AVDTP_MEDIA_TYPE_AUDIO,
 						0x00, TRUE, &sep_ind, NULL,
 						context);
 		g_assert(sep);
-
-		lseps = g_slist_append(lseps, sep);
 	}
 
 	/* Now add (MAX_SEID + 1) SEP -> it shall fail */
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK,
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
 						AVDTP_MEDIA_TYPE_AUDIO,
 						0x00, TRUE, &sep_ind, NULL,
 						context);
 	g_assert(!sep);
 
-	/* Remove all SEPs */
-	g_slist_free_full(lseps, unregister_sep);
-	lseps = NULL;
+	destroy_context(context);
 }
 
 static void test_server_seid_duplicate(gconstpointer data)
@@ -597,37 +605,31 @@ static void test_server_seid_duplicate(gconstpointer data)
 	int i;
 
 	for (i = 0; i < 2; i++) {
-		sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK,
+		sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
 						AVDTP_MEDIA_TYPE_AUDIO,
 						0x00, TRUE, &sep_ind, NULL,
 						context);
 		g_assert(sep);
-
-		lseps = g_slist_append(lseps, sep);
 	}
 
 	/* Remove 1st element */
-	sep = g_slist_nth_data(lseps, 0);
-	lseps = g_slist_remove(lseps, sep);
-	avdtp_unregister_sep(sep);
+	sep = queue_peek_head(context->lseps);
+	g_assert(sep);
+
+	avdtp_unregister_sep(context->lseps, sep);
 
 	/* Now register new element */
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK,
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
 						AVDTP_MEDIA_TYPE_AUDIO,
 						0x00, TRUE, &sep_ind, NULL,
 						context);
 	g_assert(sep);
-	lseps = g_slist_append(lseps, sep);
 
-	/* Check SEID ids */
+	/* Check SEID ids with DISCOVER */
 
 	g_idle_add(send_pdu, context);
 
 	execute_context(context);
-
-	/* Remove all SEPs */
-	g_slist_free_full(lseps, unregister_sep);
-	lseps = NULL;
 }
 
 static gboolean sep_getcap_ind_frg(struct avdtp *session,
@@ -675,15 +677,15 @@ static void test_server_frg(gconstpointer data)
 	struct context *context = context_new(0x0100, 48, 48, data);
 	struct avdtp_local_sep *sep;
 
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SOURCE, AVDTP_MEDIA_TYPE_AUDIO,
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SOURCE,
+						AVDTP_MEDIA_TYPE_AUDIO,
 						0x00, TRUE, &sep_ind_frg,
 						NULL, context);
+	g_assert(sep);
 
 	g_idle_add(send_pdu, context);
 
 	execute_context(context);
-
-	avdtp_unregister_sep(sep);
 }
 
 static void discover_cb(struct avdtp *session, GSList *seps,
@@ -758,16 +760,15 @@ static void test_client(gconstpointer data)
 	struct context *context = create_context(0x0100, data);
 	struct avdtp_local_sep *sep;
 
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK, AVDTP_MEDIA_TYPE_AUDIO,
-					0x00, FALSE, NULL, &sep_cfm,
-					context);
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
+					AVDTP_MEDIA_TYPE_AUDIO,
+					0x00, FALSE, NULL, &sep_cfm, context);
+
 	context->sep = sep;
 
 	avdtp_discover(context->session, discover_cb, context);
 
 	execute_context(context);
-
-	avdtp_unregister_sep(sep);
 }
 
 static void test_client_1_3(gconstpointer data)
@@ -775,16 +776,15 @@ static void test_client_1_3(gconstpointer data)
 	struct context *context = create_context(0x0103, data);
 	struct avdtp_local_sep *sep;
 
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK, AVDTP_MEDIA_TYPE_AUDIO,
-					0x00, TRUE, NULL, &sep_cfm,
-					context);
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
+					AVDTP_MEDIA_TYPE_AUDIO,
+					0x00, TRUE, NULL, &sep_cfm, context);
+
 	context->sep = sep;
 
 	avdtp_discover(context->session, discover_cb, context);
 
 	execute_context(context);
-
-	avdtp_unregister_sep(sep);
 }
 
 static void test_client_frg(gconstpointer data)
@@ -792,16 +792,15 @@ static void test_client_frg(gconstpointer data)
 	struct context *context = context_new(0x0100, 48, 48, data);
 	struct avdtp_local_sep *sep;
 
-	sep = avdtp_register_sep(AVDTP_SEP_TYPE_SINK, AVDTP_MEDIA_TYPE_AUDIO,
-					0x00, TRUE, NULL, &sep_cfm,
-					context);
+	sep = avdtp_register_sep(context->lseps, AVDTP_SEP_TYPE_SINK,
+					AVDTP_MEDIA_TYPE_AUDIO,
+					0x00, TRUE, NULL, &sep_cfm, context);
+
 	context->sep = sep;
 
 	avdtp_discover(context->session, discover_cb, context);
 
 	execute_context(context);
-
-	avdtp_unregister_sep(sep);
 }
 
 int main(int argc, char *argv[])
