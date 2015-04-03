@@ -71,7 +71,8 @@ struct control {
 };
 
 static void state_changed(struct btd_device *dev, avctp_state_t old_state,
-				avctp_state_t new_state, void *user_data)
+					avctp_state_t new_state, int err,
+					void *user_data)
 {
 	struct control *control = user_data;
 	DBusConnection *conn = btd_get_dbus_connection();
@@ -336,14 +337,4 @@ int control_init_remote(struct btd_service *service)
 	btd_service_set_user_data(service, control);
 
 	return 0;
-}
-
-gboolean control_is_active(struct btd_service *service)
-{
-	struct control *control = btd_service_get_user_data(service);
-
-	if (control && control->session)
-		return TRUE;
-
-	return FALSE;
 }

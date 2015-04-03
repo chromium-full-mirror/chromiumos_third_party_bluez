@@ -58,6 +58,10 @@
 #include "src/shared/util.h"
 #include "src/shared/mgmt.h"
 
+#define SCAN_TYPE_BREDR (1 << BDADDR_BREDR)
+#define SCAN_TYPE_LE ((1 << BDADDR_LE_PUBLIC) | (1 << BDADDR_LE_RANDOM))
+#define SCAN_TYPE_DUAL (SCAN_TYPE_BREDR | SCAN_TYPE_LE)
+
 static struct mgmt *mgmt = NULL;
 static uint16_t mgmt_index = MGMT_INDEX_NONE;
 
@@ -129,7 +133,7 @@ static void noninteractive_quit(int status)
 		fprintf(stderr, fmt "\n", ## arg); \
 } while (0)
 
-static size_t convert_hexstr(const char *hexstr, uint8_t *buf, size_t buflen)
+static size_t hex2bin(const char *hexstr, uint8_t *buf, size_t buflen)
 {
 	size_t i, len;
 
@@ -140,6 +144,67 @@ static size_t convert_hexstr(const char *hexstr, uint8_t *buf, size_t buflen)
 		sscanf(hexstr + (i * 2), "%02hhX", &buf[i]);
 
 	return len;
+}
+
+static size_t bin2hex(const uint8_t *buf, size_t buflen, char *str,
+								size_t strlen)
+{
+	size_t i;
+
+	for (i = 0; i < buflen && i < (strlen / 2); i++)
+		sprintf(str + (i * 2), "%02x", buf[i]);
+
+	return i;
+}
+
+static void print_eir(const uint8_t *eir, uint16_t eir_len)
+{
+	uint16_t parsed = 0;
+	char str[33];
+
+	while (parsed < eir_len - 1) {
+		uint8_t field_len = eir[0];
+
+		if (field_len == 0)
+			break;
+
+		parsed += field_len + 1;
+
+		if (parsed > eir_len)
+			break;
+
+		switch (eir[1]) {
+		case 0x01:
+			print("Flags: 0x%02x", eir[2]);
+			break;
+		case 0x0d:
+			print("Class of Device: 0x%02x%02x%02x",
+						eir[4], eir[3], eir[2]);
+			break;
+		case 0x1b:
+			ba2str((bdaddr_t *) (eir + 2), str);
+			print("LE Device Address: %s (%s)", str,
+					eir[8] ? "random" : "public");
+			break;
+		case 0x1c:
+			print("LE Role: 0x%02x", eir[2]);
+			break;
+		case 0x22:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("LE SC Confirmation Value: %s", str);
+			break;
+		case 0x23:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("LE SC Random Value: %s", str);
+			break;
+		default:
+			print("Type %u: %u byte%s", eir[1], field_len - 1,
+					(field_len - 1) == 1 ? "" : "s");
+			break;
+		}
+
+		eir += field_len + 1;
+	}
 }
 
 static bool load_identity(uint16_t index, struct mgmt_irk_info *irk)
@@ -167,7 +232,7 @@ static bool load_identity(uint16_t index, struct mgmt_irk_info *irk)
 		return false;
 
 	str2ba(addr, &irk->addr.bdaddr);
-	convert_hexstr(key, irk->val, sizeof(irk->val));
+	hex2bin(key, irk->val, sizeof(irk->val));
 
 	free(addr);
 	free(key);
@@ -224,6 +289,22 @@ static void unconf_index_removed(uint16_t index, uint16_t len,
 	print("hci%u removed (unconfigured)", index);
 }
 
+static void ext_index_added(uint16_t index, uint16_t len,
+				const void *param, void *user_data)
+{
+	const struct mgmt_ev_ext_index_added *ev = param;
+
+	print("hci%u added (type %u bus %u)", index, ev->type, ev->bus);
+}
+
+static void ext_index_removed(uint16_t index, uint16_t len,
+				const void *param, void *user_data)
+{
+	const struct mgmt_ev_ext_index_removed *ev = param;
+
+	print("hci%u removed (type %u bus %u)", index, ev->type, ev->bus);
+}
+
 static const char *options_str[] = {
 				"external",
 				"public-address",
@@ -276,6 +357,7 @@ static const char *settings_str[] = {
 				"debug-keys",
 				"privacy",
 				"configuration",
+				"static-addr",
 };
 
 static const char *settings2str(uint32_t settings)
@@ -458,6 +540,20 @@ static void auth_failed(uint16_t index, uint16_t len, const void *param,
 	ba2str(&ev->addr.bdaddr, addr);
 	print("hci%u %s auth failed with status 0x%02x (%s)",
 			index, addr, ev->status, mgmt_errstr(ev->status));
+}
+
+static void class_of_dev_changed(uint16_t index, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_class_of_dev_changed *ev = param;
+
+	if (len != sizeof(*ev)) {
+		error("Invalid class_of_dev_changed length (%u bytes)", len);
+		return;
+	}
+
+	print("hci%u class of device changed: 0x%02x%02x%02x", index,
+			ev->dev_class[2], ev->dev_class[1], ev->dev_class[0]);
 }
 
 static void local_name_changed(uint16_t index, uint16_t len, const void *param,
@@ -950,6 +1046,54 @@ static void passkey_notify(uint16_t index, uint16_t len, const void *param,
 								ev->entered);
 }
 
+static void local_oob_data_updated(uint16_t index, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_local_oob_data_updated *ev = param;
+	uint16_t eir_len;
+
+	if (len < sizeof(*ev)) {
+		error("Too small (%u bytes) local_oob_updated event", len);
+		return;
+	}
+
+	eir_len = le16_to_cpu(ev->eir_len);
+	if (len != sizeof(*ev) + eir_len) {
+		error("local_oob_updated: expected %zu bytes, got %u bytes",
+						sizeof(*ev) + eir_len, len);
+		return;
+	}
+
+	print("hci%u oob data updated: type %u len %u", index,
+						ev->type, eir_len);
+}
+
+static void advertising_added(uint16_t index, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_advertising_added *ev = param;
+
+	if (len < sizeof(*ev)) {
+		error("Too small (%u bytes) advertising_added event", len);
+		return;
+	}
+
+	print("hci%u advertising_added: instance %u", index, ev->instance);
+}
+
+static void advertising_removed(uint16_t index, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_advertising_removed *ev = param;
+
+	if (len < sizeof(*ev)) {
+		error("Too small (%u bytes) advertising_removed event", len);
+		return;
+	}
+
+	print("hci%u advertising_removed: instance %u", index, ev->instance);
+}
+
 static void version_rsp(uint8_t status, uint16_t len, const void *param,
 							void *user_data)
 {
@@ -1043,53 +1187,12 @@ static void cmd_commands(struct mgmt *mgmt, uint16_t index, int argc,
 	}
 }
 
-static void unconf_index_rsp(uint8_t status, uint16_t len, const void *param,
-							void *user_data)
-{
-	const struct mgmt_rp_read_unconf_index_list *rp = param;
-	uint16_t count;
-	unsigned int i;
-
-	if (status != 0) {
-		error("Reading index list failed with status 0x%02x (%s)",
-						status, mgmt_errstr(status));
-		goto done;
-	}
-
-	if (len < sizeof(*rp)) {
-		error("Too small index list reply (%u bytes)", len);
-		goto done;
-	}
-
-	count = get_le16(&rp->num_controllers);
-
-	if (len < sizeof(*rp) + count * sizeof(uint16_t)) {
-		error("Index count (%u) doesn't match reply length (%u)",
-								count, len);
-		goto done;
-	}
-
-	print("Unconfigured index list with %u item%s",
-						count, count != 1 ? "s" : "");
-
-	for (i = 0; i < count; i++) {
-		uint16_t index;
-
-		index = get_le16(&rp->index[i]);
-
-		print("\thci%u", index);
-
-	}
-
-done:
-	noninteractive_quit(EXIT_SUCCESS);
-}
-
 static void config_info_rsp(uint8_t status, uint16_t len, const void *param,
 							void *user_data)
 {
 	const struct mgmt_rp_read_config_info *rp = param;
 	uint16_t index = PTR_TO_UINT(user_data);
+	uint32_t supported_options, missing_options;
 
 	if (status != 0) {
 		error("Reading hci%u config failed with status 0x%02x (%s)",
@@ -1102,25 +1205,76 @@ static void config_info_rsp(uint8_t status, uint16_t len, const void *param,
 		goto done;
 	}
 
-	print("hci%u:\tmanufacturer %u", index, get_le16(&rp->manufacturer));
+	print("hci%u:\tUnconfigured controller", index);
 
-	print("\tsupported options: %s",
-			options2str(get_le32(&rp->supported_options)));
-	print("\tmissing options: %s",
-			options2str(get_le32(&rp->missing_options)));
+	print("\tmanufacturer %u", le16_to_cpu(rp->manufacturer));
+
+	supported_options = le32_to_cpu(rp->supported_options);
+	print("\tsupported options: %s", options2str(supported_options));
+
+	missing_options = le32_to_cpu(rp->missing_options);
+	print("\tmissing options: %s", options2str(missing_options));
 
 done:
+	pending_index--;
+
+	if (pending_index > 0)
+		return;
+
 	noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void unconf_index_rsp(uint8_t status, uint16_t len, const void *param,
+							void *user_data)
+{
+	const struct mgmt_rp_read_unconf_index_list *rp = param;
+	uint16_t count;
+	unsigned int i;
+
+	if (status != 0) {
+		error("Reading index list failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len < sizeof(*rp)) {
+		error("Too small index list reply (%u bytes)", len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	count = le16_to_cpu(rp->num_controllers);
+
+	if (len < sizeof(*rp) + count * sizeof(uint16_t)) {
+		error("Index count (%u) doesn't match reply length (%u)",
+								count, len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	print("Unconfigured index list with %u item%s",
+					count, count != 1 ? "s" : "");
+
+	for (i = 0; i < count; i++) {
+		uint16_t index = le16_to_cpu(rp->index[i]);
+
+		if (!mgmt_send(mgmt, MGMT_OP_READ_CONFIG_INFO, index, 0, NULL,
+				config_info_rsp, UINT_TO_PTR(index), NULL)) {
+			error("Unable to send read_config_info cmd");
+			return noninteractive_quit(EXIT_FAILURE);
+		}
+
+		pending_index++;
+	}
+
+	if (!count)
+		noninteractive_quit(EXIT_SUCCESS);
 }
 
 static void cmd_config(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 {
-	void *data;
-
 	if (index == MGMT_INDEX_NONE) {
-		if (mgmt_send(mgmt, MGMT_OP_READ_UNCONF_INDEX_LIST,
+		if (!mgmt_send(mgmt, MGMT_OP_READ_UNCONF_INDEX_LIST,
 					MGMT_INDEX_NONE, 0, NULL,
-					unconf_index_rsp, mgmt, NULL) == 0) {
+					unconf_index_rsp, mgmt, NULL)) {
 			error("Unable to send unconf_index_list cmd");
 			return noninteractive_quit(EXIT_FAILURE);
 		}
@@ -1128,13 +1282,46 @@ static void cmd_config(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 		return;
 	}
 
-	data = UINT_TO_PTR(index);
-
-	if (mgmt_send(mgmt, MGMT_OP_READ_CONFIG_INFO, index, 0, NULL,
-					config_info_rsp, data, NULL) == 0) {
+	if (!mgmt_send(mgmt, MGMT_OP_READ_CONFIG_INFO, index, 0, NULL,
+				config_info_rsp, UINT_TO_PTR(index), NULL)) {
 		error("Unable to send read_config_info cmd");
 		return noninteractive_quit(EXIT_FAILURE);
 	}
+}
+
+static void config_options_rsp(uint8_t status, uint16_t len, const void *param,
+							void *user_data)
+{
+	const struct mgmt_rp_read_config_info *rp = param;
+	uint16_t index = PTR_TO_UINT(user_data);
+	uint32_t supported_options, missing_options;
+
+	if (status != 0) {
+		error("Reading hci%u config failed with status 0x%02x (%s)",
+					index, status, mgmt_errstr(status));
+		goto done;
+	}
+
+	if (len < sizeof(*rp)) {
+		error("Too small info reply (%u bytes)", len);
+		goto done;
+	}
+
+	print("hci%u:\tConfiguration options", index);
+
+	supported_options = le32_to_cpu(rp->supported_options);
+	print("\tsupported options: %s", options2str(supported_options));
+
+	missing_options = le32_to_cpu(rp->missing_options);
+	print("\tmissing options: %s", options2str(missing_options));
+
+done:
+	pending_index--;
+
+	if (pending_index > 0)
+		return;
+
+	noninteractive_quit(EXIT_SUCCESS);
 }
 
 static void info_rsp(uint8_t status, uint16_t len, const void *param,
@@ -1142,9 +1329,8 @@ static void info_rsp(uint8_t status, uint16_t len, const void *param,
 {
 	const struct mgmt_rp_read_info *rp = param;
 	uint16_t index = PTR_TO_UINT(user_data);
+	uint32_t supported_settings, current_settings;
 	char addr[18];
-
-	pending_index--;
 
 	if (status != 0) {
 		error("Reading hci%u info failed with status 0x%02x (%s)",
@@ -1157,25 +1343,38 @@ static void info_rsp(uint8_t status, uint16_t len, const void *param,
 		goto done;
 	}
 
+	print("hci%u:\tPrimary controller", index);
+
 	ba2str(&rp->bdaddr, addr);
-	print("hci%u:\taddr %s version %u manufacturer %u"
-			" class 0x%02x%02x%02x", index,
-			addr, rp->version, get_le16(&rp->manufacturer),
+	print("\taddr %s version %u manufacturer %u class 0x%02x%02x%02x",
+			addr, rp->version, le16_to_cpu(rp->manufacturer),
 			rp->dev_class[2], rp->dev_class[1], rp->dev_class[0]);
 
-	print("\tsupported settings: %s",
-			settings2str(get_le32(&rp->supported_settings)));
+	supported_settings = le32_to_cpu(rp->supported_settings);
+	print("\tsupported settings: %s", settings2str(supported_settings));
 
-	print("\tcurrent settings: %s",
-			settings2str(get_le32(&rp->current_settings)));
+	current_settings = le32_to_cpu(rp->current_settings);
+	print("\tcurrent settings: %s", settings2str(current_settings));
 
 	print("\tname %s", rp->name);
 	print("\tshort name %s", rp->short_name);
 
+	if (supported_settings & MGMT_SETTING_CONFIGURATION) {
+		if (!mgmt_send(mgmt, MGMT_OP_READ_CONFIG_INFO,
+					index, 0, NULL, config_options_rsp,
+					UINT_TO_PTR(index), NULL)) {
+			error("Unable to send read_config cmd");
+			goto done;
+		}
+		return;
+	}
+
+done:
+	pending_index--;
+
 	if (pending_index > 0)
 		return;
 
-done:
 	noninteractive_quit(EXIT_SUCCESS);
 }
 
@@ -1198,7 +1397,7 @@ static void index_rsp(uint8_t status, uint16_t len, const void *param,
 		return noninteractive_quit(EXIT_FAILURE);
 	}
 
-	count = get_le16(&rp->num_controllers);
+	count = le16_to_cpu(rp->num_controllers);
 
 	if (len < sizeof(*rp) + count * sizeof(uint16_t)) {
 		error("Index count (%u) doesn't match reply length (%u)",
@@ -1209,15 +1408,10 @@ static void index_rsp(uint8_t status, uint16_t len, const void *param,
 	print("Index list with %u item%s", count, count != 1 ? "s" : "");
 
 	for (i = 0; i < count; i++) {
-		uint16_t index;
-		void *data;
+		uint16_t index = le16_to_cpu(rp->index[i]);
 
-		index = get_le16(&rp->index[i]);
-
-		data = UINT_TO_PTR(index);
-
-		if (mgmt_send(mgmt, MGMT_OP_READ_INFO, index, 0, NULL,
-						info_rsp, data, NULL) == 0) {
+		if (!mgmt_send(mgmt, MGMT_OP_READ_INFO, index, 0, NULL,
+					info_rsp, UINT_TO_PTR(index), NULL)) {
 			error("Unable to send read_info cmd");
 			return noninteractive_quit(EXIT_FAILURE);
 		}
@@ -1231,12 +1425,10 @@ static void index_rsp(uint8_t status, uint16_t len, const void *param,
 
 static void cmd_info(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 {
-	void *data;
-
 	if (index == MGMT_INDEX_NONE) {
-		if (mgmt_send(mgmt, MGMT_OP_READ_INDEX_LIST,
+		if (!mgmt_send(mgmt, MGMT_OP_READ_INDEX_LIST,
 					MGMT_INDEX_NONE, 0, NULL,
-					index_rsp, mgmt, NULL) == 0) {
+					index_rsp, mgmt, NULL)) {
 			error("Unable to send index_list cmd");
 			return noninteractive_quit(EXIT_FAILURE);
 		}
@@ -1244,11 +1436,89 @@ static void cmd_info(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 		return;
 	}
 
-	data = UINT_TO_PTR(index);
-
-	if (mgmt_send(mgmt, MGMT_OP_READ_INFO, index, 0, NULL, info_rsp,
-							data, NULL) == 0) {
+	if (!mgmt_send(mgmt, MGMT_OP_READ_INFO, index, 0, NULL, info_rsp,
+						UINT_TO_PTR(index), NULL)) {
 		error("Unable to send read_info cmd");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void ext_index_rsp(uint8_t status, uint16_t len, const void *param,
+							void *user_data)
+{
+	const struct mgmt_rp_read_ext_index_list *rp = param;
+	uint16_t count, index_filter = PTR_TO_UINT(user_data);
+	unsigned int i;
+
+	if (status != 0) {
+		error("Reading ext index list failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len < sizeof(*rp)) {
+		error("Too small ext index list reply (%u bytes)", len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	count = get_le16(&rp->num_controllers);
+
+	if (len < sizeof(*rp) + count * (sizeof(uint16_t) + sizeof(uint8_t))) {
+		error("Index count (%u) doesn't match reply length (%u)",
+								count, len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	print("Extended index list with %u item%s",
+					count, count != 1 ? "s" : "");
+
+	for (i = 0; i < count; i++) {
+		uint16_t index = le16_to_cpu(rp->entry[i].index);
+
+		if (index_filter != MGMT_INDEX_NONE && index_filter != index)
+			continue;
+
+		switch (rp->entry[i].type) {
+		case 0x00:
+			if (!mgmt_send(mgmt, MGMT_OP_READ_INFO,
+						index, 0, NULL, info_rsp,
+						UINT_TO_PTR(index), NULL)) {
+				error("Unable to send read_info cmd");
+				return noninteractive_quit(EXIT_FAILURE);
+			}
+			pending_index++;
+			break;
+		case 0x01:
+			if (!mgmt_send(mgmt, MGMT_OP_READ_CONFIG_INFO,
+						index, 0, NULL, config_info_rsp,
+						UINT_TO_PTR(index), NULL)) {
+				error("Unable to send read_config cmd");
+				return noninteractive_quit(EXIT_FAILURE);
+			}
+			pending_index++;
+			break;
+		case 0x02:
+			print("hci%u:\tAMP controller (%u)", index,
+							rp->entry[i].bus);
+			break;
+		default:
+			print("hci%u:\tType %u controller (%u)", index,
+					rp->entry[i].type, rp->entry[i].bus);
+			break;
+		}
+	}
+
+	if (!count)
+		noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void cmd_extinfo(struct mgmt *mgmt, uint16_t index,
+						int argc, char **argv)
+{
+	if (!mgmt_send(mgmt, MGMT_OP_READ_EXT_INDEX_LIST,
+				MGMT_INDEX_NONE, 0, NULL,
+				ext_index_rsp, UINT_TO_PTR(index), NULL)) {
+		error("Unable to send ext_index_list cmd");
 		return noninteractive_quit(EXIT_FAILURE);
 	}
 }
@@ -1481,7 +1751,7 @@ static void cmd_privacy(struct mgmt *mgmt, uint16_t index, int argc,
 		index = 0;
 
 	if (argc > 2) {
-		if (convert_hexstr(argv[2], cp.irk,
+		if (hex2bin(argv[2], cp.irk,
 					sizeof(cp.irk)) != sizeof(cp.irk)) {
 			error("Invalid key format");
 			return noninteractive_quit(EXIT_FAILURE);
@@ -1528,7 +1798,7 @@ static void class_rsp(uint16_t op, uint16_t id, uint8_t status, uint16_t len,
 	}
 
 	print("%s succeeded. Class 0x%02x%02x%02x", mgmt_opstr(op),
-		rp->class_of_dev[2], rp->class_of_dev[1], rp->class_of_dev[0]);
+		rp->dev_class[2], rp->dev_class[1], rp->dev_class[0]);
 
 	noninteractive_quit(EXIT_SUCCESS);
 }
@@ -1609,9 +1879,11 @@ static void cmd_disconnect(struct mgmt *mgmt, uint16_t index, int argc,
 			break;
 		case 'h':
 			disconnect_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			disconnect_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -1727,7 +1999,7 @@ static void cmd_find_service(struct mgmt *mgmt, uint16_t index, int argc,
 	uuid_t uuid;
 	uint128_t uint128;
 	uuid_t uuid128;
-	uint8_t type;
+	uint8_t type = SCAN_TYPE_DUAL;
 	int8_t rssi;
 	uint16_t count;
 	int opt;
@@ -1735,10 +2007,6 @@ static void cmd_find_service(struct mgmt *mgmt, uint16_t index, int argc,
 	if (index == MGMT_INDEX_NONE)
 		index = 0;
 
-	type = 0;
-	type |= (1 << BDADDR_BREDR);
-	type |= (1 << BDADDR_LE_PUBLIC);
-	type |= (1 << BDADDR_LE_RANDOM);
 	rssi = 127;
 	count = 0;
 
@@ -1751,23 +2019,23 @@ static void cmd_find_service(struct mgmt *mgmt, uint16_t index, int argc,
 					find_service_options, NULL)) != -1) {
 		switch (opt) {
 		case 'l':
-			type &= ~(1 << BDADDR_BREDR);
-			type |= (1 << BDADDR_LE_PUBLIC);
-			type |= (1 << BDADDR_LE_RANDOM);
+			type &= ~SCAN_TYPE_BREDR;
+			type |= SCAN_TYPE_LE;
 			break;
 		case 'b':
-			type |= (1 << BDADDR_BREDR);
-			type &= ~(1 << BDADDR_LE_PUBLIC);
-			type &= ~(1 << BDADDR_LE_RANDOM);
+			type |= SCAN_TYPE_BREDR;
+			type &= ~SCAN_TYPE_LE;
 			break;
 		case 'u':
 			if (count == MAX_UUIDS) {
 				print("Max %u UUIDs supported", MAX_UUIDS);
+				optind = 0;
 				return noninteractive_quit(EXIT_FAILURE);
 			}
 
 			if (bt_string2uuid(&uuid, optarg) < 0) {
 				print("Invalid UUID: %s", optarg);
+				optind = 0;
 				return noninteractive_quit(EXIT_FAILURE);
 			}
 			cp = (void *) buf;
@@ -1781,9 +2049,11 @@ static void cmd_find_service(struct mgmt *mgmt, uint16_t index, int argc,
 			break;
 		case 'h':
 			find_service_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			find_service_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -1838,35 +2108,30 @@ static struct option find_options[] = {
 static void cmd_find(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 {
 	struct mgmt_cp_start_discovery cp;
-	uint8_t type;
+	uint8_t type = SCAN_TYPE_DUAL;
 	int opt;
 
 	if (index == MGMT_INDEX_NONE)
 		index = 0;
 
-	type = 0;
-	type |= (1 << BDADDR_BREDR);
-	type |= (1 << BDADDR_LE_PUBLIC);
-	type |= (1 << BDADDR_LE_RANDOM);
-
 	while ((opt = getopt_long(argc, argv, "+lbh", find_options,
 								NULL)) != -1) {
 		switch (opt) {
 		case 'l':
-			type &= ~(1 << BDADDR_BREDR);
-			type |= (1 << BDADDR_LE_PUBLIC);
-			type |= (1 << BDADDR_LE_RANDOM);
+			type &= ~SCAN_TYPE_BREDR;
+			type |= SCAN_TYPE_LE;
 			break;
 		case 'b':
-			type |= (1 << BDADDR_BREDR);
-			type &= ~(1 << BDADDR_LE_PUBLIC);
-			type &= ~(1 << BDADDR_LE_RANDOM);
+			type |= SCAN_TYPE_BREDR;
+			type &= ~SCAN_TYPE_LE;
 			break;
 		case 'h':
 			find_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			find_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -1882,6 +2147,78 @@ static void cmd_find(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 						find_rsp, NULL, NULL) == 0) {
 		error("Unable to send start_discovery cmd");
 		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void stop_find_rsp(uint8_t status, uint16_t len, const void *param,
+							void *user_data)
+{
+	if (status != 0) {
+		fprintf(stderr,
+			"Stop Discovery failed: status 0x%02x (%s)\n",
+						status, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+
+	printf("Discovery stopped\n");
+	discovery = false;
+
+	noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void stop_find_usage(void)
+{
+	printf("Usage: btmgmt stop-find [-l|-b]>\n");
+}
+
+static struct option stop_find_options[] = {
+	{ "help",	0, 0, 'h' },
+	{ "le-only",	1, 0, 'l' },
+	{ "bredr-only",	1, 0, 'b' },
+	{ 0, 0, 0, 0 }
+};
+
+static void cmd_stop_find(struct mgmt *mgmt, uint16_t index, int argc,
+			  char **argv)
+{
+	struct mgmt_cp_stop_discovery cp;
+	uint8_t type = SCAN_TYPE_DUAL;
+	int opt;
+
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	while ((opt = getopt_long(argc, argv, "+lbh", stop_find_options,
+								NULL)) != -1) {
+		switch (opt) {
+		case 'l':
+			type &= ~SCAN_TYPE_BREDR;
+			type |= SCAN_TYPE_LE;
+			break;
+		case 'b':
+			type |= SCAN_TYPE_BREDR;
+			type &= ~SCAN_TYPE_LE;
+			break;
+		case 'h':
+		default:
+			stop_find_usage();
+			optind = 0;
+			exit(EXIT_SUCCESS);
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+	optind = 0;
+
+	memset(&cp, 0, sizeof(cp));
+	cp.type = type;
+
+	if (mgmt_send(mgmt, MGMT_OP_STOP_DISCOVERY, index, sizeof(cp), &cp,
+					     stop_find_rsp, NULL, NULL) == 0) {
+		fprintf(stderr, "Unable to send stop_discovery cmd\n");
+		exit(EXIT_FAILURE);
 	}
 }
 
@@ -1983,9 +2320,11 @@ static void cmd_pair(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 			break;
 		case 'h':
 			pair_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			pair_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -2072,9 +2411,11 @@ static void cmd_cancel_pair(struct mgmt *mgmt, uint16_t index, int argc,
 			break;
 		case 'h':
 			cancel_pair_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			cancel_pair_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -2156,9 +2497,11 @@ static void cmd_unpair(struct mgmt *mgmt, uint16_t index, int argc,
 			break;
 		case 'h':
 			unpair_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			unpair_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -2287,6 +2630,7 @@ static void cmd_irks(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 		case 'l':
 			if (count >= MAX_IRKS) {
 				error("Number of IRKs exceeded");
+				optind = 0;
 				return noninteractive_quit(EXIT_FAILURE);
 			}
 			if (strlen(optarg) > 3 &&
@@ -2296,15 +2640,18 @@ static void cmd_irks(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 				local_index = atoi(optarg);
 			if (!load_identity(local_index, &cp->irks[count])) {
 				error("Unable to load identity");
+				optind = 0;
 				return noninteractive_quit(EXIT_FAILURE);
 			}
 			count++;
 			break;
 		case 'h':
 			irks_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			irks_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -2382,9 +2729,11 @@ static void cmd_block(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 			break;
 		case 'h':
 			block_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			block_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -2432,9 +2781,11 @@ static void cmd_unblock(struct mgmt *mgmt, uint16_t index, int argc,
 			break;
 		case 'h':
 			unblock_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_SUCCESS);
 		default:
 			unblock_usage();
+			optind = 0;
 			return noninteractive_quit(EXIT_FAILURE);
 		}
 	}
@@ -2543,8 +2894,7 @@ static void local_oob_rsp(uint8_t status, uint16_t len, const void *param,
 							void *user_data)
 {
 	const struct mgmt_rp_read_local_oob_data *rp = param;
-	const struct mgmt_rp_read_local_oob_ext_data *rp_ext = param;
-	int i;
+	char str[33];
 
 	if (status != 0) {
 		error("Read Local OOB Data failed with status 0x%02x (%s)",
@@ -2557,28 +2907,20 @@ static void local_oob_rsp(uint8_t status, uint16_t len, const void *param,
 		return noninteractive_quit(EXIT_FAILURE);
 	}
 
-	print("Hash C from P-192: ");
-	for (i = 0; i < 16; i++)
-		print("%02x", rp->hash[i]);
-	print("");
+	bin2hex(rp->hash192, 16, str, sizeof(str));
+	print("Hash C from P-192: %s", str);
 
-	print("Randomizer R with P-192: ");
-	for (i = 0; i < 16; i++)
-		print("%02x", rp->randomizer[i]);
-	print("");
+	bin2hex(rp->rand192, 16, str, sizeof(str));
+	print("Randomizer R with P-192: %s", str);
 
-	if (len < sizeof(*rp_ext))
+	if (len < sizeof(*rp))
 		return noninteractive_quit(EXIT_SUCCESS);
 
-	print("Hash C from P-256: ");
-	for (i = 0; i < 16; i++)
-		print("%02x", rp_ext->hash256[i]);
-	print("");
+	bin2hex(rp->hash256, 16, str, sizeof(str));
+	print("Hash C from P-256: %s", str);
 
-	print("Randomizer R with P-256: ");
-	for (i = 0; i < 16; i++)
-		print("%02x", rp_ext->randomizer256[i]);
-	print("");
+	bin2hex(rp->rand256, 16, str, sizeof(str));
+	print("Randomizer R with P-256: %s", str);
 
 	noninteractive_quit(EXIT_SUCCESS);
 }
@@ -2646,16 +2988,16 @@ static void cmd_remote_oob(struct mgmt *mgmt, uint16_t index,
 			cp.addr.type = strtol(optarg, NULL, 0);
 			break;
 		case 'r':
-			convert_hexstr(optarg, cp.rand192, 16);
+			hex2bin(optarg, cp.rand192, 16);
 			break;
 		case 'h':
-			convert_hexstr(optarg, cp.hash192, 16);
+			hex2bin(optarg, cp.hash192, 16);
 			break;
 		case 'R':
-			convert_hexstr(optarg, cp.rand256, 16);
+			hex2bin(optarg, cp.rand256, 16);
 			break;
 		case 'H':
-			convert_hexstr(optarg, cp.hash256, 16);
+			hex2bin(optarg, cp.hash256, 16);
 			break;
 		default:
 			remote_oob_usage();
@@ -3232,6 +3574,456 @@ static void cmd_clr_devices(struct mgmt *mgmt, uint16_t index,
 	cmd_del_device(mgmt, index, 2, rm_argv);
 }
 
+static void local_oob_ext_rsp(uint8_t status, uint16_t len, const void *param,
+							void *user_data)
+{
+	const struct mgmt_rp_read_local_oob_ext_data *rp = param;
+	uint16_t eir_len;
+
+	if (status != 0) {
+		error("Read Local OOB Ext Data failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len < sizeof(*rp)) {
+		error("Too small (%u bytes) read_local_oob_ext rsp", len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	eir_len = le16_to_cpu(rp->eir_len);
+	if (len != sizeof(*rp) + eir_len) {
+		error("local_oob_ext: expected %zu bytes, got %u bytes",
+						sizeof(*rp) + eir_len, len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	print_eir(rp->eir, eir_len);
+
+	noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void cmd_bredr_oob(struct mgmt *mgmt, uint16_t index,
+						int argc, char **argv)
+{
+	struct mgmt_cp_read_local_oob_ext_data cp;
+
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	cp.type = SCAN_TYPE_BREDR;
+
+	if (!mgmt_send(mgmt, MGMT_OP_READ_LOCAL_OOB_EXT_DATA,
+					index, sizeof(cp), &cp,
+					local_oob_ext_rsp, NULL, NULL)) {
+		error("Unable to send read_local_oob_ext cmd");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void cmd_le_oob(struct mgmt *mgmt, uint16_t index,
+						int argc, char **argv)
+{
+	struct mgmt_cp_read_local_oob_ext_data cp;
+
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	cp.type = SCAN_TYPE_LE;
+
+	if (!mgmt_send(mgmt, MGMT_OP_READ_LOCAL_OOB_EXT_DATA,
+					index, sizeof(cp), &cp,
+					local_oob_ext_rsp, NULL, NULL)) {
+		error("Unable to send read_local_oob_ext cmd");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static const char *adv_flags_str[] = {
+				"connectable",
+				"general-discoverable",
+				"limited-discoverable",
+				"managed-flags",
+				"tx-power",
+				"scan-rsp-appearance",
+				"scan-rsp-local-name",
+};
+
+static const char *adv_flags2str(uint32_t flags)
+{
+	static char str[256];
+	unsigned i;
+	int off;
+
+	off = 0;
+	str[0] = '\0';
+
+	for (i = 0; i < NELEM(adv_flags_str); i++) {
+		if ((flags & (1 << i)) != 0)
+			off += snprintf(str + off, sizeof(str) - off, "%s ",
+							adv_flags_str[i]);
+	}
+
+	return str;
+}
+
+static void adv_features_rsp(uint8_t status, uint16_t len, const void *param,
+							void *user_data)
+{
+	const struct mgmt_rp_read_adv_features *rp = param;
+	uint32_t supported_flags;
+
+	if (status != 0) {
+		error("Reading adv features failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len < sizeof(*rp)) {
+		error("Too small adv features reply (%u bytes)", len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len < sizeof(*rp) + rp->num_instances * sizeof(uint8_t)) {
+		error("Instances count (%u) doesn't match reply length (%u)",
+							rp->num_instances, len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	supported_flags = le32_to_cpu(rp->supported_flags);
+	print("Supported flags: %s", adv_flags2str(supported_flags));
+	print("Max advertising data len: %u", rp->max_adv_data_len);
+	print("Max scan response data len: %u", rp->max_scan_rsp_len);
+	print("Max instances: %u", rp->max_instances);
+
+	print("Instances list with %u item%s", rp->num_instances,
+					rp->num_instances != 1 ? "s" : "");
+
+	return noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void cmd_advinfo(struct mgmt *mgmt, uint16_t index,
+						int argc, char **argv)
+{
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	if (!mgmt_send(mgmt, MGMT_OP_READ_ADV_FEATURES, index, 0, NULL,
+					adv_features_rsp, NULL, NULL)) {
+		error("Unable to send advertising features command");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void add_adv_rsp(uint8_t status, uint16_t len, const void *param,
+								void *user_data)
+{
+	const struct mgmt_rp_add_advertising *rp = param;
+
+	if (status != 0) {
+		error("Add Advertising failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len != sizeof(*rp)) {
+		error("Invalid Add Advertising response length (%u)", len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	print("Instance added: %u", rp->instance);
+
+	return noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void add_adv_usage(void)
+{
+	print("Usage: add-adv [options] <instance_id>\nOptions:\n"
+		"\t -u, --uuid <uuid>        Service UUID\n"
+		"\t -d, --adv-data <data>    Advertising Data bytes\n"
+		"\t -s, --scan-rsp <data>    Scan Response Data bytes\n"
+		"\t -t, --timeout <timeout>  Timeout in seconds\n"
+		"\t -c, --connectable        \"connectable\" flag\n"
+		"\t -g, --general-discov     \"general-discoverable\" flag\n"
+		"\t -l, --limited-discov     \"limited-discoverable\" flag\n"
+		"\t -m, --managed-flags      \"managed-flags\" flag\n"
+		"\t -p, --tx-power           \"tx-power\" flag\n"
+		"e.g.:\n"
+		"\tadd-adv -u 180d -u 180f -d 080954657374204C45 1");
+}
+
+static struct option add_adv_options[] = {
+	{ "help",		0, 0, 'h' },
+	{ "uuid",		1, 0, 'u' },
+	{ "adv-data",		1, 0, 'd' },
+	{ "scan-rsp",		1, 0, 's' },
+	{ "timeout",		1, 0, 't' },
+	{ "connectable",	0, 0, 'c' },
+	{ "general-discov",	0, 0, 'g' },
+	{ "limited-discov",	0, 0, 'l' },
+	{ "managed-flags",	0, 0, 'm' },
+	{ "tx-power",		0, 0, 'p' },
+	{ 0, 0, 0, 0}
+};
+
+static bool parse_bytes(char *optarg, uint8_t **bytes, size_t *len)
+{
+	unsigned i;
+
+	if (!optarg) {
+		add_adv_usage();
+		return false;
+	}
+
+	*len = strlen(optarg);
+
+	if (*len % 2) {
+		error("Malformed data");
+		return false;
+	}
+
+	*len /= 2;
+	if (*len > UINT8_MAX) {
+		error("Data too long");
+		return false;
+	}
+
+	*bytes = malloc(*len);
+	if (!*bytes) {
+		error("Failed to allocate memory");
+		return false;
+	}
+
+	for (i = 0; i < *len; i++) {
+		if (sscanf(optarg + (i * 2), "%2hhx", *bytes + i) != 1) {
+			error("Invalid data");
+			free(*bytes);
+			*bytes = NULL;
+			return false;
+		}
+	}
+
+	return true;
+}
+
+#define MAX_AD_UUID_BYTES 32
+
+static void cmd_add_adv(struct mgmt *mgmt, uint16_t index,
+							int argc, char **argv)
+{
+	struct mgmt_cp_add_advertising *cp = NULL;
+	int opt;
+	uint8_t *adv_data = NULL, *scan_rsp = NULL;
+	size_t adv_len = 0, scan_rsp_len = 0;
+	size_t cp_len;
+	uint8_t uuids[MAX_AD_UUID_BYTES];
+	size_t uuid_bytes = 0;
+	uint8_t uuid_type = 0;
+	uint16_t timeout = 0;
+	uint8_t instance;
+	uuid_t uuid;
+	bool success = false;
+	bool quit = true;
+	uint32_t flags = 0;
+
+	while ((opt = getopt_long(argc, argv, "+u:d:s:t:cglmph",
+						add_adv_options, NULL)) != -1) {
+		switch (opt) {
+		case 'u':
+			if (bt_string2uuid(&uuid, optarg) < 0) {
+				print("Invalid UUID: %s", optarg);
+				goto done;
+			}
+
+			if (uuid_type && uuid_type != uuid.type) {
+				print("UUID types must be consistent");
+				goto done;
+			}
+
+			if (uuid.type == SDP_UUID16) {
+				if (uuid_bytes + 2 >= MAX_AD_UUID_BYTES) {
+					print("Too many UUIDs");
+					goto done;
+				}
+
+				put_le16(uuid.value.uuid16, uuids + uuid_bytes);
+				uuid_bytes += 2;
+			} else if (uuid.type == SDP_UUID128) {
+				if (uuid_bytes + 16 >= MAX_AD_UUID_BYTES) {
+					print("Too many UUIDs");
+					goto done;
+				}
+
+				bswap_128(uuid.value.uuid128.data,
+							uuids + uuid_bytes);
+				uuid_bytes += 16;
+			} else {
+				printf("Unsupported UUID type");
+				goto done;
+			}
+
+			if (!uuid_type)
+				uuid_type = uuid.type;
+
+			break;
+		case 'd':
+			if (adv_len) {
+				print("Only one adv-data option allowed");
+				goto done;
+			}
+
+			if (!parse_bytes(optarg, &adv_data, &adv_len))
+				goto done;
+			break;
+		case 's':
+			if (scan_rsp_len) {
+				print("Only one scan-rsp option allowed");
+				goto done;
+			}
+
+			if (!parse_bytes(optarg, &scan_rsp, &scan_rsp_len))
+				goto done;
+			break;
+		case 't':
+			timeout = strtol(optarg, NULL, 0);
+			break;
+		case 'c':
+			flags |= MGMT_ADV_FLAG_CONNECTABLE;
+			break;
+		case 'g':
+			flags |= MGMT_ADV_FLAG_DISCOV;
+			break;
+		case 'l':
+			flags |= MGMT_ADV_FLAG_LIMITED_DISCOV;
+			break;
+		case 'm':
+			flags |= MGMT_ADV_FLAG_MANAGED_FLAGS;
+			break;
+		case 'p':
+			flags |= MGMT_ADV_FLAG_TX_POWER;
+			break;
+		case 'h':
+			success = true;
+		default:
+			add_adv_usage();
+			goto done;
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+	optind = 0;
+
+	if (argc != 1) {
+		add_adv_usage();
+		goto done;
+	}
+
+	if (uuid_bytes)
+		uuid_bytes += 2;
+
+	instance = strtol(argv[0], NULL, 0);
+
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	cp_len = sizeof(*cp) + uuid_bytes + adv_len + scan_rsp_len;
+	cp = malloc0(cp_len);
+	if (!cp)
+		goto done;
+
+	cp->instance = instance;
+	put_le32(flags, &cp->flags);
+	put_le16(timeout, &cp->timeout);
+	cp->adv_data_len = adv_len + uuid_bytes;
+	cp->scan_rsp_len = scan_rsp_len;
+
+	if (uuid_bytes) {
+		cp->data[0] = uuid_bytes - 1;
+		cp->data[1] = uuid_type == SDP_UUID16 ? 0x03 : 0x07;
+		memcpy(cp->data + 2, uuids, uuid_bytes - 2);
+	}
+
+	memcpy(cp->data + uuid_bytes, adv_data, adv_len);
+	memcpy(cp->data + uuid_bytes + adv_len, scan_rsp, scan_rsp_len);
+
+	if (!mgmt_send(mgmt, MGMT_OP_ADD_ADVERTISING, index, cp_len, cp,
+						add_adv_rsp, NULL, NULL)) {
+		error("Unable to send \"Add Advertising\" command");
+		goto done;
+	}
+
+	quit = false;
+
+done:
+	free(adv_data);
+	free(scan_rsp);
+	free(cp);
+
+	if (quit)
+		noninteractive_quit(success ? EXIT_SUCCESS : EXIT_FAILURE);
+}
+
+static void rm_adv_rsp(uint8_t status, uint16_t len, const void *param,
+								void *user_data)
+{
+	const struct mgmt_rp_remove_advertising *rp = param;
+
+	if (status != 0) {
+		error("Remove Advertising failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len != sizeof(*rp)) {
+		error("Invalid Remove Advertising response length (%u)", len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	print("Instance removed: %u", rp->instance);
+
+	return noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void rm_adv_usage(void)
+{
+	print("Usage: rm-adv <instance_id>");
+}
+
+static void cmd_rm_adv(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
+{
+	struct mgmt_cp_remove_advertising cp;
+	uint8_t instance;
+
+	if (argc != 2) {
+		rm_adv_usage();
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	instance = strtol(argv[1], NULL, 0);
+
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	memset(&cp, 0, sizeof(cp));
+
+	cp.instance = instance;
+
+	if (!mgmt_send(mgmt, MGMT_OP_REMOVE_ADVERTISING, index, sizeof(cp), &cp,
+						rm_adv_rsp, NULL, NULL)) {
+		error("Unable to send \"Remove Advertising\" command");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void cmd_clr_adv(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
+{
+	char *all_instances = "0";
+	char *rm_argv[] = { "rm-adv", all_instances, NULL };
+
+	cmd_rm_adv(mgmt, index, 2, rm_argv);
+}
+
 struct cmd_info {
 	char *cmd;
 	void (*func)(struct mgmt *mgmt, uint16_t index, int argc, char **argv);
@@ -3245,6 +4037,7 @@ static struct cmd_info all_cmd[] = {
 	{ "commands",	cmd_commands,	"List supported commands"	},
 	{ "config",	cmd_config,	"Show configuration info"	},
 	{ "info",	cmd_info,	"Show controller info"		},
+	{ "extinfo",	cmd_extinfo,	"Show extended controller info"	},
 	{ "power",	cmd_power,	"Toggle powered state"		},
 	{ "discov",	cmd_discov,	"Toggle discoverable state"	},
 	{ "connectable",cmd_connectable,"Toggle connectable state"	},
@@ -3264,6 +4057,7 @@ static struct cmd_info all_cmd[] = {
 	{ "con",	cmd_con,	"List connections"		},
 	{ "find",	cmd_find,	"Discover nearby devices"	},
 	{ "find-service", cmd_find_service, "Discover nearby service"	},
+	{ "stop-find",	cmd_stop_find,	"Stop discovery"		},
 	{ "name",	cmd_name,	"Set local name"		},
 	{ "pair",	cmd_pair,	"Pair with a remote device"	},
 	{ "cancelpair",	cmd_cancel_pair,"Cancel pairing"		},
@@ -3290,6 +4084,12 @@ static struct cmd_info all_cmd[] = {
 	{ "add-device", cmd_add_device, "Add Device"			},
 	{ "del-device", cmd_del_device, "Remove Device"			},
 	{ "clr-devices",cmd_clr_devices,"Clear Devices"			},
+	{ "bredr-oob",	cmd_bredr_oob,	"Local OOB data (BR/EDR)"	},
+	{ "le-oob",	cmd_le_oob,	"Local OOB data (LE)"		},
+	{ "advinfo",	cmd_advinfo,	"Show advertising features"	},
+	{ "add-adv",	cmd_add_adv,	"Add advertising instance"	},
+	{ "rm-adv",	cmd_rm_adv,	"Remove advertising instance"	},
+	{ "clr-adv",	cmd_clr_adv,	"Clear advertising instances"	},
 };
 
 static void cmd_quit(struct mgmt *mgmt, uint16_t index,
@@ -3320,6 +4120,8 @@ static void register_mgmt_callbacks(struct mgmt *mgmt, uint16_t index)
 								NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_AUTH_FAILED, index, auth_failed,
 								NULL, NULL);
+	mgmt_register(mgmt, MGMT_EV_CLASS_OF_DEV_CHANGED, index,
+					class_of_dev_changed, NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_LOCAL_NAME_CHANGED, index,
 					local_name_changed, NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_DEVICE_FOUND, index, device_found,
@@ -3338,7 +4140,16 @@ static void register_mgmt_callbacks(struct mgmt *mgmt, uint16_t index)
 					unconf_index_removed, NULL, NULL);
 	mgmt_register(mgmt, MGMT_EV_NEW_CONFIG_OPTIONS, index,
 					new_config_options, NULL, NULL);
-
+	mgmt_register(mgmt, MGMT_EV_EXT_INDEX_ADDED, index,
+					ext_index_added, NULL, NULL);
+	mgmt_register(mgmt, MGMT_EV_EXT_INDEX_REMOVED, index,
+					ext_index_removed, NULL, NULL);
+	mgmt_register(mgmt, MGMT_EV_LOCAL_OOB_DATA_UPDATED, index,
+					local_oob_data_updated, NULL, NULL);
+	mgmt_register(mgmt, MGMT_EV_ADVERTISING_ADDED, index,
+						advertising_added, NULL, NULL);
+	mgmt_register(mgmt, MGMT_EV_ADVERTISING_REMOVED, index,
+					advertising_removed, NULL, NULL);
 }
 
 static void cmd_select(struct mgmt *mgmt, uint16_t index,

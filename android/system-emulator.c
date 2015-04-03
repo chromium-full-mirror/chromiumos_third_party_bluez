@@ -32,13 +32,17 @@
 #include <signal.h>
 #include <string.h>
 #include <libgen.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/wait.h>
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+
+#ifndef WAIT_ANY
+#define WAIT_ANY (-1)
+#endif
 
 #include "src/shared/mainloop.h"
 

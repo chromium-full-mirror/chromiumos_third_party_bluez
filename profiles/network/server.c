@@ -47,6 +47,7 @@
 #include "src/log.h"
 #include "src/error.h"
 #include "src/sdpd.h"
+#include "src/shared/util.h"
 
 #include "bnep.h"
 #include "server.h"
@@ -113,14 +114,38 @@ static struct network_server *find_server(GSList *list, uint16_t id)
 static struct network_server *find_server_by_uuid(GSList *list,
 							const char *uuid)
 {
-	for (; list; list = list->next) {
-		struct network_server *ns = list->data;
+	bt_uuid_t srv_uuid, bnep_uuid;
 
-		if (strcasecmp(uuid, bnep_uuid(ns->id)) == 0)
-			return ns;
+	if (!bt_string_to_uuid(&srv_uuid, uuid)) {
+		for (; list; list = list->next) {
+			struct network_server *ns = list->data;
 
-		if (strcasecmp(uuid, bnep_name(ns->id)) == 0)
-			return ns;
+			bt_uuid16_create(&bnep_uuid, ns->id);
+
+			/* UUID value compare */
+			if (!bt_uuid_cmp(&srv_uuid, &bnep_uuid))
+				return ns;
+		}
+	} else {
+		for (; list; list = list->next) {
+			struct network_server *ns = list->data;
+
+			/* String value compare */
+			switch (ns->id) {
+			case BNEP_SVC_PANU:
+				if (!strcasecmp(uuid, "panu"))
+					return ns;
+				break;
+			case BNEP_SVC_NAP:
+				if (!strcasecmp(uuid, "nap"))
+					return ns;
+				break;
+			case BNEP_SVC_GN:
+				if (!strcasecmp(uuid, "gn"))
+					return ns;
+				break;
+			}
+		}
 	}
 
 	return NULL;
@@ -281,12 +306,16 @@ static void setup_destroy(void *user_data)
 static gboolean bnep_setup(GIOChannel *chan,
 			GIOCondition cond, gpointer user_data)
 {
+	const uint8_t bt_base[] = { 0x00, 0x00, 0x10, 0x00, 0x80, 0x00,
+					0x00, 0x80, 0x5F, 0x9B, 0x34, 0xFB };
 	struct network_adapter *na = user_data;
 	struct network_server *ns;
 	uint8_t packet[BNEP_MTU];
 	struct bnep_setup_conn_req *req = (void *) packet;
-	uint16_t src_role, dst_role, rsp = BNEP_CONN_NOT_ALLOWED;
+	uint16_t dst_role = 0;
+	uint32_t val;
 	int n, sk;
+	char *bridge = NULL;
 
 	if (cond & G_IO_NVAL)
 		return FALSE;
@@ -305,63 +334,51 @@ static gboolean bnep_setup(GIOChannel *chan,
 		return FALSE;
 	}
 
-	/* Highest known Control command ID
-	 * is BNEP_FILTER_MULT_ADDR_RSP = 0x06 */
-	if (req->type == BNEP_CONTROL &&
-				req->ctrl > BNEP_FILTER_MULT_ADDR_RSP) {
-		uint8_t pkt[3];
-
-		pkt[0] = BNEP_CONTROL;
-		pkt[1] = BNEP_CMD_NOT_UNDERSTOOD;
-		pkt[2] = req->ctrl;
-
-		send(sk, pkt, sizeof(pkt), 0);
-
+	/*
+	 * Initial received data packet is BNEP_SETUP_CONNECTION_REQUEST_MSG
+	 * minimal size of this frame is 3 octets: 1 byte of BNEP Type +
+	 * 1 byte of BNEP Control Type + 1 byte of BNEP services UUID size.
+	 */
+	if (n < 3) {
+		error("To few setup connection request data received");
 		return FALSE;
 	}
 
-	if (req->type != BNEP_CONTROL || req->ctrl != BNEP_SETUP_CONN_REQ)
-		return FALSE;
+	switch (req->uuid_size) {
+	case 2:
+		dst_role = get_be16(req->service);
+		break;
+	case 16:
+		if (memcmp(&req->service[4], bt_base, sizeof(bt_base)) != 0)
+			break;
 
-	rsp = bnep_setup_decode(req, &dst_role, &src_role);
-	if (rsp)
-		goto reply;
+		/* Intentional no-brake */
 
-	rsp = bnep_setup_chk(dst_role, src_role);
-	if (rsp)
-		goto reply;
+	case 4:
+		val = get_be32(req->service);
+		if (val > 0xffff)
+			break;
 
-	rsp = BNEP_CONN_NOT_ALLOWED;
+		dst_role = val;
+		break;
+	default:
+		break;
+	}
 
 	ns = find_server(na->servers, dst_role);
-	if (!ns) {
-		error("Server unavailable: (0x%x)", dst_role);
-		goto reply;
-	}
-
-	if (!ns->record_id) {
-		error("Service record not available");
-		goto reply;
-	}
-
-	if (!ns->bridge) {
-		error("Bridge interface not configured");
-		goto reply;
-	}
+	if (!ns || !ns->record_id || !ns->bridge)
+		error("Server error, bridge not initialized: (0x%x)", dst_role);
+	else
+		bridge = ns->bridge;
 
 	strncpy(na->setup->dev, BNEP_INTERFACE, 16);
 	na->setup->dev[15] = '\0';
 
-	if (bnep_server_add(sk, dst_role, ns->bridge, na->setup->dev,
-							&na->setup->dst) < 0)
-		goto reply;
+	if (bnep_server_add(sk, bridge, na->setup->dev, &na->setup->dst,
+							packet, n) < 0)
+		error("BNEP server cannot be added");
 
 	na->setup = NULL;
-
-	rsp = BNEP_SUCCESS;
-
-reply:
-	bnep_send_ctrl_rsp(sk, BNEP_CONTROL, BNEP_SETUP_CONN_RSP, rsp);
 
 	return FALSE;
 }

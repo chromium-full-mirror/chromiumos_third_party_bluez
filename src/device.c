@@ -83,6 +83,8 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
+#define RSSI_THRESHOLD		8
+
 static DBusConnection *dbus_conn = NULL;
 static unsigned service_state_cb_id;
 
@@ -206,7 +208,7 @@ struct btd_device {
 	GSList		*services;		/* List of btd_service */
 	GSList		*pending;		/* Pending services */
 	GSList		*watches;		/* List of disconnect_data */
-	gboolean	temporary;
+	bool		temporary;
 	guint		disconn_timer;
 	guint		discov_timer;
 	struct browse_req *browse;		/* service discover request */
@@ -1184,7 +1186,7 @@ int device_block(struct btd_device *device, gboolean update_only)
 
 	store_device_info(device);
 
-	btd_device_set_temporary(device, FALSE);
+	btd_device_set_temporary(device, false);
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 						DEVICE_INTERFACE, "Blocked");
@@ -1384,7 +1386,7 @@ static void device_profile_connected(struct btd_device *dev,
 	DBG("%s %s (%d)", profile->name, strerror(-err), -err);
 
 	if (!err)
-		btd_device_set_temporary(dev, FALSE);
+		btd_device_set_temporary(dev, false);
 
 	if (dev->pending == NULL)
 		return;
@@ -1564,7 +1566,7 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 	if (!btd_adapter_get_powered(dev->adapter))
 		return btd_error_not_ready(msg);
 
-	btd_device_set_temporary(dev, FALSE);
+	btd_device_set_temporary(dev, false);
 
 	if (!state->svc_resolved)
 		goto resolve_services;
@@ -1657,7 +1659,7 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 		if (dev->le_state.connected)
 			return dbus_message_new_method_return(msg);
 
-		btd_device_set_temporary(dev, FALSE);
+		btd_device_set_temporary(dev, false);
 
 		if (dev->disable_auto_connect) {
 			dev->disable_auto_connect = FALSE;
@@ -2023,7 +2025,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	uint8_t io_cap;
 	int err;
 
-	btd_device_set_temporary(device, FALSE);
+	btd_device_set_temporary(device, false);
 
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
@@ -2111,6 +2113,10 @@ static DBusMessage *new_authentication_return(DBusMessage *msg, uint8_t status)
 		return dbus_message_new_error(msg,
 				ERROR_INTERFACE ".AuthenticationCanceled",
 				"Authentication Canceled");
+	case MGMT_STATUS_ALREADY_PAIRED:
+		return dbus_message_new_error(msg,
+				ERROR_INTERFACE ".AlreadyExists",
+				"Already Paired");
 	default:
 		return dbus_message_new_error(msg,
 				ERROR_INTERFACE ".AuthenticationFailed",
@@ -3100,7 +3106,7 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 	}
 
 	device->adapter = adapter;
-	device->temporary = TRUE;
+	device->temporary = true;
 
 	gatt_db_register(device->db, gatt_service_added, gatt_service_removed,
 								device, NULL);
@@ -4111,7 +4117,7 @@ static void register_gatt_services(struct btd_device *device)
 	 */
 	gatt_db_foreach_service(device->db, NULL, add_primary, &services);
 
-	btd_device_set_temporary(device, FALSE);
+	btd_device_set_temporary(device, false);
 
 	if (req)
 		update_gatt_uuids(req, device->primaries, services);
@@ -4144,16 +4150,9 @@ static void gatt_client_ready_cb(bool success, uint8_t att_ecode,
 		return;
 	}
 
-	device->att_mtu = bt_att_get_mtu(device->att);
-	g_attrib_set_mtu(device->attrib, device->att_mtu);
-
-	DBG("MTU: %u", device->att_mtu);
-
 	register_gatt_services(device);
 
 	device_accept_gatt_profiles(device);
-
-	g_slist_foreach(device->attios, attio_connected, device->attrib);
 
 	btd_gatt_client_ready(device->client_dbus);
 }
@@ -4163,6 +4162,11 @@ static void gatt_client_service_changed(uint16_t start_handle,
 							void *user_data)
 {
 	DBG("start 0x%04x, end: 0x%04x", start_handle, end_handle);
+}
+
+static void gatt_debug(const char *str, void *user_data)
+{
+	DBG("%s", str);
 }
 
 static void gatt_client_init(struct btd_device *device)
@@ -4175,6 +4179,11 @@ static void gatt_client_init(struct btd_device *device)
 		DBG("Failed to initialize");
 		return;
 	}
+
+	bt_gatt_client_set_debug(device->client, gatt_debug, NULL, NULL);
+
+	/* Notify attio so it can react to notifications */
+	g_slist_foreach(device->attios, attio_connected, device->attrib);
 
 	if (!bt_gatt_client_set_ready_handler(device->client,
 							gatt_client_ready_cb,
@@ -4205,6 +4214,8 @@ static void gatt_server_init(struct btd_device *device, struct gatt_db *db)
 	device->server = bt_gatt_server_new(db, device->att, device->att_mtu);
 	if (!device->server)
 		error("Failed to initialize bt_gatt_server");
+
+	bt_gatt_server_set_debug(device->server, gatt_debug, NULL, NULL);
 }
 
 static bool local_counter(uint32_t *sign_cnt, void *user_data)
@@ -4637,7 +4648,7 @@ gboolean device_is_temporary(struct btd_device *device)
 	return device->temporary;
 }
 
-void btd_device_set_temporary(struct btd_device *device, gboolean temporary)
+void btd_device_set_temporary(struct btd_device *device, bool temporary)
 {
 	if (!device)
 		return;
@@ -4647,17 +4658,19 @@ void btd_device_set_temporary(struct btd_device *device, gboolean temporary)
 
 	DBG("temporary %d", temporary);
 
+	device->temporary = temporary;
+
 	if (temporary) {
 		if (device->bredr)
 			adapter_whitelist_remove(device->adapter, device);
 		adapter_connect_list_remove(device->adapter, device);
-	} else {
-		if (device->bredr)
-			adapter_whitelist_add(device->adapter, device);
-		store_device_info(device);
+		return;
 	}
 
-	device->temporary = temporary;
+	if (device->bredr)
+		adapter_whitelist_add(device->adapter, device);
+
+	store_device_info(device);
 }
 
 void btd_device_set_trusted(struct btd_device *device, gboolean trusted)
@@ -4689,6 +4702,8 @@ void device_set_bonded(struct btd_device *device, uint8_t bdaddr_type)
 		device->bredr_state.bonded = true;
 	else
 		device->le_state.bonded = true;
+
+	btd_device_set_temporary(device, false);
 }
 
 void device_set_legacy(struct btd_device *device, bool legacy)
@@ -4707,7 +4722,8 @@ void device_set_legacy(struct btd_device *device, bool legacy)
 					DEVICE_INTERFACE, "LegacyPairing");
 }
 
-void device_set_rssi(struct btd_device *device, int8_t rssi)
+void device_set_rssi_with_delta(struct btd_device *device, int8_t rssi,
+							int8_t delta_threshold)
 {
 	if (!device)
 		return;
@@ -4727,8 +4743,8 @@ void device_set_rssi(struct btd_device *device, int8_t rssi)
 		else
 			delta = rssi - device->rssi;
 
-		/* only report changes of 2 dBm or more */
-		if (delta < 2)
+		/* only report changes of delta_threshold dBm or more */
+		if (delta < delta_threshold)
 			return;
 
 		DBG("rssi %d delta %d", rssi, delta);
@@ -4738,6 +4754,11 @@ void device_set_rssi(struct btd_device *device, int8_t rssi)
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 						DEVICE_INTERFACE, "RSSI");
+}
+
+void device_set_rssi(struct btd_device *device, int8_t rssi)
+{
+	device_set_rssi_with_delta(device, rssi, RSSI_THRESHOLD);
 }
 
 static gboolean start_discovery(gpointer user_data)
@@ -4802,7 +4823,7 @@ void device_set_unpaired(struct btd_device *dev, uint8_t bdaddr_type)
 	g_dbus_emit_property_changed(dbus_conn, dev->path,
 						DEVICE_INTERFACE, "Paired");
 
-	btd_device_set_temporary(dev, TRUE);
+	btd_device_set_temporary(dev, true);
 
 	if (btd_device_is_connected(dev))
 		device_request_disconnect(dev, NULL);

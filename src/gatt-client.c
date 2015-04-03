@@ -344,20 +344,19 @@ static void desc_read_cb(bool success, uint8_t att_ecode,
 	struct async_dbus_op *op = user_data;
 	struct descriptor *desc = op->data;
 	struct service *service = desc->chrc->service;
+	DBusMessage *reply;
 
-	if (!success) {
-		DBusMessage *reply = create_gatt_dbus_error(op->msg, att_ecode);
-
-		desc->read_id = 0;
-		g_dbus_send_message(btd_get_dbus_connection(), reply);
-		return;
-	}
+	if (!success)
+		goto fail;
 
 	if (!op->offset)
 		gatt_db_attribute_reset(desc->attr);
 
-	gatt_db_attribute_write(desc->attr, op->offset, value, length, 0, NULL,
-						write_descriptor_cb, desc);
+	if (!gatt_db_attribute_write(desc->attr, op->offset, value, length, 0,
+					NULL, write_descriptor_cb, desc)) {
+		error("Failed to store attribute");
+		goto fail;
+	}
 
 	/*
 	 * If the value length is exactly MTU-1, then we may not have read the
@@ -377,10 +376,21 @@ static void desc_read_cb(bool success, uint8_t att_ecode,
 			return;
 	}
 
+	/* Read the stored data from db */
+	if (!gatt_db_attribute_read(desc->attr, 0, 0, NULL, read_op_cb, op)) {
+		error("Failed to read database");
+		goto fail;
+	}
+
 	desc->read_id = 0;
 
-	/* Read the stored data from db */
-	gatt_db_attribute_read(desc->attr, 0, 0, NULL, read_op_cb, op);
+	return;
+
+fail:
+	reply = create_gatt_dbus_error(op->msg, att_ecode);
+	desc->read_id = 0;
+	g_dbus_send_message(btd_get_dbus_connection(), reply);
+	return;
 }
 
 static DBusMessage *descriptor_read_value(DBusConnection *conn,
@@ -773,20 +783,19 @@ static void chrc_read_cb(bool success, uint8_t att_ecode, const uint8_t *value,
 	struct async_dbus_op *op = user_data;
 	struct characteristic *chrc = op->data;
 	struct service *service = chrc->service;
+	DBusMessage *reply;
 
-	if (!success) {
-		DBusMessage *reply = create_gatt_dbus_error(op->msg, att_ecode);
-
-		chrc->read_id = 0;
-		g_dbus_send_message(btd_get_dbus_connection(), reply);
-		return ;
-	}
+	if (!success)
+		goto fail;
 
 	if (!op->offset)
 		gatt_db_attribute_reset(chrc->attr);
 
-	gatt_db_attribute_write(chrc->attr, op->offset, value, length, 0, NULL,
-						write_characteristic_cb, chrc);
+	if (!gatt_db_attribute_write(chrc->attr, op->offset, value, length, 0,
+					NULL, write_characteristic_cb, chrc)) {
+		error("Failed to store attribute");
+		goto fail;
+	}
 
 	/*
 	 * If the value length is exactly MTU-1, then we may not have read the
@@ -809,7 +818,17 @@ static void chrc_read_cb(bool success, uint8_t att_ecode, const uint8_t *value,
 	chrc->read_id = 0;
 
 	/* Read the stored data from db */
-	gatt_db_attribute_read(chrc->attr, 0, 0, NULL, read_op_cb, op);
+	if (!gatt_db_attribute_read(chrc->attr, 0, 0, NULL, read_op_cb, op)) {
+		error("Failed to read database");
+		goto fail;
+	}
+
+	return;
+
+fail:
+	reply = create_gatt_dbus_error(op->msg, att_ecode);
+	chrc->read_id = 0;
+	g_dbus_send_message(btd_get_dbus_connection(), reply);
 }
 
 static DBusMessage *characteristic_read_value(DBusConnection *conn,
@@ -1307,8 +1326,15 @@ static struct characteristic *characteristic_create(
 	gatt_db_attribute_get_char_data(attr, &chrc->handle,
 							&chrc->value_handle,
 							&chrc->props, &uuid);
+
 	chrc->attr = gatt_db_get_attribute(service->client->db,
 							chrc->value_handle);
+	if (!chrc->attr) {
+		error("Attribute 0x%04x not found", chrc->value_handle);
+		characteristic_free(chrc);
+		return NULL;
+	}
+
 	bt_uuid_to_uuid128(&uuid, &chrc->uuid);
 
 	chrc->path = g_strdup_printf("%s/char%04x", service->path,
@@ -1331,6 +1357,16 @@ static struct characteristic *characteristic_create(
 	return chrc;
 }
 
+static void remove_client(void *data)
+{
+	struct notify_client *ntfy_client = data;
+	struct btd_gatt_client *client = ntfy_client->chrc->service->client;
+
+	queue_remove(client->all_notify_clients, ntfy_client);
+
+	notify_client_unref(ntfy_client);
+}
+
 static void unregister_characteristic(void *data)
 {
 	struct characteristic *chrc = data;
@@ -1344,7 +1380,7 @@ static void unregister_characteristic(void *data)
 	if (chrc->write_id)
 		bt_gatt_client_cancel(gatt, chrc->write_id);
 
-	queue_remove_all(chrc->notify_clients, NULL, NULL, notify_client_unref);
+	queue_remove_all(chrc->notify_clients, NULL, NULL, remove_client);
 	queue_remove_all(chrc->descs, NULL, NULL, unregister_descriptor);
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(), chrc->path,

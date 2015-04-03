@@ -376,8 +376,6 @@ struct avdtp {
 
 	uint16_t version;
 
-	struct avdtp_server *server;
-
 	guint auth_id;
 
 	GIOChannel *io;
@@ -785,6 +783,10 @@ static void handle_unanswered_req(struct avdtp *session,
 	struct pending_req *req;
 	struct avdtp_local_sep *lsep;
 	struct avdtp_error err;
+
+	if (!session->req->timeout)
+		/* Request is in process */
+		return;
 
 	if (session->req->signal_id == AVDTP_ABORT) {
 		/* Avoid freeing the Abort request here */
@@ -2019,6 +2021,9 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond,
 		break;
 	}
 
+	/* Take a reference to protect against callback destroying session */
+	avdtp_ref(session);
+
 	if (session->in.message_type == AVDTP_MSG_TYPE_COMMAND) {
 		if (!avdtp_parse_cmd(session, session->in.transaction,
 					session->in.signal_id,
@@ -2033,21 +2038,25 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond,
 			goto next;
 		}
 
+		avdtp_unref(session);
 		return TRUE;
 	}
 
 	if (session->req == NULL) {
 		error("No pending request, ignoring message");
+		avdtp_unref(session);
 		return TRUE;
 	}
 
 	if (header->transaction != session->req->transaction) {
 		error("Transaction label doesn't match");
+		avdtp_unref(session);
 		return TRUE;
 	}
 
 	if (session->in.signal_id != session->req->signal_id) {
 		error("Response signal doesn't match");
+		avdtp_unref(session);
 		return TRUE;
 	}
 
@@ -2087,7 +2096,10 @@ next:
 	pending_req_free(session->req);
 	session->req = NULL;
 
-	process_queue(session);
+	if (session->ref > 1)
+		process_queue(session);
+
+	avdtp_unref(session);
 
 	return TRUE;
 
@@ -2510,11 +2522,11 @@ static gboolean avdtp_set_configuration_resp(struct avdtp *session,
 {
 	struct avdtp_local_sep *sep = stream->lsep;
 
+	avdtp_sep_set_state(session, sep, AVDTP_STATE_CONFIGURED);
+
 	if (sep->cfm && sep->cfm->set_configuration)
 		sep->cfm->set_configuration(session, sep, stream, NULL,
 						sep->user_data);
-
-	avdtp_sep_set_state(session, sep, AVDTP_STATE_CONFIGURED);
 
 	return TRUE;
 }
@@ -2796,9 +2808,9 @@ static gboolean avdtp_parse_rej(struct avdtp *session,
 		error("START request rejected: %s (%d)",
 				avdtp_strerror(&err), err.err.error_code);
 		if (sep && sep->cfm && sep->cfm->start) {
+			stream->starting = FALSE;
 			sep->cfm->start(session, sep, stream, &err,
 					sep->user_data);
-			stream->starting = FALSE;
 		}
 		return TRUE;
 	case AVDTP_SUSPEND:
@@ -2926,7 +2938,6 @@ gboolean avdtp_stream_set_transport(struct avdtp_stream *stream, int fd,
 	g_io_channel_unref(io);
 
 	return TRUE;
-
 }
 
 gboolean avdtp_stream_get_transport(struct avdtp_stream *stream, int *sock,

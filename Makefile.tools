@@ -236,8 +236,11 @@ noinst_PROGRAMS += tools/bdaddr tools/avinfo tools/avtest \
 			tools/hcieventmask tools/hcisecfilter \
 			tools/btinfo tools/btattach \
 			tools/btsnoop tools/btproxy \
-			tools/btiotest tools/mcaptest tools/cltest \
-			tools/oobtest tools/seq2bseq tools/ibeacon
+			tools/btiotest tools/bneptest tools/mcaptest \
+			tools/cltest tools/oobtest tools/seq2bseq \
+			tools/ibeacon \
+			tools/create-image \
+			tools/test-runner tools/check-selftest
 
 tools_bdaddr_SOURCES = tools/bdaddr.c src/oui.h src/oui.c
 tools_bdaddr_LDADD = lib/libbluetooth-internal.la @UDEV_LIBS@
@@ -274,6 +277,12 @@ tools_mcaptest_SOURCES = tools/mcaptest.c \
 				src/log.c src/log.h \
 				profiles/health/mcap.h profiles/health/mcap.c
 tools_mcaptest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+
+tools_bneptest_SOURCES = tools/bneptest.c \
+				btio/btio.h btio/btio.c \
+				src/log.h src/log.c \
+				profiles/network/bnep.h profiles/network/bnep.c
+tools_bneptest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 
 tools_cltest_SOURCES = tools/cltest.c
 tools_cltest_LDADD = lib/libbluetooth-internal.la src/libshared-mainloop.la
@@ -362,4 +371,5 @@ test_scripts += test/sap_client.py test/bluezutils.py \
 		test/service-ftp.xml test/simple-player test/test-nap \
 		test/test-heartrate test/test-alert test/test-hfp \
 		test/test-cyclingspeed test/opp-client test/ftp-client \
-		test/pbap-client test/map-client
+		test/pbap-client test/map-client test/example-advertisement \
+		test/example-gatt-server test/example-gatt-client

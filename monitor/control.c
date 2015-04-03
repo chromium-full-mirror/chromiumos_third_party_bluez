@@ -97,6 +97,40 @@ static void mgmt_unconf_index_removed(uint16_t len, const void *buf)
 	packet_hexdump(buf, len);
 }
 
+static void mgmt_ext_index_added(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_ext_index_added *ev = buf;
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed Extended Index Added control\n");
+		return;
+	}
+
+	printf("@ Extended Index Added: %u (%u)\n", ev->type, ev->bus);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
+static void mgmt_ext_index_removed(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_ext_index_removed *ev = buf;
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed Extended Index Removed control\n");
+		return;
+	}
+
+	printf("@ Extended Index Removed: %u (%u)\n", ev->type, ev->bus);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
 static void mgmt_controller_error(uint16_t len, const void *buf)
 {
 	const struct mgmt_ev_controller_error *ev = buf;
@@ -155,6 +189,7 @@ static const char *settings_str[] = {
 	"powered", "connectable", "fast-connectable", "discoverable",
 	"bondable", "link-security", "ssp", "br/edr", "hs", "le",
 	"advertising", "secure-conn", "debug-keys", "privacy",
+	"configuration", "static-addr",
 };
 
 static void mgmt_new_settings(uint16_t len, const void *buf)
@@ -196,9 +231,9 @@ static void mgmt_class_of_dev_changed(uint16_t len, const void *buf)
 	}
 
 	printf("@ Class of Device Changed: 0x%2.2x%2.2x%2.2x\n",
-						ev->class_of_dev[2],
-						ev->class_of_dev[1],
-						ev->class_of_dev[0]);
+						ev->dev_class[2],
+						ev->dev_class[1],
+						ev->dev_class[0]);
 
 	buf += sizeof(*ev);
 	len -= sizeof(*ev);
@@ -703,6 +738,40 @@ static void mgmt_new_conn_param(uint16_t len, const void *buf)
 	packet_hexdump(buf, len);
 }
 
+static void mgmt_advertising_added(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_advertising_added *ev = buf;
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed Advertising Added control\n");
+		return;
+	}
+
+	printf("@ Advertising Added: %u\n", ev->instance);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
+static void mgmt_advertising_removed(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_advertising_removed *ev = buf;
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed Advertising Removed control\n");
+		return;
+	}
+
+	printf("@ Advertising Removed: %u\n", ev->instance);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
 void control_message(uint16_t opcode, const void *data, uint16_t size)
 {
 	switch (opcode) {
@@ -792,6 +861,18 @@ void control_message(uint16_t opcode, const void *data, uint16_t size)
 		break;
 	case MGMT_EV_NEW_CONFIG_OPTIONS:
 		mgmt_new_config_options(size, data);
+		break;
+	case MGMT_EV_EXT_INDEX_ADDED:
+		mgmt_ext_index_added(size, data);
+		break;
+	case MGMT_EV_EXT_INDEX_REMOVED:
+		mgmt_ext_index_removed(size, data);
+		break;
+	case MGMT_EV_ADVERTISING_ADDED:
+		mgmt_advertising_added(size, data);
+		break;
+	case MGMT_EV_ADVERTISING_REMOVED:
+		mgmt_advertising_removed(size, data);
 		break;
 	default:
 		printf("* Unknown control (code %d len %d)\n", opcode, size);

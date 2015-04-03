@@ -23,6 +23,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "lib/bluetooth.h"
 #include "lib/sdp.h"
@@ -41,6 +42,7 @@
 #include "device.h"
 #include "gatt-database.h"
 #include "dbus-common.h"
+#include "profile.h"
 
 #ifndef ATT_CID
 #define ATT_CID 4
@@ -75,6 +77,7 @@ struct btd_gatt_database {
 	struct gatt_db_attribute *svc_chngd;
 	struct gatt_db_attribute *svc_chngd_ccc;
 	struct queue *services;
+	struct queue *profiles;
 };
 
 struct external_service {
@@ -89,6 +92,14 @@ struct external_service {
 	uint16_t attr_cnt;
 	struct queue *chrcs;
 	struct queue *descs;
+};
+
+struct external_profile {
+	struct btd_gatt_database *database;
+	char *owner;
+	char *path;	/* Path to GattProfile1 */
+	unsigned int id;
+	struct queue *profiles; /* btd_profile list */
 };
 
 struct external_chrc {
@@ -118,7 +129,7 @@ struct pending_op {
 	unsigned int id;
 	struct gatt_db_attribute *attrib;
 	struct queue *owner_queue;
-	void *setup_data;
+	struct iovec data;
 };
 
 struct device_state {
@@ -364,6 +375,52 @@ static void service_free(void *data)
 	free(service);
 }
 
+static void profile_remove(void *data)
+{
+	struct btd_profile *p = data;
+
+	DBG("Removed \"%s\"", p->name);
+
+	adapter_foreach(adapter_remove_profile, p);
+
+	g_free((void *) p->name);
+	g_free((void *) p->remote_uuid);
+
+	free(p);
+}
+
+static void profile_release(struct external_profile *profile)
+{
+	DBusMessage *msg;
+
+	if (!profile->id)
+		return;
+
+	DBG("Releasing \"%s\"", profile->owner);
+
+	g_dbus_remove_watch(btd_get_dbus_connection(), profile->id);
+
+	msg = dbus_message_new_method_call(profile->owner, profile->path,
+						"org.bluez.GattProfile1",
+						"Release");
+	if (msg)
+		g_dbus_send_message(btd_get_dbus_connection(), msg);
+}
+
+static void profile_free(void *data)
+{
+	struct external_profile *profile = data;
+
+	queue_destroy(profile->profiles, profile_remove);
+
+	profile_release(profile);
+
+	g_free(profile->owner);
+	g_free(profile->path);
+
+	free(profile);
+}
+
 static void gatt_database_free(void *data)
 {
 	struct btd_gatt_database *database = data;
@@ -390,6 +447,7 @@ static void gatt_database_free(void *data)
 
 	queue_destroy(database->device_states, device_state_free);
 	queue_destroy(database->services, service_free);
+	queue_destroy(database->profiles, profile_free);
 	queue_destroy(database->ccc_callbacks, ccc_cb_free);
 	database->device_states = NULL;
 	database->ccc_callbacks = NULL;
@@ -1366,6 +1424,7 @@ static bool parse_uuid(GDBusProxy *proxy, bt_uuid_t *uuid)
 static bool parse_primary(GDBusProxy *proxy, bool *primary)
 {
 	DBusMessageIter iter;
+	dbus_bool_t val;
 
 	if (!g_dbus_proxy_get_property(proxy, "Primary", &iter))
 		return false;
@@ -1373,7 +1432,10 @@ static bool parse_primary(GDBusProxy *proxy, bool *primary)
 	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_BOOLEAN)
 		return false;
 
-	dbus_message_iter_get_basic(&iter, primary);
+	dbus_message_iter_get_basic(&iter, &val);
+
+	*primary = val;
+
 	return true;
 }
 
@@ -1505,12 +1567,11 @@ error:
 static void write_setup_cb(DBusMessageIter *iter, void *user_data)
 {
 	struct pending_op *op = user_data;
-	struct iovec *iov = op->setup_data;
 	DBusMessageIter array;
 
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y", &array);
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE,
-						&iov->iov_base, iov->iov_len);
+					&op->data.iov_base, op->data.iov_len);
 	dbus_message_iter_close_container(iter, &array);
 }
 
@@ -1557,19 +1618,17 @@ static struct pending_op *pending_write_new(struct queue *owner_queue,
 					size_t len)
 {
 	struct pending_op *op;
-	struct iovec iov;
 
 	op = new0(struct pending_op, 1);
 	if (!op)
 		return NULL;
 
-	iov.iov_base = (uint8_t *) value;
-	iov.iov_len = len;
+	op->data.iov_base = (uint8_t *) value;
+	op->data.iov_len = len;
 
 	op->owner_queue = owner_queue;
 	op->attrib = attrib;
 	op->id = id;
-	op->setup_data = &iov;
 	queue_push_tail(owner_queue, op);
 
 	return op;
@@ -2132,6 +2191,185 @@ static DBusMessage *manager_unregister_service(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+static void profile_exited(DBusConnection *conn, void *user_data)
+{
+	struct external_profile *profile = user_data;
+
+	DBG("\"%s\" exited", profile->owner);
+
+	profile->id = 0;
+
+	queue_remove(profile->database->profiles, profile);
+
+	profile_free(profile);
+}
+
+static int profile_add(struct external_profile *profile, const char *uuid)
+{
+	struct btd_profile *p;
+
+	p = new0(struct btd_profile, 1);
+	if (!p)
+		return -ENOMEM;
+
+	/* Assign directly to avoid having extra fields */
+	p->name = (const void *) g_strdup_printf("%s%s/%s", profile->owner,
+							profile->path, uuid);
+	if (!p->name)
+		return -ENOMEM;
+
+	p->remote_uuid = (const void *) g_strdup(uuid);
+	if (!p->remote_uuid)
+		return -ENOMEM;
+
+	p->auto_connect = true;
+
+	queue_push_tail(profile->profiles, p);
+
+	DBG("Added \"%s\"", p->name);
+
+	return 0;
+}
+
+static void add_profile(void *data, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+
+	adapter_add_profile(adapter, data);
+}
+
+static int profile_create(DBusConnection *conn,
+				struct btd_gatt_database *database,
+				const char *sender, const char *path,
+				DBusMessageIter *iter)
+{
+	struct external_profile *profile;
+	DBusMessageIter uuids;
+
+	if (!path || !g_str_has_prefix(path, "/"))
+		return -EINVAL;
+
+	profile = new0(struct external_profile, 1);
+	if (!profile)
+		return -ENOMEM;
+
+	profile->owner = g_strdup(sender);
+	if (!profile->owner)
+		goto fail;
+
+	profile->path = g_strdup(path);
+	if (!profile->path)
+		goto fail;
+
+	profile->profiles = queue_new();
+	if (!profile->profiles)
+		goto fail;
+
+	profile->database = database;
+	profile->id = g_dbus_add_disconnect_watch(conn, sender, profile_exited,
+								profile, NULL);
+
+	dbus_message_iter_recurse(iter, &uuids);
+
+	while (dbus_message_iter_get_arg_type(&uuids) == DBUS_TYPE_STRING) {
+		const char *uuid;
+
+		dbus_message_iter_get_basic(&uuids, &uuid);
+
+		if (profile_add(profile, uuid) < 0)
+			goto fail;
+
+		dbus_message_iter_next(&uuids);
+	}
+
+	if (queue_isempty(profile->profiles))
+		goto fail;
+
+	queue_foreach(profile->profiles, add_profile, database->adapter);
+	queue_push_tail(database->profiles, profile);
+
+	return 0;
+
+fail:
+	profile_free(profile);
+	return -EINVAL;
+}
+
+static bool match_profile(const void *a, const void *b)
+{
+	const struct external_profile *profile = a;
+	const struct svc_match_data *data = b;
+
+	return g_strcmp0(profile->path, data->path) == 0 &&
+				g_strcmp0(profile->owner, data->sender) == 0;
+}
+
+static DBusMessage *manager_register_profile(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_gatt_database *database = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	DBusMessageIter args;
+	const char *path;
+	struct svc_match_data match_data;
+
+	DBG("sender %s", sender);
+
+	if (!dbus_message_iter_init(msg, &args))
+		return btd_error_invalid_args(msg);
+
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_OBJECT_PATH)
+		return btd_error_invalid_args(msg);
+
+	dbus_message_iter_get_basic(&args, &path);
+
+	match_data.path = path;
+	match_data.sender = sender;
+
+	if (queue_find(database->profiles, match_profile, &match_data))
+		return btd_error_already_exists(msg);
+
+	dbus_message_iter_next(&args);
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_ARRAY)
+		return btd_error_invalid_args(msg);
+
+	if (profile_create(conn, database, sender, path, &args) < 0)
+		return btd_error_failed(msg, "Failed to register profile");
+
+	return dbus_message_new_method_return(msg);
+}
+
+static DBusMessage *manager_unregister_profile(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_gatt_database *database = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	const char *path;
+	DBusMessageIter args;
+	struct external_profile *profile;
+	struct svc_match_data match_data;
+
+	if (!dbus_message_iter_init(msg, &args))
+		return btd_error_invalid_args(msg);
+
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_OBJECT_PATH)
+		return btd_error_invalid_args(msg);
+
+	dbus_message_iter_get_basic(&args, &path);
+
+	match_data.path = path;
+	match_data.sender = sender;
+
+	profile = queue_remove_if(database->profiles, match_profile,
+								&match_data);
+	if (!profile)
+		return btd_error_does_not_exist(msg);
+
+	profile_free(profile);
+
+	return dbus_message_new_method_return(msg);
+}
+
 static const GDBusMethodTable manager_methods[] = {
 	{ GDBUS_ASYNC_METHOD("RegisterService",
 			GDBUS_ARGS({ "service", "o" }, { "options", "a{sv}" }),
@@ -2139,6 +2377,13 @@ static const GDBusMethodTable manager_methods[] = {
 	{ GDBUS_ASYNC_METHOD("UnregisterService",
 					GDBUS_ARGS({ "service", "o" }),
 					NULL, manager_unregister_service) },
+	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("RegisterProfile",
+			GDBUS_ARGS({ "profile", "o" }, { "UUIDs", "as" },
+			{ "options", "a{sv}" }), NULL,
+			manager_register_profile) },
+	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("UnregisterProfile",
+					GDBUS_ARGS({ "profile", "o" }),
+					NULL, manager_unregister_profile) },
 	{ }
 };
 
@@ -2166,6 +2411,10 @@ struct btd_gatt_database *btd_gatt_database_new(struct btd_adapter *adapter)
 
 	database->services = queue_new();
 	if (!database->services)
+		goto fail;
+
+	database->profiles = queue_new();
+	if (!database->profiles)
 		goto fail;
 
 	database->ccc_callbacks = queue_new();

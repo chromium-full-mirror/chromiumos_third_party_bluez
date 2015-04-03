@@ -80,7 +80,7 @@ include_HEADERS += $(lib_headers)
 lib_LTLIBRARIES += lib/libbluetooth.la
 
 lib_libbluetooth_la_SOURCES = $(lib_headers) $(lib_sources)
-lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 21:1:18
+lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 21:3:18
 lib_libbluetooth_la_DEPENDENCIES = $(local_headers)
 endif
 
@@ -175,6 +175,7 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 			src/uinput.h \
 			src/plugin.h src/plugin.c \
 			src/storage.h src/storage.c \
+			src/advertising.h src/advertising.c \
 			src/agent.h src/agent.c \
 			src/error.h src/error.c \
 			src/adapter.h src/adapter.c \
@@ -243,11 +244,13 @@ EXTRA_DIST += doc/mgmt-api.txt \
 		doc/adapter-api.txt doc/device-api.txt \
 		doc/agent-api.txt doc/profile-api.txt \
 		doc/network-api.txt doc/media-api.txt \
-		doc/health-api.txt doc/sap-api.txt
+		doc/health-api.txt doc/sap-api.txt \
+		doc/input-api.txt
 
 EXTRA_DIST += doc/alert-api.txt \
 		doc/proximity-api.txt doc/heartrate-api.txt \
-		doc/thermometer-api.txt doc/cyclingspeed-api.txt
+		doc/thermometer-api.txt doc/cyclingspeed-api.txt \
+		doc/gatt-api.txt doc/advertising-api.txt
 
 EXTRA_DIST += doc/obex-api.txt doc/obex-agent-api.txt
 
@@ -383,6 +386,21 @@ unit_test_gatt_SOURCES = unit/test-gatt.c
 unit_test_gatt_LDADD = src/libshared-glib.la \
 				lib/libbluetooth-internal.la @GLIB_LIBS@
 
+unit_tests += unit/test-hog
+
+unit_test_hog_SOURCES = unit/test-hog.c \
+			$(btio_sources) \
+			android/hog.h android/hog.c \
+			android/scpp.h android/scpp.c \
+			android/bas.h android/bas.c \
+			android/dis.h android/dis.c \
+			src/log.h src/log.c \
+			attrib/att.h attrib/att.c \
+			attrib/gatt.h attrib/gatt.c \
+			attrib/gattrib.h attrib/gattrib.c
+unit_test_hog_LDADD = src/libshared-glib.la \
+				lib/libbluetooth-internal.la @GLIB_LIBS@
+
 unit_tests += unit/test-gattrib
 
 unit_test_gattrib_SOURCES = unit/test-gattrib.c attrib/gattrib.c $(btio_sources) src/log.h src/log.c
@@ -395,6 +413,7 @@ noinst_PROGRAMS += $(unit_tests)
 endif
 
 TESTS = $(unit_tests)
+AM_TESTS_ENVIRONMENT = MALLOC_CHECK_=3 MALLOC_PERTURB_=69
 
 pkgconfigdir = $(libdir)/pkgconfig
 

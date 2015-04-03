@@ -74,6 +74,7 @@
 #include "attrib/gatt.h"
 #include "attrib-server.h"
 #include "gatt-database.h"
+#include "advertising.h"
 #include "eir.h"
 
 #define ADAPTER_INTERFACE	"org.bluez.Adapter1"
@@ -87,6 +88,14 @@
 #define IDLE_DISCOV_TIMEOUT (5)
 #define TEMP_DEV_TIMEOUT (3 * 60)
 #define BONDING_TIMEOUT (2 * 60)
+
+#define SCAN_TYPE_BREDR (1 << BDADDR_BREDR)
+#define SCAN_TYPE_LE ((1 << BDADDR_LE_PUBLIC) | (1 << BDADDR_LE_RANDOM))
+#define SCAN_TYPE_DUAL (SCAN_TYPE_BREDR | SCAN_TYPE_LE)
+
+#define HCI_RSSI_INVALID	127
+#define DISTANCE_VAL_INVALID	0x7FFF
+#define PATHLOSS_MAX		137
 
 static DBusConnection *dbus_conn = NULL;
 
@@ -141,10 +150,18 @@ struct conn_param {
 	uint16_t timeout;
 };
 
+struct discovery_filter {
+	uint8_t type;
+	uint16_t pathloss;
+	int16_t rssi;
+	GSList *uuids;
+};
+
 struct watch_client {
 	struct btd_adapter *adapter;
 	char *owner;
 	guint watch;
+	struct discovery_filter *discovery_filter;
 };
 
 struct service_auth {
@@ -191,10 +208,19 @@ struct btd_adapter {
 	char *stored_alias;		/* stored adapter name alias */
 
 	bool discovering;		/* discovering property state */
+	bool filtered_discovery;	/* we are doing filtered discovery */
+	bool no_scan_restart_delay;	/* when this flag is set, restart scan
+					 * without delay */
 	uint8_t discovery_type;		/* current active discovery type */
 	uint8_t discovery_enable;	/* discovery enabled/disabled */
 	bool discovery_suspended;	/* discovery has been suspended */
 	GSList *discovery_list;		/* list of discovery clients */
+	GSList *set_filter_list;	/* list of clients that specified
+					 * filter, but don't scan yet
+					 */
+	/* current discovery filter, if any */
+	struct mgmt_cp_start_service_discovery *current_discovery_filter;
+
 	GSList *discovery_found;	/* list of found devices */
 	guint discovery_idle_timeout;	/* timeout between discovery runs */
 	guint passive_scan_timeout;	/* timeout between passive scans */
@@ -211,6 +237,7 @@ struct btd_adapter {
 	sdp_list_t *services;		/* Services associated to adapter */
 
 	struct btd_gatt_database *database;
+	struct btd_advertising *adv_manager;
 
 	gboolean initialized;
 
@@ -1198,7 +1225,7 @@ static gboolean passive_scanning_timeout(gpointer user_data)
 
 	adapter->passive_scan_timeout = 0;
 
-	cp.type = (1 << BDADDR_LE_PUBLIC) | (1 << BDADDR_LE_RANDOM);
+	cp.type = SCAN_TYPE_LE;
 
 	mgmt_send(adapter->mgmt, MGMT_OP_START_DISCOVERY,
 				adapter->dev_id, sizeof(cp), &cp,
@@ -1340,6 +1367,30 @@ static void cancel_passive_scanning(struct btd_adapter *adapter)
 	}
 }
 
+static uint8_t get_scan_type(struct btd_adapter *adapter)
+{
+	uint8_t type;
+
+	if (adapter->current_settings & MGMT_SETTING_BREDR)
+		type = SCAN_TYPE_BREDR;
+	else
+		type = 0;
+
+	if (adapter->current_settings & MGMT_SETTING_LE)
+		type |= SCAN_TYPE_LE;
+
+	return type;
+}
+
+static void free_discovery_filter(struct discovery_filter *discovery_filter)
+{
+	if (!discovery_filter)
+		return;
+
+	g_slist_free_full(discovery_filter->uuids, g_free);
+	g_free(discovery_filter);
+}
+
 static void trigger_start_discovery(struct btd_adapter *adapter, guint delay);
 
 static void start_discovery_complete(uint8_t status, uint16_t length,
@@ -1358,6 +1409,11 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 	if (status == MGMT_STATUS_SUCCESS) {
 		adapter->discovery_type = rp->type;
 		adapter->discovery_enable = 0x01;
+
+		if (adapter->current_discovery_filter)
+			adapter->filtered_discovery = true;
+		else
+			adapter->filtered_discovery = false;
 
 		if (adapter->discovering)
 			return;
@@ -1378,27 +1434,32 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 static gboolean start_discovery_timeout(gpointer user_data)
 {
 	struct btd_adapter *adapter = user_data;
-	struct mgmt_cp_start_discovery cp;
+	struct mgmt_cp_start_service_discovery *sd_cp;
 	uint8_t new_type;
 
 	DBG("");
 
 	adapter->discovery_idle_timeout = 0;
 
-	if (adapter->current_settings & MGMT_SETTING_BREDR)
-		new_type = (1 << BDADDR_BREDR);
-	else
-		new_type = 0;
+	/* If we're doing filtered discovery, it must be quickly restarted */
+	adapter->no_scan_restart_delay = !!adapter->current_discovery_filter;
 
-	if (adapter->current_settings & MGMT_SETTING_LE)
-		new_type |= (1 << BDADDR_LE_PUBLIC) | (1 << BDADDR_LE_RANDOM);
+	DBG("adapter->current_discovery_filter == %d",
+	    !!adapter->current_discovery_filter);
+
+	new_type = get_scan_type(adapter);
 
 	if (adapter->discovery_enable == 0x01) {
+		struct mgmt_cp_stop_discovery cp;
+
 		/*
-		 * If there is an already running discovery and it has the
-		 * same type, then just keep it.
+		 * If we're asked to start regular discovery, and there is an
+		 * already running regular discovery and it has the same type,
+		 * then just keep it.
 		 */
-		if (adapter->discovery_type == new_type) {
+		if (!adapter->current_discovery_filter &&
+		    !adapter->filtered_discovery &&
+		    adapter->discovery_type == new_type) {
 			if (adapter->discovering)
 				return FALSE;
 
@@ -1413,20 +1474,43 @@ static gboolean start_discovery_timeout(gpointer user_data)
 		 * queue up a stop discovery command.
 		 *
 		 * This can happen if a passive scanning for Low Energy
-		 * devices is ongoing.
+		 * devices is ongoing, or scan type is changed between
+		 * regular and filtered, or filter was updated.
 		 */
 		cp.type = adapter->discovery_type;
-
 		mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY,
 					adapter->dev_id, sizeof(cp), &cp,
 					NULL, NULL, NULL);
+
+		/* Don't even bother to try to quickly start discovery
+		 * just after stopping it, it would fail with status
+		 * MGMT_BUSY. Instead discovering_callback will take
+		 * care of that.
+		 */
+		return FALSE;
+
 	}
 
-	cp.type = new_type;
+	/* Regular discovery is required */
+	if (!adapter->current_discovery_filter) {
+		struct mgmt_cp_start_discovery cp;
 
-	mgmt_send(adapter->mgmt, MGMT_OP_START_DISCOVERY,
+		cp.type = new_type;
+		mgmt_send(adapter->mgmt, MGMT_OP_START_DISCOVERY,
 				adapter->dev_id, sizeof(cp), &cp,
 				start_discovery_complete, adapter, NULL);
+		return FALSE;
+	}
+
+	/* Filtered discovery is required */
+	sd_cp = adapter->current_discovery_filter;
+
+	DBG("sending MGMT_OP_START_SERVICE_DISCOVERY %d, %d, %d",
+				sd_cp->rssi, sd_cp->type, sd_cp->uuid_count);
+
+	mgmt_send(adapter->mgmt, MGMT_OP_START_SERVICE_DISCOVERY,
+		  adapter->dev_id, sizeof(*sd_cp) + sd_cp->uuid_count * 16,
+		  sd_cp, start_discovery_complete, adapter, NULL);
 
 	return FALSE;
 }
@@ -1538,8 +1622,8 @@ static void discovering_callback(uint16_t index, uint16_t length,
 		return;
 	}
 
-	DBG("hci%u type %u discovering %u", adapter->dev_id,
-					ev->type, ev->discovering);
+	DBG("hci%u type %u discovering %u method %d", adapter->dev_id, ev->type,
+				ev->discovering, adapter->filtered_discovery);
 
 	if (adapter->discovery_enable == ev->discovering)
 		return;
@@ -1565,7 +1649,10 @@ static void discovering_callback(uint16_t index, uint16_t length,
 
 	switch (adapter->discovery_enable) {
 	case 0x00:
-		trigger_start_discovery(adapter, IDLE_DISCOV_TIMEOUT);
+		if (adapter->no_scan_restart_delay)
+			trigger_start_discovery(adapter, 0);
+		else
+			trigger_start_discovery(adapter, IDLE_DISCOV_TIMEOUT);
 		break;
 
 	case 0x01:
@@ -1573,6 +1660,7 @@ static void discovering_callback(uint16_t index, uint16_t length,
 			g_source_remove(adapter->discovery_idle_timeout);
 			adapter->discovery_idle_timeout = 0;
 		}
+
 		break;
 	}
 }
@@ -1587,7 +1675,8 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 	if (status == MGMT_STATUS_SUCCESS) {
 		adapter->discovery_type = 0x00;
 		adapter->discovery_enable = 0x00;
-
+		adapter->filtered_discovery = false;
+		adapter->no_scan_restart_delay = false;
 		adapter->discovering = false;
 		g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Discovering");
@@ -1638,6 +1727,213 @@ static gboolean remove_temp_devices(gpointer user_data)
 	return FALSE;
 }
 
+static gint g_strcmp(gconstpointer a, gconstpointer b)
+{
+	return strcmp(a, b);
+}
+
+static void extract_unique_uuids(gpointer data, gpointer user_data)
+{
+	char *uuid_str = data;
+	GSList **uuids = user_data;
+
+	if (!g_slist_find_custom(*uuids, uuid_str, g_strcmp))
+		*uuids = g_slist_insert_sorted(*uuids, uuid_str, g_strcmp);
+}
+
+/*
+ * This method merges all adapter filters into rssi, transport and uuids.
+ * Returns 1 if there was no filtered scan, 0 otherwise.
+ */
+static int merge_discovery_filters(struct btd_adapter *adapter, int *rssi,
+					uint8_t *transport, GSList **uuids)
+{
+	GSList *l;
+	bool empty_uuid = false;
+	bool has_regular_discovery = false;
+	bool has_filtered_discovery = false;
+
+	for (l = adapter->discovery_list; l != NULL; l = g_slist_next(l)) {
+		struct watch_client *client = l->data;
+		struct discovery_filter *item = client->discovery_filter;
+
+		if (!item) {
+			has_regular_discovery = true;
+			continue;
+		}
+
+		has_filtered_discovery = true;
+
+		*transport |= item->type;
+
+		/*
+		 * Rule for merging rssi and pathloss into rssi field of kernel
+		 * filter is as follow:
+		 * - if there's any client without proximity filter, then do no
+		 *   proximity filtering,
+		 * - if all clients specified RSSI, then use lowest value,
+		 * - if any client specified pathloss, then kernel filter should
+		 *   do no proximity, as kernel can't compute pathloss. We'll do
+		 *   filtering on our own.
+		 */
+		if (item->rssi == DISTANCE_VAL_INVALID)
+			*rssi = HCI_RSSI_INVALID;
+		else if (*rssi != HCI_RSSI_INVALID && *rssi >= item->rssi)
+			*rssi = item->rssi;
+		else if (item->pathloss != DISTANCE_VAL_INVALID)
+			*rssi = HCI_RSSI_INVALID;
+
+		if (!g_slist_length(item->uuids))
+			empty_uuid = true;
+
+		g_slist_foreach(item->uuids, extract_unique_uuids, uuids);
+	}
+
+	/* If no proximity filtering is set, disable it */
+	if (*rssi == DISTANCE_VAL_INVALID)
+		*rssi = HCI_RSSI_INVALID;
+
+	/*
+	 * Empty_uuid variable determines wether there was any filter with no
+	 * uuids. In this case someone might be looking for all devices in
+	 * certain proximity, and we need to have empty uuids in kernel filter.
+	 */
+	if (empty_uuid) {
+		g_slist_free(*uuids);
+		*uuids = NULL;
+	}
+
+	if (has_regular_discovery) {
+		if (!has_filtered_discovery)
+			return 1;
+
+		/*
+		 * It there is both regular and filtered scan running, then
+		 * clear whole fitler to report all devices.
+		 */
+		*transport = get_scan_type(adapter);
+		*rssi = HCI_RSSI_INVALID;
+		g_slist_free(*uuids);
+		*uuids = NULL;
+	}
+
+	return 0;
+}
+
+static void populate_mgmt_filter_uuids(uint8_t (*mgmt_uuids)[16], GSList *uuids)
+{
+	GSList *l;
+
+	for (l = uuids; l != NULL; l = g_slist_next(l)) {
+		bt_uuid_t uuid, u128;
+		uint128_t uint128;
+
+		bt_string_to_uuid(&uuid, l->data);
+		bt_uuid_to_uuid128(&uuid, &u128);
+
+		ntoh128((uint128_t *) u128.value.u128.data, &uint128);
+		htob128(&uint128, (uint128_t *) mgmt_uuids);
+
+		mgmt_uuids++;
+	}
+}
+
+/*
+ * This method merges all adapter filters into one that will be send to kernel.
+ * cp_ptr is set to null when regular non-filtered discovery is needed,
+ * otherwise it's pointing to filter. Returns 0 on succes, -1 on error
+ */
+static int discovery_filter_to_mgmt_cp(struct btd_adapter *adapter,
+		       struct mgmt_cp_start_service_discovery **cp_ptr)
+{
+	GSList *uuids = NULL;
+	struct mgmt_cp_start_service_discovery *cp;
+	int rssi = DISTANCE_VAL_INVALID;
+	int uuid_count;
+	uint8_t discovery_type = 0;
+
+	DBG("");
+
+	if (merge_discovery_filters(adapter, &rssi, &discovery_type, &uuids)) {
+		/* There are only regular scans, run just regular scan. */
+		*cp_ptr = NULL;
+		return 0;
+	}
+
+	uuid_count = g_slist_length(uuids);
+
+	cp = g_try_malloc(sizeof(*cp) + 16*uuid_count);
+	*cp_ptr = cp;
+	if (!cp) {
+		g_slist_free(uuids);
+		return -1;
+	}
+
+	cp->type = discovery_type;
+	cp->rssi = rssi;
+	cp->uuid_count = uuid_count;
+	populate_mgmt_filter_uuids(cp->uuids, uuids);
+
+	g_slist_free(uuids);
+	return 0;
+}
+
+static bool filters_equal(struct mgmt_cp_start_service_discovery *a,
+		   struct mgmt_cp_start_service_discovery *b) {
+	if (!a && !b)
+		return true;
+
+	if ((!a && b) || (a && !b))
+		return false;
+
+	if (a->type != b->type)
+		return false;
+
+	if (a->rssi != b->rssi)
+		return false;
+
+	/*
+	 * When we create mgmt_cp_start_service_discovery structure inside
+	 * discovery_filter_to_mgmt_cp, we always keep uuids sorted, and
+	 * unique, so we're safe to compare uuid_count, and uuids like that.
+	 */
+	if (a->uuid_count != b->uuid_count)
+		return false;
+
+	if (memcmp(a->uuids, b->uuids, 16 * a->uuid_count) != 0)
+		return false;
+
+	return true;
+}
+
+static void update_discovery_filter(struct btd_adapter *adapter)
+{
+	struct mgmt_cp_start_service_discovery *sd_cp;
+
+	DBG("");
+
+	if (discovery_filter_to_mgmt_cp(adapter, &sd_cp)) {
+		error("discovery_filter_to_mgmt_cp returned error");
+		return;
+	}
+
+	/*
+	 * If filters are equal, then don't update scan, except for when
+	 * starting discovery.
+	 */
+	if (filters_equal(adapter->current_discovery_filter, sd_cp) &&
+	    adapter->discovering != 0) {
+		DBG("filters were equal, deciding to not restart the scan.");
+		g_free(sd_cp);
+		return;
+	}
+
+	g_free(adapter->current_discovery_filter);
+	adapter->current_discovery_filter = sd_cp;
+
+	trigger_start_discovery(adapter, 0);
+}
+
 static void discovery_destroy(void *user_data)
 {
 	struct watch_client *client = user_data;
@@ -1645,8 +1941,16 @@ static void discovery_destroy(void *user_data)
 
 	DBG("owner %s", client->owner);
 
+	adapter->set_filter_list = g_slist_remove(adapter->set_filter_list,
+								client);
+
 	adapter->discovery_list = g_slist_remove(adapter->discovery_list,
 								client);
+
+	if (client->discovery_filter) {
+		free_discovery_filter(client->discovery_filter);
+		client->discovery_filter = NULL;
+	}
 
 	g_free(client->owner);
 	g_free(client);
@@ -1684,6 +1988,9 @@ static void discovery_disconnect(DBusConnection *conn, void *user_data)
 
 	DBG("owner %s", client->owner);
 
+	adapter->set_filter_list = g_slist_remove(adapter->set_filter_list,
+								client);
+
 	adapter->discovery_list = g_slist_remove(adapter->discovery_list,
 								client);
 
@@ -1694,8 +2001,10 @@ static void discovery_disconnect(DBusConnection *conn, void *user_data)
 	 * However in case this is the last client, the discovery in
 	 * the kernel needs to be disabled.
 	 */
-	if (adapter->discovery_list)
+	if (adapter->discovery_list) {
+		update_discovery_filter(adapter);
 		return;
+	}
 
 	/*
 	 * In the idle phase of a discovery, there is no need to stop it
@@ -1717,36 +2026,75 @@ static void discovery_disconnect(DBusConnection *conn, void *user_data)
 				stop_discovery_complete, adapter, NULL);
 }
 
+/*
+ * Returns true if client was already discovering, false otherwise. *client
+ * will point to discovering client, or client that have pre-set his filter.
+ */
+static bool get_discovery_client(struct btd_adapter *adapter,
+						const char *owner,
+						struct watch_client **client)
+{
+	GSList *list = g_slist_find_custom(adapter->discovery_list, owner,
+								compare_sender);
+	if (list) {
+		*client = list->data;
+		return true;
+	}
+
+	list = g_slist_find_custom(adapter->set_filter_list, owner,
+								compare_sender);
+	if (list) {
+		*client = list->data;
+		return false;
+	}
+
+	*client = NULL;
+	return false;
+}
+
 static DBusMessage *start_discovery(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	struct watch_client *client;
-	GSList *list;
+	bool is_discovering;
 
 	DBG("sender %s", sender);
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
 
+	is_discovering = get_discovery_client(adapter, sender, &client);
+
 	/*
 	 * Every client can only start one discovery, if the client
 	 * already started a discovery then return an error.
 	 */
-	list = g_slist_find_custom(adapter->discovery_list, sender,
-						compare_sender);
-	if (list)
+	if (is_discovering)
 		return btd_error_busy(msg);
+
+	/*
+	 * If there was pre-set filter, just reconnect it to discovery_list,
+	 * and trigger scan.
+	 */
+	if (client) {
+		adapter->set_filter_list = g_slist_remove(
+					     adapter->set_filter_list, client);
+		adapter->discovery_list = g_slist_prepend(
+					      adapter->discovery_list, client);
+		update_discovery_filter(adapter);
+		return dbus_message_new_method_return(msg);
+	}
 
 	client = g_new0(struct watch_client, 1);
 
 	client->adapter = adapter;
 	client->owner = g_strdup(sender);
+	client->discovery_filter = NULL;
 	client->watch = g_dbus_add_disconnect_watch(dbus_conn, sender,
 						discovery_disconnect, client,
 						discovery_destroy);
-
 	adapter->discovery_list = g_slist_prepend(adapter->discovery_list,
 								client);
 
@@ -1755,7 +2103,237 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 	 * discovery in idle phase exists, it will be restarted right
 	 * away.
 	 */
-	trigger_start_discovery(adapter, 0);
+	update_discovery_filter(adapter);
+
+	return dbus_message_new_method_return(msg);
+}
+
+static bool parse_uuids(DBusMessageIter *value, GSList **uuids)
+{
+	DBusMessageIter arriter;
+
+	if (dbus_message_iter_get_arg_type(value) != DBUS_TYPE_ARRAY)
+		return false;
+
+	dbus_message_iter_recurse(value, &arriter);
+	while (dbus_message_iter_get_arg_type(&arriter) != DBUS_TYPE_INVALID) {
+		bt_uuid_t uuid, u128;
+		char uuidstr[MAX_LEN_UUID_STR + 1];
+		char *uuid_param;
+
+		if (dbus_message_iter_get_arg_type(&arriter) !=
+						DBUS_TYPE_STRING)
+			return false;
+
+		dbus_message_iter_get_basic(&arriter, &uuid_param);
+
+		if (bt_string_to_uuid(&uuid, uuid_param))
+			return false;
+
+		bt_uuid_to_uuid128(&uuid, &u128);
+		bt_uuid_to_string(&u128, uuidstr, sizeof(uuidstr));
+
+		*uuids = g_slist_prepend(*uuids, strdup(uuidstr));
+
+		dbus_message_iter_next(&arriter);
+	}
+
+	return true;
+}
+
+static bool parse_rssi(DBusMessageIter *value, int16_t *rssi)
+{
+	if (dbus_message_iter_get_arg_type(value) != DBUS_TYPE_INT16)
+		return false;
+
+	dbus_message_iter_get_basic(value, rssi);
+	/* -127 <= RSSI <= +20 (spec V4.2 [Vol 2, Part E] 7.7.65.2) */
+	if (*rssi > 20 || *rssi < -127)
+		return false;
+
+	return true;
+}
+
+static bool parse_pathloss(DBusMessageIter *value, uint16_t *pathloss)
+{
+	if (dbus_message_iter_get_arg_type(value) != DBUS_TYPE_UINT16)
+		return false;
+
+	dbus_message_iter_get_basic(value, pathloss);
+	/* pathloss filter must be smaller that PATHLOSS_MAX */
+	if (*pathloss > PATHLOSS_MAX)
+		return false;
+
+	return true;
+}
+
+static bool parse_transport(DBusMessageIter *value, uint8_t *transport)
+{
+	char *transport_str;
+
+	if (dbus_message_iter_get_arg_type(value) != DBUS_TYPE_STRING)
+		return false;
+
+	dbus_message_iter_get_basic(value, &transport_str);
+
+	if (!strcmp(transport_str, "bredr"))
+		*transport = SCAN_TYPE_BREDR;
+	else if (!strcmp(transport_str, "le"))
+		*transport = SCAN_TYPE_LE;
+	else if (!strcmp(transport_str, "auto"))
+		*transport = SCAN_TYPE_DUAL;
+	else
+		return false;
+
+	return true;
+}
+
+static bool parse_discovery_filter_entry(char *key, DBusMessageIter *value,
+						struct discovery_filter *filter)
+{
+	if (!strcmp("UUIDs", key))
+		return parse_uuids(value, &filter->uuids);
+
+	if (!strcmp("RSSI", key))
+		return parse_rssi(value, &filter->rssi);
+
+	if (!strcmp("Pathloss", key))
+		return parse_pathloss(value, &filter->pathloss);
+
+	if (!strcmp("Transport", key))
+		return parse_transport(value, &filter->type);
+
+	DBG("Unknown key parameter: %s!\n", key);
+	return false;
+}
+
+/*
+ * This method is responsible for parsing parameters to SetDiscoveryFilter. If
+ * filter in msg was empty, sets *filter to NULL. If whole parsing was
+ * successful, sets *filter to proper value.
+ * Returns false on any error, and true on success.
+ */
+static bool parse_discovery_filter_dict(struct discovery_filter **filter,
+							DBusMessage *msg)
+{
+	DBusMessageIter iter, subiter, dictiter, variantiter;
+	bool is_empty = true;
+
+	*filter = g_try_malloc(sizeof(**filter));
+	if (!*filter)
+		return false;
+
+	(*filter)->uuids = NULL;
+	(*filter)->pathloss = DISTANCE_VAL_INVALID;
+	(*filter)->rssi = DISTANCE_VAL_INVALID;
+	(*filter)->type = SCAN_TYPE_DUAL;
+
+	dbus_message_iter_init(msg, &iter);
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY ||
+	    dbus_message_iter_get_element_type(&iter) != DBUS_TYPE_DICT_ENTRY)
+		return false;
+
+	dbus_message_iter_recurse(&iter, &subiter);
+	do {
+		int type = dbus_message_iter_get_arg_type(&subiter);
+		char *key;
+
+		if (type == DBUS_TYPE_INVALID)
+			break;
+
+		is_empty = false;
+		dbus_message_iter_recurse(&subiter, &dictiter);
+
+		dbus_message_iter_get_basic(&dictiter, &key);
+		if (!dbus_message_iter_next(&dictiter))
+			goto invalid_args;
+
+		if (dbus_message_iter_get_arg_type(&dictiter) !=
+							     DBUS_TYPE_VARIANT)
+			goto invalid_args;
+
+		dbus_message_iter_recurse(&dictiter, &variantiter);
+
+		if (!parse_discovery_filter_entry(key, &variantiter, *filter))
+			goto invalid_args;
+
+		dbus_message_iter_next(&subiter);
+	} while (true);
+
+	if (is_empty) {
+		g_free(*filter);
+		*filter = NULL;
+		return true;
+	}
+
+	/* only pathlos or rssi can be set, never both */
+	if ((*filter)->pathloss != DISTANCE_VAL_INVALID &&
+	    (*filter)->rssi != DISTANCE_VAL_INVALID)
+		goto invalid_args;
+
+	DBG("filtered discovery params: transport: %d rssi: %d pathloss: %d",
+	    (*filter)->type, (*filter)->rssi, (*filter)->pathloss);
+
+	return true;
+
+invalid_args:
+	g_slist_free_full((*filter)->uuids, g_free);
+	g_free(*filter);
+	*filter = NULL;
+	return false;
+}
+
+static DBusMessage *set_discovery_filter(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	struct watch_client *client;
+	struct discovery_filter *discovery_filter;
+	const char *sender = dbus_message_get_sender(msg);
+	bool is_discovering;
+
+	DBG("sender %s", sender);
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	/* parse parameters */
+	if (!parse_discovery_filter_dict(&discovery_filter, msg))
+		return btd_error_invalid_args(msg);
+
+	is_discovering = get_discovery_client(adapter, sender, &client);
+
+	if (client) {
+		free_discovery_filter(client->discovery_filter);
+		client->discovery_filter = discovery_filter;
+
+		if (is_discovering)
+			update_discovery_filter(adapter);
+
+		if (discovery_filter || is_discovering)
+			return dbus_message_new_method_return(msg);
+
+		/* Removing pre-set filter */
+		adapter->set_filter_list = g_slist_remove(
+					      adapter->set_filter_list,
+					      client);
+		g_free(client->owner);
+		g_free(client);
+		DBG("successfully cleared pre-set filter");
+	} else if (discovery_filter) {
+		/* Client pre-setting his filter for first time */
+		client = g_new0(struct watch_client, 1);
+		client->adapter = adapter;
+		client->owner = g_strdup(sender);
+		client->discovery_filter = discovery_filter;
+		client->watch = g_dbus_add_disconnect_watch(dbus_conn, sender,
+						discovery_disconnect, client,
+						discovery_destroy);
+		adapter->set_filter_list = g_slist_prepend(
+					     adapter->set_filter_list, client);
+
+		DBG("successfully pre-set filter");
+	}
 
 	return dbus_message_new_method_return(msg);
 }
@@ -1789,12 +2367,10 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 	 */
 	g_dbus_remove_watch(dbus_conn, client->watch);
 
-	/*
-	 * As long as other discovery clients are still active, just
-	 * return success.
-	 */
-	if (adapter->discovery_list)
+	if (adapter->discovery_list) {
+		update_discovery_filter(adapter);
 		return dbus_message_new_method_return(msg);
+	}
 
 	/*
 	 * In the idle phase of a discovery, there is no need to stop it
@@ -2322,7 +2898,7 @@ static DBusMessage *remove_device(DBusConnection *conn,
 
 	device = list->data;
 
-	btd_device_set_temporary(device, TRUE);
+	btd_device_set_temporary(device, true);
 
 	if (!btd_device_is_connected(device)) {
 		btd_adapter_remove_device(adapter, device);
@@ -2336,6 +2912,9 @@ static DBusMessage *remove_device(DBusConnection *conn,
 
 static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
+	{ GDBUS_METHOD("SetDiscoveryFilter",
+				GDBUS_ARGS({ "properties", "a{sv}" }), NULL,
+				set_discovery_filter) },
 	{ GDBUS_METHOD("StopDiscovery", NULL, NULL, stop_discovery) },
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
 			GDBUS_ARGS({ "device", "o" }), NULL, remove_device) },
@@ -2965,7 +3544,7 @@ static void load_devices(struct btd_adapter *adapter)
 		if (!device)
 			goto free;
 
-		btd_device_set_temporary(device, FALSE);
+		btd_device_set_temporary(device, false);
 		adapter->devices = g_slist_append(adapter->devices, device);
 
 		/* TODO: register services from pre-loaded list of primaries */
@@ -4643,6 +5222,9 @@ static void adapter_remove(struct btd_adapter *adapter)
 	btd_gatt_database_destroy(adapter->database);
 	adapter->database = NULL;
 
+	btd_advertising_manager_destroy(adapter->adv_manager);
+	adapter->adv_manager = NULL;
+
 	g_slist_free(adapter->pin_callbacks);
 	adapter->pin_callbacks = NULL;
 
@@ -4769,6 +5351,60 @@ static void adapter_msd_notify(struct btd_adapter *adapter,
 	}
 }
 
+static bool is_filter_match(GSList *discovery_filter, struct eir_data *eir_data,
+								int8_t rssi)
+{
+	GSList *l, *m;
+	bool got_match = false;
+
+	for (l = discovery_filter; l != NULL && got_match != true;
+							l = g_slist_next(l)) {
+		struct watch_client *client = l->data;
+		struct discovery_filter *item = client->discovery_filter;
+
+		/*
+		 * If one of currently running scans is regular scan, then
+		 * return all devices as matches
+		 */
+		if (!item) {
+			got_match = true;
+			continue;
+		}
+
+		/* if someone started discovery with empty uuids, he wants all
+		 * devices in given proximity.
+		 */
+		if (!item->uuids)
+			got_match = true;
+		else {
+			for (m = item->uuids; m != NULL && got_match != true;
+							m = g_slist_next(m)) {
+				/* m->data contains string representation of
+				 * uuid.
+				 */
+				if (g_slist_find_custom(eir_data->services,
+							m->data,
+							g_strcmp) != NULL)
+					got_match = true;
+			}
+		}
+
+		if (got_match) {
+			/* we have service match, check proximity */
+			if (item->rssi == DISTANCE_VAL_INVALID ||
+			    item->rssi <= rssi ||
+			    item->pathloss == DISTANCE_VAL_INVALID ||
+			    (eir_data->tx_power != 127 &&
+			     eir_data->tx_power - rssi <= item->pathloss))
+				return true;
+
+			got_match = false;
+		}
+	}
+
+	return got_match;
+}
+
 static void update_found_devices(struct btd_adapter *adapter,
 					const bdaddr_t *bdaddr,
 					uint8_t bdaddr_type, int8_t rssi,
@@ -4835,8 +5471,18 @@ static void update_found_devices(struct btd_adapter *adapter,
 		return;
 	}
 
+	if (adapter->filtered_discovery &&
+	    !is_filter_match(adapter->discovery_list, &eir_data, rssi)) {
+		eir_data_free(&eir_data);
+		return;
+	}
+
 	device_set_legacy(dev, legacy);
-	device_set_rssi(dev, rssi);
+
+	if (adapter->filtered_discovery)
+		device_set_rssi_with_delta(dev, rssi, 0);
+	else
+		device_set_rssi(dev, rssi);
 
 	if (eir_data.appearance != 0)
 		device_set_appearance(dev, eir_data.appearance);
@@ -5002,6 +5648,18 @@ static void adapter_stop(struct btd_adapter *adapter)
 
 	cancel_passive_scanning(adapter);
 
+	while (adapter->set_filter_list) {
+		struct watch_client *client;
+
+		client = adapter->set_filter_list->data;
+
+		/* g_dbus_remove_watch will remove the client from the
+		 * adapter's list and free it using the discovery_destroy
+		 * function.
+		 */
+		g_dbus_remove_watch(dbus_conn, client->watch);
+	}
+
 	while (adapter->discovery_list) {
 		struct watch_client *client;
 
@@ -5013,6 +5671,11 @@ static void adapter_stop(struct btd_adapter *adapter)
 		 */
 		g_dbus_remove_watch(dbus_conn, client->watch);
 	}
+
+	adapter->filtered_discovery = false;
+	adapter->no_scan_restart_delay = false;
+	g_free(adapter->current_discovery_filter);
+	adapter->current_discovery_filter = NULL;
 
 	adapter->discovering = false;
 
@@ -6079,9 +6742,6 @@ static void new_link_key_callback(uint16_t index, uint16_t length,
 								key->pin_len);
 
 		device_set_bonded(device, BDADDR_BREDR);
-
-		if (device_is_temporary(device))
-			btd_device_set_temporary(device, FALSE);
 	}
 
 	bonding_complete(adapter, &addr->bdaddr, addr->type, 0);
@@ -6197,9 +6857,6 @@ static void new_long_term_key_callback(uint16_t index, uint16_t length,
 					key->type, key->enc_size, ediv, rand);
 
 		device_set_bonded(device, addr->type);
-
-		if (device_is_temporary(device))
-			btd_device_set_temporary(device, FALSE);
 	}
 
 	bonding_complete(adapter, &addr->bdaddr, addr->type, 0);
@@ -6300,8 +6957,7 @@ static void new_csrk_callback(uint16_t index, uint16_t length,
 	store_csrk(bdaddr, &key->addr.bdaddr, key->addr.type, key->val, 0,
 								key->type);
 
-	if (device_is_temporary(device))
-		btd_device_set_temporary(device, FALSE);
+	btd_device_set_temporary(device, false);
 }
 
 static void store_irk(struct btd_adapter *adapter, const bdaddr_t *peer,
@@ -6388,8 +7044,7 @@ static void new_irk_callback(uint16_t index, uint16_t length,
 
 	store_irk(adapter, &addr->bdaddr, addr->type, irk->val);
 
-	if (device_is_temporary(device))
-		btd_device_set_temporary(device, FALSE);
+	btd_device_set_temporary(device, false);
 }
 
 static void store_conn_param(struct btd_adapter *adapter, const bdaddr_t *peer,
@@ -6566,8 +7221,8 @@ static void read_local_oob_data_complete(uint8_t status, uint16_t length,
 		error("Too small read local OOB data response");
 		return;
 	} else {
-		hash = rp->hash;
-		randomizer = rp->randomizer;
+		hash = rp->hash192;
+		randomizer = rp->rand192;
 	}
 
 	if (!adapter->oob_handler || !adapter->oob_handler->read_local_cb)
@@ -6713,6 +7368,18 @@ static int adapter_register(struct btd_adapter *adapter)
 		error("Failed to create GATT database for adapter");
 		adapters = g_slist_remove(adapters, adapter);
 		return -EINVAL;
+	}
+
+	/* Don't start advertising managers on non-LE controllers. */
+	if (adapter->supported_settings & MGMT_SETTING_LE) {
+		adapter->adv_manager = btd_advertising_manager_new(adapter);
+
+		/* LEAdvertisingManager1 is experimental so optional */
+		if (!adapter->adv_manager)
+			error("Failed to register LEAdvertisingManager1 "
+						"interface for adapter");
+	} else {
+		info("Not starting LEAdvertisingManager, LE not supported");
 	}
 
 	db = btd_gatt_database_get_db(adapter->database);
@@ -7138,6 +7805,10 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 	if (missing_settings & MGMT_SETTING_SECURE_CONN)
 		set_mode(adapter, MGMT_OP_SET_SECURE_CONN, 0x01);
+
+	if (main_opts.fast_conn &&
+			(missing_settings & MGMT_SETTING_FAST_CONNECTABLE))
+		set_mode(adapter, MGMT_OP_SET_FAST_CONNECTABLE, 0x01);
 
 	err = adapter_register(adapter);
 	if (err < 0) {

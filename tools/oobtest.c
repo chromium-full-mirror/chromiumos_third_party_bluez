@@ -34,6 +34,10 @@
 #include "src/shared/mainloop.h"
 #include "src/shared/util.h"
 #include "src/shared/mgmt.h"
+#include "src/shared/crypto.h"
+
+#define REMOTE_IRK	"\x69\x30\xde\xc3\x8f\x84\x74\x14" \
+			"\xe1\x23\x99\xc1\xca\x9a\xc3\x31"
 
 static bool use_bredr = false;
 static bool use_le = false;
@@ -41,16 +45,21 @@ static bool use_sc = false;
 static bool use_sconly = false;
 static bool use_legacy = false;
 static bool use_random = false;
+static bool use_privacy = false;
 static bool use_debug = false;
 static bool use_cross = false;
+static bool provide_tk = false;
 static bool provide_p192 = false;
 static bool provide_p256 = false;
+static bool provide_initiator = false;
+static bool provide_acceptor = false;
 
 static struct mgmt *mgmt;
 static uint16_t index1 = MGMT_INDEX_NONE;
 static uint16_t index2 = MGMT_INDEX_NONE;
 static bdaddr_t bdaddr1;
 static bdaddr_t bdaddr2;
+static uint8_t oob_tk[16];
 
 static void pin_code_request_event(uint16_t index, uint16_t len,
 					const void *param, void *user_data)
@@ -254,9 +263,12 @@ static void add_remote_oob_data(uint16_t index, const bdaddr_t *bdaddr,
 		cp.addr.type = BDADDR_LE_RANDOM;
 	else
 		cp.addr.type = BDADDR_LE_PUBLIC;
-	if (hash192 && rand192) {
+	if (hash192) {
 		memcpy(cp.hash192, hash192, 16);
-		memcpy(cp.rand192, rand192, 16);
+		if (rand192)
+			memcpy(cp.rand192, rand192, 16);
+		else
+			memset(cp.rand192, 0, 16);
 	} else {
 		memset(cp.hash192, 0, 16);
 		memset(cp.rand192, 0, 16);
@@ -277,7 +289,7 @@ static void add_remote_oob_data(uint16_t index, const bdaddr_t *bdaddr,
 static void read_oob_data_complete(uint8_t status, uint16_t len,
 					const void *param, void *user_data)
 {
-	const struct mgmt_rp_read_local_oob_ext_data *rp = param;
+	const struct mgmt_rp_read_local_oob_data *rp = param;
 	uint16_t index = PTR_TO_UINT(user_data);
 	const uint8_t *hash192, *rand192, *hash256, *rand256;
 	int i;
@@ -291,12 +303,22 @@ static void read_oob_data_complete(uint8_t status, uint16_t len,
 
 	printf("[Index %u]\n", index);
 
+	hash192 = NULL;
+	rand192 = NULL;
+	hash256 = NULL;
+	rand256 = NULL;
+
+	if (index == index1 && !provide_initiator) {
+		printf("  Skipping initiator OOB data\n");
+		goto done;
+	} else if (index == index2 && !provide_acceptor) {
+		printf("  Skipping acceptor OOB data\n");
+		goto done;
+	}
+
 	if (provide_p192) {
 		hash192 = rp->hash192;
-		rand192 = rp->randomizer192;
-	} else {
-		hash192 = NULL;
-		rand192 = NULL;
+		rand192 = rp->rand192;
 	}
 
 	printf("  Hash C from P-192: ");
@@ -306,21 +328,15 @@ static void read_oob_data_complete(uint8_t status, uint16_t len,
 
 	printf("  Randomizer R with P-192: ");
 	for (i = 0; i < 16; i++)
-		printf("%02x", rp->randomizer192[i]);
+		printf("%02x", rp->rand192[i]);
 	printf("\n");
 
-	if (len < sizeof(*rp)) {
-		hash256 = NULL;
-		rand256 = NULL;
+	if (len < sizeof(*rp))
 		goto done;
-	}
 
 	if (provide_p256) {
 		hash256 = rp->hash256;
-		rand256 = rp->randomizer256;
-	} else {
-		hash256 = NULL;
-		rand256 = NULL;
+		rand256 = rp->rand256;
 	}
 
 	printf("  Hash C from P-256: ");
@@ -330,7 +346,7 @@ static void read_oob_data_complete(uint8_t status, uint16_t len,
 
 	printf("  Randomizer R with P-256: ");
 	for (i = 0; i < 16; i++)
-		printf("%02x", rp->randomizer256[i]);
+		printf("%02x", rp->rand256[i]);
 	printf("\n");
 
 done:
@@ -340,6 +356,105 @@ done:
 	else if (index == index2)
 		add_remote_oob_data(index1, &bdaddr2,
 					hash192, rand192, hash256, rand256);
+}
+
+static void read_oob_ext_data_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_rp_read_local_oob_ext_data *rp = param;
+	uint16_t index = PTR_TO_UINT(user_data);
+	uint16_t eir_len, parsed;
+	const uint8_t *eir, *tk, *hash256, *rand256;
+	int i;
+
+	if (status) {
+		fprintf(stderr, "Reading OOB data for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+
+	printf("[Index %u]\n", index);
+
+	eir_len = le16_to_cpu(rp->eir_len);
+	printf("  OOB data len: %u\n", eir_len);
+
+	if (provide_tk)
+		tk = oob_tk;
+	else
+		tk = NULL;
+
+	hash256 = NULL;
+	rand256 = NULL;
+
+	if (index == index1 && !provide_initiator) {
+		printf("  Skipping initiator OOB data\n");
+		goto done;
+	} else if (index == index2 && !provide_acceptor) {
+		printf("  Skipping acceptor OOB data\n");
+		goto done;
+	}
+
+	if (eir_len < 2)
+		goto done;
+
+	eir = rp->eir;
+	parsed = 0;
+
+	while (parsed < eir_len - 1) {
+		uint8_t field_len = eir[0];
+
+		if (field_len == 0)
+			break;
+
+		parsed += field_len + 1;
+
+		if (parsed > eir_len)
+			break;
+
+		/* LE Bluetooth Device Address */
+		if (eir[1] == 0x1b) {
+			char str[18];
+
+			ba2str((bdaddr_t *) (eir + 2), str);
+			printf("  Device address: %s (%s)\n", str,
+						eir[8] ? "random" : "public");
+		}
+
+		/* LE Role */
+		if (eir[1] == 0x1c)
+			printf("  Role: 0x%02x\n", eir[2]);
+
+		/* LE Secure Connections Confirmation Value */
+		if (eir[1] == 0x22) {
+			hash256 = eir + 2;
+
+			printf("  Hash C from P-256: ");
+			for (i = 0; i < 16; i++)
+				printf("%02x", hash256[i]);
+			printf("\n");
+		}
+
+		/* LE Secure Connections Random Value */
+		if (eir[1] == 0x23) {
+			rand256 = eir + 2;
+
+			printf("  Randomizer R with P-256: ");
+			for (i = 0; i < 16; i++)
+				printf("%02x", rand256[i]);
+			printf("\n");
+		}
+
+		eir += field_len + 1;
+	}
+
+done:
+	if (index == index1)
+		add_remote_oob_data(index2, &bdaddr1,
+					tk, NULL, hash256, rand256);
+	else if (index == index2)
+		add_remote_oob_data(index1, &bdaddr2,
+					tk, NULL, hash256, rand256);
 }
 
 static void set_powered_complete(uint8_t status, uint16_t len,
@@ -380,6 +495,23 @@ static void set_powered_complete(uint8_t status, uint16_t len,
 		mgmt_send(mgmt, MGMT_OP_READ_LOCAL_OOB_DATA, index, 0, NULL,
 						read_oob_data_complete,
 						UINT_TO_PTR(index), NULL);
+	} else if (use_le && provide_p256) {
+		uint8_t type = (1 << BDADDR_LE_PUBLIC) |
+						(1 << BDADDR_LE_RANDOM);
+
+		mgmt_send(mgmt, MGMT_OP_READ_LOCAL_OOB_EXT_DATA, index,
+						sizeof(type), &type,
+						read_oob_ext_data_complete,
+						UINT_TO_PTR(index), NULL);
+	} else if (use_le && provide_tk) {
+		const uint8_t *tk = oob_tk;
+
+		if (index == index1)
+			add_remote_oob_data(index2, &bdaddr1,
+						tk, NULL, NULL, NULL);
+		else if (index == index2)
+			add_remote_oob_data(index1, &bdaddr2,
+						tk, NULL, NULL, NULL);
 	} else {
 		if (index == index1)
 			add_remote_oob_data(index2, &bdaddr1,
@@ -413,6 +545,17 @@ static void clear_long_term_keys(uint16_t index)
 					sizeof(cp), &cp, NULL, NULL, NULL);
 }
 
+static void clear_identity_resolving_keys(uint16_t index)
+{
+	struct mgmt_cp_load_irks cp;
+
+	memset(&cp, 0, sizeof(cp));
+	cp.irk_count = cpu_to_le16(0);
+
+	mgmt_send(mgmt, MGMT_OP_LOAD_IRKS, index,
+					sizeof(cp), &cp, NULL, NULL, NULL);
+}
+
 static void clear_remote_oob_data(uint16_t index)
 {
 	struct mgmt_cp_remove_remote_oob_data cp;
@@ -423,6 +566,123 @@ static void clear_remote_oob_data(uint16_t index)
 
 	mgmt_send(mgmt, MGMT_OP_REMOVE_REMOTE_OOB_DATA, index,
 					sizeof(cp), &cp, NULL, NULL, NULL);
+}
+
+static void set_powered_down_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Power down for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_bredr_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Setting BR/EDR for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_le_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Setting LE for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_ssp_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Simple Pairing for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_static_address_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Static address for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_secure_conn_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Secure connections for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_privacy_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Setting privacy for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_debug_keys_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Setting debug keys for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
+}
+
+static void set_bondable_complete(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	if (status) {
+		fprintf(stderr, "Setting bondable for index %u failed: %s\n",
+						index, mgmt_errstr(status));
+		mainloop_quit();
+		return;
+	}
 }
 
 static void read_info(uint8_t status, uint16_t len, const void *param,
@@ -483,6 +743,12 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 		return;
 	}
 
+	if (use_privacy && !(supported_settings & MGMT_SETTING_PRIVACY)) {
+		fprintf(stderr, "Privacy support missing\n");
+		mainloop_quit();
+		return;
+	}
+
 	if (use_debug && !(supported_settings & MGMT_SETTING_DEBUG_KEYS)) {
 		fprintf(stderr, "Debug keys support missing\n");
 		mainloop_quit();
@@ -494,6 +760,16 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 		fprintf(stderr, "Dual-mode support is support missing\n");
 		mainloop_quit();
 		return;
+	}
+
+	if (provide_tk) {
+		const uint8_t *tk = oob_tk;
+		int i;
+
+		printf("  TK Value: ");
+		for (i = 0; i < 16; i++)
+			printf("%02x", tk[i]);
+		printf("\n");
 	}
 
 	mgmt_register(mgmt, MGMT_EV_PIN_CODE_REQUEST, index,
@@ -510,32 +786,46 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 
 	val = 0x00;
 	mgmt_send(mgmt, MGMT_OP_SET_POWERED, index, 1, &val,
-						NULL, NULL, NULL);
+						set_powered_down_complete,
+						UINT_TO_PTR(index), NULL);
 
 	clear_link_keys(index);
 	clear_long_term_keys(index);
+	clear_identity_resolving_keys(index);
 	clear_remote_oob_data(index);
 
 	if (use_bredr) {
 		val = 0x01;
 		mgmt_send(mgmt, MGMT_OP_SET_BREDR, index, 1, &val,
-							NULL, NULL, NULL);
+						set_bredr_complete,
+						UINT_TO_PTR(index), NULL);
 
 		val = use_cross ? 0x01 : 0x00;
 		mgmt_send(mgmt, MGMT_OP_SET_LE, index, 1, &val,
-							NULL, NULL, NULL);
+						set_le_complete,
+						UINT_TO_PTR(index), NULL);
 
 		val = use_legacy ? 0x00 : 0x01;
 		mgmt_send(mgmt, MGMT_OP_SET_SSP, index, 1, &val,
-							NULL, NULL, NULL);
+						set_ssp_complete,
+						UINT_TO_PTR(index), NULL);
 	} else if (use_le) {
 		val = 0x01;
 		mgmt_send(mgmt, MGMT_OP_SET_LE, index, 1, &val,
-							NULL, NULL, NULL);
+						set_le_complete,
+						UINT_TO_PTR(index), NULL);
 
 		val = use_cross ? 0x01 : 0x00;
 		mgmt_send(mgmt, MGMT_OP_SET_BREDR, index, 1, &val,
-							NULL, NULL, NULL);
+						set_bredr_complete,
+						UINT_TO_PTR(index), NULL);
+
+		if (use_cross) {
+			val = use_legacy ? 0x00 : 0x01;
+			mgmt_send(mgmt, MGMT_OP_SET_SSP, index, 1, &val,
+						set_ssp_complete,
+						UINT_TO_PTR(index), NULL);
+		}
 	} else {
 		fprintf(stderr, "Invalid transport for pairing\n");
 		mainloop_quit();
@@ -548,8 +838,9 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 		str2ba("c0:00:aa:bb:00:00", &bdaddr);
 		bdaddr.b[0] = index;
 
-		mgmt_send(mgmt, MGMT_OP_SET_STATIC_ADDRESS, index,
-						6, &bdaddr, NULL, NULL, NULL);
+		mgmt_send(mgmt, MGMT_OP_SET_STATIC_ADDRESS, index, 6, &bdaddr,
+						set_static_address_complete,
+						UINT_TO_PTR(index), NULL);
 
 		if (index == index1)
 			bacpy(&bdaddr1, &bdaddr);
@@ -560,31 +851,62 @@ static void read_info(uint8_t status, uint16_t len, const void *param,
 
 		bacpy(&bdaddr, BDADDR_ANY);
 
-		mgmt_send(mgmt, MGMT_OP_SET_STATIC_ADDRESS, index,
-						6, &bdaddr, NULL, NULL, NULL);
+		mgmt_send(mgmt, MGMT_OP_SET_STATIC_ADDRESS, index, 6, &bdaddr,
+						set_static_address_complete,
+						UINT_TO_PTR(index), NULL);
 	}
 
 	if (use_sc) {
 		val = 0x01;
 		mgmt_send(mgmt, MGMT_OP_SET_SECURE_CONN, index, 1, &val,
-							NULL, NULL, NULL);
+						set_secure_conn_complete,
+						UINT_TO_PTR(index), NULL);
 	} else if (use_sconly) {
 		val = 0x02;
 		mgmt_send(mgmt, MGMT_OP_SET_SECURE_CONN, index, 1, &val,
-							NULL, NULL, NULL);
+						set_secure_conn_complete,
+						UINT_TO_PTR(index), NULL);
 	} else {
 		val = 0x00;
 		mgmt_send(mgmt, MGMT_OP_SET_SECURE_CONN, index, 1, &val,
-							NULL, NULL, NULL);
+						set_secure_conn_complete,
+						UINT_TO_PTR(index), NULL);
+	}
+
+	if (use_privacy) {
+		struct mgmt_cp_set_privacy cp;
+
+		if (index == index2) {
+			cp.privacy = 0x01;
+			memcpy(cp.irk, REMOTE_IRK, sizeof(cp.irk));
+		} else {
+			cp.privacy = 0x00;
+			memset(cp.irk, 0, sizeof(cp.irk));
+		}
+
+		mgmt_send(mgmt, MGMT_OP_SET_PRIVACY, index, sizeof(cp), &cp,
+						set_privacy_complete,
+						UINT_TO_PTR(index), NULL);
+	} else {
+		struct mgmt_cp_set_privacy cp;
+
+		cp.privacy = 0x00;
+		memset(cp.irk, 0, sizeof(cp.irk));
+
+		mgmt_send(mgmt, MGMT_OP_SET_PRIVACY, index, sizeof(cp), &cp,
+						set_privacy_complete,
+						UINT_TO_PTR(index), NULL);
 	}
 
 	val = 0x00;
 	mgmt_send(mgmt, MGMT_OP_SET_DEBUG_KEYS, index, 1, &val,
-						NULL, NULL, NULL);
+						set_debug_keys_complete,
+						UINT_TO_PTR(index), NULL);
 
 	val = 0x01;
 	mgmt_send(mgmt, MGMT_OP_SET_BONDABLE, index, 1, &val,
-						NULL, NULL, NULL);
+						set_bondable_complete,
+						UINT_TO_PTR(index), NULL);
 
 	val = 0x01;
 	mgmt_send(mgmt, MGMT_OP_SET_POWERED, index, 1, &val,
@@ -631,6 +953,16 @@ static void read_index_list(uint8_t status, uint16_t len, const void *param,
 	printf("Selecting index %u for initiator\n", index1);
 	printf("Selecting index %u for acceptor\n", index2);
 
+	if (provide_tk) {
+		struct bt_crypto *crypto;
+
+		printf("Generating Security Manager TK Value\n");
+
+		crypto = bt_crypto_new();
+		bt_crypto_random_bytes(crypto, oob_tk, 16);
+		bt_crypto_unref(crypto);
+	}
+
 	mgmt_send(mgmt, MGMT_OP_READ_INFO, index1, 0, NULL,
 				read_info, UINT_TO_PTR(index1), NULL);
 	mgmt_send(mgmt, MGMT_OP_READ_INFO, index2, 0, NULL,
@@ -659,28 +991,36 @@ static void usage(void)
 		"\t-O, --sconly           Use Secure Connections Only\n"
 		"\t-P, --legacy           Use Legacy Pairing\n"
 		"\t-R, --random           Use Static random address\n"
+		"\t-Y, --privacy          Use LE privacy feature\n"
 		"\t-D, --debug            Use Pairing debug keys\n"
 		"\t-C, --cross            Use cross-transport pairing\n"
+		"\t-0, --tk               Provide LE legacy OOB data\n"
 		"\t-1, --p192             Provide P-192 OOB data\n"
 		"\t-2, --p256             Provide P-256 OOB data\n"
+		"\t-I, --initiator        Initiator provides OOB data\n"
+		"\t-A, --acceptor         Acceptor provides OOB data\n"
 		"\t-h, --help             Show help options\n");
 }
 
 static const struct option main_options[] = {
-	{ "bredr",   no_argument,       NULL, 'B' },
-	{ "le",      no_argument,       NULL, 'L' },
-	{ "sc",      no_argument,       NULL, 'S' },
-	{ "sconly",  no_argument,       NULL, 'O' },
-	{ "legacy",  no_argument,       NULL, 'P' },
-	{ "random",  no_argument,       NULL, 'R' },
-	{ "static",  no_argument,       NULL, 'R' },
-	{ "debug",   no_argument,       NULL, 'D' },
-	{ "cross",   no_argument,       NULL, 'C' },
-	{ "dual",    no_argument,       NULL, 'C' },
-	{ "p192",    no_argument,       NULL, '1' },
-	{ "p256",    no_argument,       NULL, '2' },
-	{ "version", no_argument,       NULL, 'v' },
-	{ "help",    no_argument,       NULL, 'h' },
+	{ "bredr",     no_argument,       NULL, 'B' },
+	{ "le",        no_argument,       NULL, 'L' },
+	{ "sc",        no_argument,       NULL, 'S' },
+	{ "sconly",    no_argument,       NULL, 'O' },
+	{ "legacy",    no_argument,       NULL, 'P' },
+	{ "random",    no_argument,       NULL, 'R' },
+	{ "static",    no_argument,       NULL, 'R' },
+	{ "privacy",   no_argument,       NULL, 'Y' },
+	{ "debug",     no_argument,       NULL, 'D' },
+	{ "cross",     no_argument,       NULL, 'C' },
+	{ "dual",      no_argument,       NULL, 'C' },
+	{ "tk",        no_argument,       NULL, '0' },
+	{ "p192",      no_argument,       NULL, '1' },
+	{ "p256",      no_argument,       NULL, '2' },
+	{ "initiator", no_argument,       NULL, 'I' },
+	{ "acceptor",  no_argument,       NULL, 'A' },
+	{ "version",   no_argument,       NULL, 'v' },
+	{ "help",      no_argument,       NULL, 'h' },
 	{ }
 };
 
@@ -692,7 +1032,7 @@ int main(int argc ,char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "BLSOPRDC12vh",
+		opt = getopt_long(argc, argv, "BLSOPRYDC012IAvh",
 						main_options, NULL);
 		if (opt < 0)
 			break;
@@ -716,17 +1056,29 @@ int main(int argc ,char *argv[])
 		case 'R':
 			use_random = true;
 			break;
+		case 'Y':
+			use_privacy = true;
+			break;
 		case 'D':
 			use_debug = true;
 			break;
 		case 'C':
 			use_cross = true;
 			break;
+		case '0':
+			provide_tk = true;
+			break;
 		case '1':
 			provide_p192 = true;
 			break;
 		case '2':
 			provide_p256 = true;
+			break;
+		case 'I':
+			provide_initiator = true;
+			break;
+		case 'A':
+			provide_acceptor = true;
 			break;
 		case 'v':
 			printf("%s\n", VERSION);
@@ -751,6 +1103,11 @@ int main(int argc ,char *argv[])
 
 	if (use_legacy && !use_bredr) {
 		fprintf(stderr, "Specify --legacy with --bredr\n");
+		return EXIT_FAILURE;
+	}
+
+	if (use_privacy && !use_le && !use_cross ) {
+		fprintf(stderr, "Specify --privacy with --le or --cross\n");
 		return EXIT_FAILURE;
 	}
 

@@ -87,6 +87,7 @@ struct bt_hog {
 	GAttrib			*attrib;
 	GSList			*reports;
 	struct bt_uhid		*uhid;
+	int			uhid_fd;
 	gboolean		has_report_id;
 	uint16_t		bcdhid;
 	uint8_t			bcountrycode;
@@ -1170,8 +1171,16 @@ static void hog_free(void *data)
 	g_free(hog);
 }
 
-struct bt_hog *bt_hog_new(const char *name, uint16_t vendor, uint16_t product,
-					uint16_t version, void *primary)
+struct bt_hog *bt_hog_new_default(const char *name, uint16_t vendor,
+					uint16_t product, uint16_t version,
+					void *primary)
+{
+	return bt_hog_new(-1, name, vendor, product, version, primary);
+}
+
+struct bt_hog *bt_hog_new(int fd, const char *name, uint16_t vendor,
+					uint16_t product, uint16_t version,
+					void *primary)
 {
 	struct bt_hog *hog;
 
@@ -1180,23 +1189,17 @@ struct bt_hog *bt_hog_new(const char *name, uint16_t vendor, uint16_t product,
 		return NULL;
 
 	hog->gatt_op = queue_new();
-	if (!hog->gatt_op) {
-		hog_free(hog);
-		return NULL;
-	}
-
 	hog->bas = queue_new();
-	if (!hog->bas) {
-		queue_destroy(hog->gatt_op, NULL);
-		hog_free(hog);
-		return NULL;
-	}
 
-	hog->uhid = bt_uhid_new_default();
-	if (!hog->uhid) {
+	if (fd < 0)
+		hog->uhid = bt_uhid_new_default();
+	else
+		hog->uhid = bt_uhid_new(fd);
+
+	hog->uhid_fd = fd;
+
+	if (!hog->gatt_op || !hog->bas || !hog->uhid) {
 		hog_free(hog);
-		queue_destroy(hog->gatt_op, NULL);
-		queue_destroy(hog->bas, NULL);
 		return NULL;
 	}
 
@@ -1317,8 +1320,8 @@ static void hog_attach_hog(struct bt_hog *hog, struct gatt_primary *primary)
 		return;
 	}
 
-	instance = bt_hog_new(hog->name, hog->vendor, hog->product,
-							hog->version, primary);
+	instance = bt_hog_new(hog->uhid_fd, hog->name, hog->vendor,
+					hog->product, hog->version, primary);
 	if (!instance)
 		return;
 
