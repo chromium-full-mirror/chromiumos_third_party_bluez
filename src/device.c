@@ -89,7 +89,7 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
 
-#define RSSI_THRESHOLD		8
+#define RSSI_THRESHOLD		2
 
 #define GATT_PRIM_SVC_UUID_STR "2800"
 #define GATT_SND_SVC_UUID_STR  "2801"
