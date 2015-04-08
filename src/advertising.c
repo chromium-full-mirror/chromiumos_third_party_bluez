@@ -704,11 +704,11 @@ static DBusMessage *unregister_advertisement(DBusConnection *conn,
 }
 
 static const GDBusMethodTable methods[] = {
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("RegisterAdvertisement",
+	{ GDBUS_ASYNC_METHOD("RegisterAdvertisement",
 					GDBUS_ARGS({ "advertisement", "o" },
 							{ "options", "a{sv}" }),
 					NULL, register_advertisement) },
-	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("UnregisterAdvertisement",
+	{ GDBUS_ASYNC_METHOD("UnregisterAdvertisement",
 						GDBUS_ARGS({ "service", "o" }),
 						NULL,
 						unregister_advertisement) },
