@@ -181,6 +181,14 @@ static void print_eir(const uint8_t *eir, uint16_t eir_len)
 			print("Class of Device: 0x%02x%02x%02x",
 						eir[4], eir[3], eir[2]);
 			break;
+		case 0x0e:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Hash C-192: %s", str);
+			break;
+		case 0x0f:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Rand R-192: %s", str);
+			break;
 		case 0x1b:
 			ba2str((bdaddr_t *) (eir + 2), str);
 			print("LE Device Address: %s (%s)", str,
@@ -188,6 +196,14 @@ static void print_eir(const uint8_t *eir, uint16_t eir_len)
 			break;
 		case 0x1c:
 			print("LE Role: 0x%02x", eir[2]);
+			break;
+		case 0x1d:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Hash C-256: %s", str);
+			break;
+		case 0x1e:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Rand R-256: %s", str);
 			break;
 		case 0x22:
 			bin2hex(eir + 2, 16, str, sizeof(str));
@@ -1474,12 +1490,14 @@ static void ext_index_rsp(uint8_t status, uint16_t len, const void *param,
 
 	for (i = 0; i < count; i++) {
 		uint16_t index = le16_to_cpu(rp->entry[i].index);
+		char *busstr = hci_bustostr(rp->entry[i].bus);
 
 		if (index_filter != MGMT_INDEX_NONE && index_filter != index)
 			continue;
 
 		switch (rp->entry[i].type) {
 		case 0x00:
+			print("Primary controller (hci%u,%s)", index, busstr);
 			if (!mgmt_send(mgmt, MGMT_OP_READ_INFO,
 						index, 0, NULL, info_rsp,
 						UINT_TO_PTR(index), NULL)) {
@@ -1489,6 +1507,8 @@ static void ext_index_rsp(uint8_t status, uint16_t len, const void *param,
 			pending_index++;
 			break;
 		case 0x01:
+			print("Unconfigured controller (hci%u,%s)",
+								index, busstr);
 			if (!mgmt_send(mgmt, MGMT_OP_READ_CONFIG_INFO,
 						index, 0, NULL, config_info_rsp,
 						UINT_TO_PTR(index), NULL)) {
@@ -1498,15 +1518,16 @@ static void ext_index_rsp(uint8_t status, uint16_t len, const void *param,
 			pending_index++;
 			break;
 		case 0x02:
-			print("hci%u:\tAMP controller (%u)", index,
-							rp->entry[i].bus);
+			print("AMP controller (hci%u,%s)", index, busstr);
 			break;
 		default:
-			print("hci%u:\tType %u controller (%u)", index,
-					rp->entry[i].type, rp->entry[i].bus);
+			print("Type %u controller (hci%u,%s)",
+					rp->entry[i].type, index, busstr);
 			break;
 		}
 	}
+
+	print("");
 
 	if (!count)
 		noninteractive_quit(EXIT_SUCCESS);

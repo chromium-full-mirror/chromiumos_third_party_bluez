@@ -111,6 +111,7 @@ shared_sources = src/shared/io.h src/shared/timeout.h \
 			src/shared/uhid.h src/shared/uhid.c \
 			src/shared/pcap.h src/shared/pcap.c \
 			src/shared/btsnoop.h src/shared/btsnoop.c \
+			src/shared/ad.h src/shared/ad.c \
 			src/shared/att-types.h \
 			src/shared/att.h src/shared/att.c \
 			src/shared/gatt-helpers.h src/shared/gatt-helpers.c \
@@ -238,7 +239,9 @@ endif
 EXTRA_DIST += $(test_scripts)
 
 EXTRA_DIST += doc/assigned-numbers.txt doc/supported-features.txt \
-				doc/test-coverage.txt doc/settings-storage.txt
+				doc/test-coverage.txt \
+				doc/test-runner.txt \
+				doc/settings-storage.txt
 
 EXTRA_DIST += doc/mgmt-api.txt \
 		doc/adapter-api.txt doc/device-api.txt \
