@@ -3965,16 +3965,25 @@ static struct btd_profile avrcp_controller_profile = {
 
 static int avrcp_init(void)
 {
-	btd_profile_register(&avrcp_controller_profile);
-	btd_profile_register(&avrcp_target_profile);
-
+	/*
+	 * Disable AVRCP on Chrome OS by commenting out the following lines:
+	 *
+	 * btd_profile_register(&avrcp_controller_profile);
+	 * btd_profile_register(&avrcp_target_profile);
+	 */
+	DBG("Ignoring profile plugin: %s", avrcp_controller_profile.name);
+	DBG("Ignoring profile plugin: %s", avrcp_target_profile.name);
 	return 0;
 }
 
 static void avrcp_exit(void)
 {
-	btd_profile_unregister(&avrcp_controller_profile);
-	btd_profile_unregister(&avrcp_target_profile);
+	/*
+	 * Disable AVRCP on Chrome OS by commenting out the following lines:
+	 *
+	 * btd_profile_unregister(&avrcp_controller_profile);
+	 * btd_profile_unregister(&avrcp_target_profile);
+	 */
 }
 
 BLUETOOTH_PLUGIN_DEFINE(avrcp, VERSION, BLUETOOTH_PLUGIN_PRIORITY_DEFAULT,
