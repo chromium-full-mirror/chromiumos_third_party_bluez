@@ -52,6 +52,7 @@
 #include "src/shared/gatt-db.h"
 #include "src/shared/gatt-client.h"
 #include "src/shared/gatt-server.h"
+#include "src/shared/ad.h"
 #include "btio/btio.h"
 #include "lib/mgmt.h"
 #include "attrib/att.h"
@@ -73,6 +74,7 @@
 #include "textfile.h"
 #include "storage.h"
 #include "attrib-server.h"
+#include "eir.h"
 
 #define IO_CAPABILITY_NOINPUTNOOUTPUT	0x03
 
@@ -193,6 +195,7 @@ struct btd_device {
 	bool		svc_refreshed;
 	GSList		*svc_callbacks;
 	GSList		*eir_uuids;
+	struct bt_ad	*ad;
 	char		name[MAX_NAME_LENGTH + 1];
 	char		*alias;
 	uint32_t	class;
@@ -255,6 +258,7 @@ struct btd_device {
 
 	bool		legacy;
 	int8_t		rssi;
+	int8_t		tx_power;
 
 	GIOChannel	*att_io;
 	guint		store_id;
@@ -653,6 +657,8 @@ static void device_free(gpointer user_data)
 
 	gatt_db_unref(device->db);
 
+	bt_ad_unref(device->ad);
+
 	if (device->tmp_records)
 		sdp_list_free(device->tmp_records,
 					(sdp_free_func_t) sdp_record_free);
@@ -945,6 +951,28 @@ static gboolean dev_property_exists_rssi(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean dev_property_get_tx_power(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *dev = data;
+	dbus_int16_t val = dev->tx_power;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_INT16, &val);
+
+	return TRUE;
+}
+
+static gboolean dev_property_exists_tx_power(const GDBusPropertyTable *property,
+								void *data)
+{
+	struct btd_device *dev = data;
+
+	if (dev->tx_power == 127)
+		return FALSE;
+
+	return TRUE;
+}
+
 static gboolean dev_property_get_trusted(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -1133,6 +1161,87 @@ static gboolean dev_property_get_adapter(const GDBusPropertyTable *property,
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_OBJECT_PATH, &str);
 
 	return TRUE;
+}
+
+static void append_manufacturer_data(void *data, void *user_data)
+{
+	struct bt_ad_manufacturer_data *md = data;
+	DBusMessageIter *dict = user_data;
+
+	dict_append_basic_array(dict, DBUS_TYPE_UINT16, &md->manufacturer_id,
+				DBUS_TYPE_BYTE, &md->data, md->len);
+}
+
+static gboolean
+dev_property_get_manufacturer_data(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *device = data;
+	DBusMessageIter dict;
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+					DBUS_TYPE_UINT16_AS_STRING
+					DBUS_TYPE_VARIANT_AS_STRING
+					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
+					&dict);
+
+	bt_ad_foreach_manufacturer_data(device->ad, append_manufacturer_data,
+									&dict);
+
+	dbus_message_iter_close_container(iter, &dict);
+
+	return TRUE;
+}
+
+static gboolean
+dev_property_manufacturer_data_exist(const GDBusPropertyTable *property,
+								void *data)
+{
+	struct btd_device *device = data;
+
+	return bt_ad_has_manufacturer_data(device->ad, NULL);
+}
+
+static void append_service_data(void *data, void *user_data)
+{
+	struct bt_ad_service_data *sd = data;
+	DBusMessageIter *dict = user_data;
+	char uuid_str[MAX_LEN_UUID_STR];
+
+	bt_uuid_to_string(&sd->uuid, uuid_str, sizeof(uuid_str));
+
+	dict_append_array(dict, uuid_str, DBUS_TYPE_BYTE, &sd->data, sd->len);
+}
+
+static gboolean
+dev_property_get_service_data(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *device = data;
+	DBusMessageIter dict;
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+					DBUS_TYPE_STRING_AS_STRING
+					DBUS_TYPE_VARIANT_AS_STRING
+					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
+					&dict);
+
+	bt_ad_foreach_service_data(device->ad, append_service_data, &dict);
+
+	dbus_message_iter_close_container(iter, &dict);
+
+	return TRUE;
+}
+
+static gboolean
+dev_property_service_data_exist(const GDBusPropertyTable *property,
+								void *data)
+{
+	struct btd_device *device = data;
+
+	return bt_ad_has_service_data(device->ad, NULL);
 }
 
 static gboolean disconnect_all(gpointer user_data)
@@ -1466,6 +1575,45 @@ void device_add_eir_uuids(struct btd_device *dev, GSList *uuids)
 						DEVICE_INTERFACE, "UUIDs");
 }
 
+static void add_manufacturer_data(void *data, void *user_data)
+{
+	struct eir_msd *msd = data;
+	struct btd_device *dev = user_data;
+
+	if (!bt_ad_add_manufacturer_data(dev->ad, msd->company, msd->data,
+								msd->data_len))
+		return;
+
+	g_dbus_emit_property_changed(dbus_conn, dev->path,
+					DEVICE_INTERFACE, "ManufacturerData");
+}
+
+void device_set_manufacturer_data(struct btd_device *dev, GSList *list)
+{
+	g_slist_foreach(list, add_manufacturer_data, dev);
+}
+
+static void add_service_data(void *data, void *user_data)
+{
+	struct eir_sd *sd = data;
+	struct btd_device *dev = user_data;
+	bt_uuid_t uuid;
+
+	if (bt_string_to_uuid(&uuid, sd->uuid) < 0)
+		return;
+
+	if (!bt_ad_add_service_data(dev->ad, &uuid, sd->data, sd->data_len))
+		return;
+
+	g_dbus_emit_property_changed(dbus_conn, dev->path,
+					DEVICE_INTERFACE, "ServiceData");
+}
+
+void device_set_service_data(struct btd_device *dev, GSList *list)
+{
+	g_slist_foreach(list, add_service_data, dev);
+}
+
 static struct btd_service *find_connectable_service(struct btd_device *dev,
 							const char *uuid)
 {
@@ -1544,8 +1692,7 @@ int btd_device_connect_services(struct btd_device *dev, GSList *services)
 	for (l = services; l; l = g_slist_next(l)) {
 		struct btd_service *service = l->data;
 
-		dev->pending = g_slist_append(dev->pending,
-						btd_service_ref(service));
+		dev->pending = g_slist_append(dev->pending, service);
 	}
 
 	return connect_next(dev);
@@ -2223,6 +2370,16 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "Modalias", "s", dev_property_get_modalias, NULL,
 						dev_property_exists_modalias },
 	{ "Adapter", "o", dev_property_get_adapter },
+	{ "ManufacturerData", "a{qv}", dev_property_get_manufacturer_data,
+				NULL, dev_property_manufacturer_data_exist,
+				G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "ServiceData", "a{sv}", dev_property_get_service_data,
+				NULL, dev_property_service_data_exist,
+				G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "TxPower", "n", dev_property_get_tx_power, NULL,
+					dev_property_exists_tx_power,
+					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+
 	{ }
 };
 
@@ -3073,9 +3230,17 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 	if (device == NULL)
 		return NULL;
 
+	device->tx_power = 127;
+
 	device->db = gatt_db_new();
 	if (!device->db) {
 		g_free(device);
+		return NULL;
+	}
+
+	device->ad = bt_ad_new();
+	if (!device->ad) {
+		device_free(device);
 		return NULL;
 	}
 
@@ -4759,6 +4924,22 @@ void device_set_rssi_with_delta(struct btd_device *device, int8_t rssi,
 void device_set_rssi(struct btd_device *device, int8_t rssi)
 {
 	device_set_rssi_with_delta(device, rssi, RSSI_THRESHOLD);
+}
+
+void device_set_tx_power(struct btd_device *device, int8_t tx_power)
+{
+	if (!device)
+		return;
+
+	if (device->tx_power == tx_power)
+		return;
+
+	DBG("tx_power %d", tx_power);
+
+	device->tx_power = tx_power;
+
+	g_dbus_emit_property_changed(dbus_conn, device->path,
+						DEVICE_INTERFACE, "TxPower");
 }
 
 static gboolean start_discovery(gpointer user_data)

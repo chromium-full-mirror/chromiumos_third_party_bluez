@@ -1441,7 +1441,6 @@ static bool parse_primary(GDBusProxy *proxy, bool *primary)
 
 static uint8_t dbus_error_to_att_ecode(const char *error_name)
 {
-	/* TODO: Parse error ATT ecode from error_message */
 
 	if (strcmp(error_name, "org.bluez.Error.Failed") == 0)
 		return 0x80;  /* For now return this "application error" */
@@ -1454,6 +1453,9 @@ static uint8_t dbus_error_to_att_ecode(const char *error_name)
 
 	if (strcmp(error_name, "org.bluez.Error.InvalidValueLength") == 0)
 		return BT_ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LEN;
+
+	if (strcmp(error_name, "org.bluez.Error.InProgress") == 0)
+		return BT_ERROR_ALREADY_IN_PROGRESS;
 
 	return 0;
 }
@@ -1959,8 +1961,8 @@ static bool database_add_chrc(struct external_service *service,
 		return false;
 
 	/* Handle the descriptors that belong to this characteristic. */
-	entry = queue_get_entries(service->descs);
-	while (entry) {
+	for (entry = queue_get_entries(service->descs); entry;
+							entry = entry->next) {
 		struct external_desc *desc = entry->data;
 
 		if (desc->handled || g_strcmp0(desc->chrc_path, chrc->path))
@@ -1971,8 +1973,6 @@ static bool database_add_chrc(struct external_service *service,
 			error("Failed to create descriptor entry");
 			return false;
 		}
-
-		entry = entry->next;
 	}
 
 	return true;

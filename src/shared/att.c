@@ -43,16 +43,6 @@
 #define ATT_OP_SIGNED_MASK		0x80
 #define ATT_TIMEOUT_INTERVAL		30000  /* 30000 ms */
 
-/*
- * Common Profile and Service Error Code descriptions (see Supplement to the
- * Bluetooth Core Specification, sections 1.2 and 2). The error codes within
- * 0xE0-0xFC are reserved for future use. The remaining 3 are defined as the
- * following:
- */
-#define BT_ERROR_CCC_IMPROPERLY_CONFIGURED	0xfd
-#define BT_ERROR_ALREADY_IN_PROGRESS		0xfe
-#define BT_ERROR_OUT_OF_RANGE			0xff
-
 /* Length of signature in write signed packet */
 #define BT_ATT_SIGNATURE_LEN		12
 
@@ -689,14 +679,13 @@ static bool opcode_match(uint8_t opcode, uint8_t test_opcode)
 
 static void respond_not_supported(struct bt_att *att, uint8_t opcode)
 {
-	uint8_t pdu[4];
+	struct bt_att_pdu_error_rsp pdu;
 
-	pdu[0] = opcode;
-	pdu[1] = 0;
-	pdu[2] = 0;
-	pdu[3] = BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
+	pdu.opcode = opcode;
+	pdu.handle = 0x0000;
+	pdu.ecode = BT_ATT_ERROR_REQUEST_NOT_SUPPORTED;
 
-	bt_att_send(att, BT_ATT_OP_ERROR_RSP, pdu, sizeof(pdu), NULL, NULL,
+	bt_att_send(att, BT_ATT_OP_ERROR_RSP, &pdu, sizeof(pdu), NULL, NULL,
 									NULL);
 }
 

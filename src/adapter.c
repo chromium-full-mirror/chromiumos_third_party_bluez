@@ -1693,16 +1693,18 @@ static int compare_sender(gconstpointer a, gconstpointer b)
 	return g_strcmp0(client->owner, sender);
 }
 
-static void invalidate_rssi(gpointer a)
+static void invalidate_rssi_and_tx_power(gpointer a)
 {
 	struct btd_device *dev = a;
 
 	device_set_rssi(dev, 0);
+	device_set_tx_power(dev, 127);
 }
 
 static void discovery_cleanup(struct btd_adapter *adapter)
 {
-	g_slist_free_full(adapter->discovery_found, invalidate_rssi);
+	g_slist_free_full(adapter->discovery_found,
+						invalidate_rssi_and_tx_power);
 	adapter->discovery_found = NULL;
 }
 
@@ -5409,6 +5411,7 @@ static void update_found_devices(struct btd_adapter *adapter,
 					const bdaddr_t *bdaddr,
 					uint8_t bdaddr_type, int8_t rssi,
 					bool confirm, bool legacy,
+					bool not_connectable,
 					const uint8_t *data, uint8_t data_len)
 {
 	struct btd_device *dev;
@@ -5484,6 +5487,9 @@ static void update_found_devices(struct btd_adapter *adapter,
 	else
 		device_set_rssi(dev, rssi);
 
+	if (eir_data.tx_power != 127)
+		device_set_tx_power(dev, eir_data.tx_power);
+
 	if (eir_data.appearance != 0)
 		device_set_appearance(dev, eir_data.appearance);
 
@@ -5506,8 +5512,13 @@ static void update_found_devices(struct btd_adapter *adapter,
 
 	device_add_eir_uuids(dev, eir_data.services);
 
-	if (eir_data.msd_list)
+	if (eir_data.msd_list) {
+		device_set_manufacturer_data(dev, eir_data.msd_list);
 		adapter_msd_notify(adapter, dev, eir_data.msd_list);
+	}
+
+	if (eir_data.sd_list)
+		device_set_service_data(dev, eir_data.sd_list);
 
 	eir_data_free(&eir_data);
 
@@ -5532,6 +5543,10 @@ static void update_found_devices(struct btd_adapter *adapter,
 	return;
 
 connect_le:
+	/* Ignore non-connectable events */
+	if (not_connectable)
+		return;
+
 	/*
 	 * If we're in the process of stopping passive scanning and
 	 * connecting another (or maybe even the same) LE device just
@@ -5594,15 +5609,12 @@ static void device_found_callback(uint16_t index, uint16_t length,
 	DBG("hci%u addr %s, rssi %d flags 0x%04x eir_len %u",
 			index, addr, ev->rssi, flags, eir_len);
 
-	/* Ignore non-connectable events for now */
-	if (flags & MGMT_DEV_FOUND_NOT_CONNECTABLE)
-		return;
-
 	confirm_name = (flags & MGMT_DEV_FOUND_CONFIRM_NAME);
 	legacy = (flags & MGMT_DEV_FOUND_LEGACY_PAIRING);
 
 	update_found_devices(adapter, &ev->addr.bdaddr, ev->addr.type,
 					ev->rssi, confirm_name, legacy,
+					flags & MGMT_DEV_FOUND_NOT_CONNECTABLE,
 					eir, eir_len);
 }
 

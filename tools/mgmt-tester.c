@@ -3862,6 +3862,28 @@ static const struct generic_data read_adv_features_invalid_index_test = {
 	.expect_status = MGMT_STATUS_INVALID_INDEX,
 };
 
+static const uint8_t read_adv_features_rsp_1[] =  {
+			0x1f, 0x00, 0x00, 0x00, 0x1f, 0x1f, 0x01, 0x00,
+};
+
+static const struct generic_data read_adv_features_success_1 = {
+	.send_opcode = MGMT_OP_READ_ADV_FEATURES,
+	.expect_param = read_adv_features_rsp_1,
+	.expect_len = sizeof(read_adv_features_rsp_1),
+	.expect_status = MGMT_STATUS_SUCCESS,
+};
+
+static const uint8_t read_adv_features_rsp_2[] =  {
+			0x1f, 0x00, 0x00, 0x00, 0x1f, 0x1f, 0x01, 0x01, 0x01
+};
+
+static const struct generic_data read_adv_features_success_2 = {
+	.send_opcode = MGMT_OP_READ_ADV_FEATURES,
+	.expect_param = read_adv_features_rsp_2,
+	.expect_len = sizeof(read_adv_features_rsp_2),
+	.expect_status = MGMT_STATUS_SUCCESS,
+};
+
 static const uint8_t add_advertising_param_1[] = {
 	0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00,
 	0x03, 0x02, 0x0d, 0x18,
@@ -4894,7 +4916,7 @@ static void setup_add_advertising(const void *test_data)
 	unsigned char adv_param[sizeof(*cp) + 6];
 	unsigned char param[] = { 0x01 };
 
-	tester_print("Adding advertising instance while unpowered");
+	tester_print("Adding advertising instance while powered");
 
 	cp = (struct mgmt_cp_add_advertising *) adv_param;
 	memset(cp, 0, sizeof(*cp));
@@ -4929,7 +4951,7 @@ static void setup_add_advertising_connectable(const void *test_data)
 	unsigned char adv_param[sizeof(*cp) + 6];
 	unsigned char param[] = { 0x01 };
 
-	tester_print("Adding advertising instance while unpowered");
+	tester_print("Adding advertising instance while connectable");
 
 	cp = (struct mgmt_cp_add_advertising *) adv_param;
 	memset(cp, 0, sizeof(*cp));
@@ -4968,7 +4990,7 @@ static void setup_add_advertising_timeout(const void *test_data)
 	unsigned char adv_param[sizeof(*cp) + 6];
 	unsigned char param[] = { 0x01 };
 
-	tester_print("Adding advertising instance while unpowered");
+	tester_print("Adding advertising instance with timeout");
 
 	cp = (struct mgmt_cp_add_advertising *) adv_param;
 	memset(cp, 0, sizeof(*cp));
@@ -5004,7 +5026,7 @@ static void setup_set_and_add_advertising(const void *test_data)
 	unsigned char adv_param[sizeof(*cp) + 6];
 	unsigned char param[] = { 0x01 };
 
-	tester_print("Adding advertising instance while unpowered");
+	tester_print("Set and add advertising instance");
 
 	cp = (struct mgmt_cp_add_advertising *) adv_param;
 	memset(cp, 0, sizeof(*cp));
@@ -6384,6 +6406,13 @@ int main(int argc, char *argv[])
 	test_bredrle("Read Advertising Features - Invalid index",
 				&read_adv_features_invalid_index_test,
 				NULL, test_command_generic);
+	test_bredrle("Read Advertising Features - Success 1 (No instance)",
+				&read_adv_features_success_1,
+				NULL, test_command_generic);
+	test_bredrle("Read Advertising Features - Success 2 (One instance)",
+				&read_adv_features_success_2,
+				setup_add_advertising,
+				test_command_generic);
 
 	test_bredrle("Add Advertising - Failure: LE off",
 					&add_advertising_fail_1,
