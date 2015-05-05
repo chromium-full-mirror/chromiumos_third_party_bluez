@@ -1341,7 +1341,7 @@ bool bt_att_unregister_all(struct bt_att *att)
 	return true;
 }
 
-int bt_att_get_sec_level(struct bt_att *att)
+int bt_att_get_security(struct bt_att *att)
 {
 	struct bt_security sec;
 	socklen_t len;
@@ -1360,11 +1360,11 @@ int bt_att_get_sec_level(struct bt_att *att)
 	return sec.level;
 }
 
-bool bt_att_set_sec_level(struct bt_att *att, int level)
+bool bt_att_set_security(struct bt_att *att, int level)
 {
 	struct bt_security sec;
 
-	if (!att || level < BT_SECURITY_LOW || level > BT_SECURITY_HIGH)
+	if (!att || level < BT_ATT_SECURITY_LOW || level > BT_ATT_SECURITY_HIGH)
 		return false;
 
 	if (!att->io_on_l2cap) {
