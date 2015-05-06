@@ -4627,6 +4627,7 @@ static void adapter_remove(struct btd_adapter *adapter)
 	adapter->db_id = 0;
 
 	btd_gatt_database_destroy(adapter->database);
+	adapter->database = NULL;
 
 	g_slist_free(adapter->pin_callbacks);
 	adapter->pin_callbacks = NULL;
