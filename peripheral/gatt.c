@@ -116,7 +116,7 @@ static struct gatt_conn *gatt_conn_new(int fd)
 	if (!conn)
 		return NULL;
 
-	conn->att = bt_att_new(fd);
+	conn->att = bt_att_new(fd, false);
 	if (!conn->att) {
 		fprintf(stderr, "Failed to initialze ATT transport layer\n");
 		free(conn);
@@ -178,6 +178,7 @@ static void att_conn_callback(int fd, uint32_t events, void *user_data)
 	if (!conn) {
 		fprintf(stderr, "Failed to create GATT connection\n");
 		close(new_fd);
+		return;
 	}
 
 	if (!queue_push_tail(conn_list, conn)) {

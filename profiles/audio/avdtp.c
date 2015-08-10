@@ -1226,6 +1226,11 @@ struct avdtp_remote_sep *avdtp_find_remote_sep(struct avdtp *session,
 		if (codec_data->media_codec_type != lsep->codec)
 			continue;
 
+		if (lsep->ind && lsep->ind->match_codec)
+			if (!lsep->ind->match_codec(session, codec_data,
+							lsep->user_data))
+				continue;
+
 		if (sep->stream == NULL)
 			return sep;
 	}
@@ -3469,6 +3474,13 @@ int avdtp_abort(struct avdtp *session, struct avdtp_stream *stream)
 {
 	struct seid_req req;
 	int ret;
+
+	if (!stream && session->discover) {
+		/* Don't call cb since it being aborted */
+		session->discover->cb = NULL;
+		finalize_discovery(session, -ECANCELED);
+		return -EALREADY;
+	}
 
 	if (!g_slist_find(session->streams, stream))
 		return -EINVAL;

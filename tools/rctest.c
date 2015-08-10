@@ -80,8 +80,8 @@ static bdaddr_t auto_bdaddr;
 static uint16_t uuid = 0x0000;
 static uint8_t channel = 10;
 
-static char *filename = NULL;
-static char *savefile = NULL;
+static const char *filename = NULL;
+static const char *savefile = NULL;
 static int save_fd = -1;
 
 static int master = 0;
@@ -559,6 +559,7 @@ static void do_send(int sk)
 		}
 		len = read(fd, buf, data_size);
 		send(sk, buf, len, 0);
+		close(fd);
 		return;
 	} else {
 		for (i = 6; i < data_size; i++)
@@ -798,11 +799,11 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'B':
-			filename = strdup(optarg);
+			filename = optarg;
 			break;
 
 		case 'O':
-			savefile = strdup(optarg);
+			savefile = optarg;
 			break;
 
 		case 'N':
