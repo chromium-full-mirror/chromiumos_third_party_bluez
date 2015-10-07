@@ -3474,14 +3474,6 @@ static uint8_t get_le_addr_type(GKeyFile *keyfile)
 	return addr_type;
 }
 
-static void probe_devices(void *user_data)
-{
-	struct btd_device *device = user_data;
-
-	device_probe_profiles(device, btd_device_get_sdp_uuids(device), false);
-	device_probe_profiles(device, btd_device_get_gatt_uuids(device), true);
-}
-
 static void load_devices(struct btd_adapter *adapter)
 {
 	char dirname[PATH_MAX];
@@ -3490,7 +3482,6 @@ static void load_devices(struct btd_adapter *adapter)
 	GSList *ltks = NULL;
 	GSList *irks = NULL;
 	GSList *params = NULL;
-	GSList *added_devices = NULL;
 	DIR *dir;
 	struct dirent *entry;
 
@@ -3560,7 +3551,13 @@ static void load_devices(struct btd_adapter *adapter)
 
 		/* TODO: register services from pre-loaded list of primaries */
 
-		added_devices = g_slist_append(added_devices, device);
+		list = btd_device_get_sdp_uuids(device);
+		if (list)
+			device_probe_profiles(device, list, false);
+
+		list = btd_device_get_gatt_uuids(device);
+		if (list)
+			device_probe_profiles(device, list, true);
 
 device_exist:
 		if (key_info) {
@@ -3588,8 +3585,6 @@ free:
 	g_slist_free_full(irks, g_free);
 	load_conn_params(adapter, params);
 	g_slist_free_full(params, g_free);
-
-	g_slist_free_full(added_devices, probe_devices);
 }
 
 int btd_adapter_block_address(struct btd_adapter *adapter,

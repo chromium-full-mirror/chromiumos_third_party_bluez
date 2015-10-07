@@ -289,12 +289,7 @@ int bt_string_to_uuid(bt_uuid_t *uuid, const char *string)
 
 int bt_uuid_strcmp(const void *a, const void *b)
 {
-	bt_uuid_t u1, u2;
-
-	bt_string_to_uuid(&u1, a);
-	bt_string_to_uuid(&u2, b);
-
-	return bt_uuid_cmp(&u1, &u2);
+	return strcasecmp(a, b);
 }
 
 int bt_uuid_to_le(const bt_uuid_t *src, void *dst)

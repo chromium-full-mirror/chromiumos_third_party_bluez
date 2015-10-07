@@ -520,7 +520,7 @@ static bool desc_write_complete(void *data)
 {
 	struct descriptor *desc = data;
 
-	desc->write_id = 0;
+	desc->write_id = false;
 
 	/*
 	 * The descriptor might have been unregistered during the read. Return
@@ -773,10 +773,8 @@ static void write_characteristic_cb(struct gatt_db_attribute *attr, int err,
 	if (err)
 		return;
 
-	g_dbus_emit_property_changed_full(btd_get_dbus_connection(),
-				chrc->path, GATT_CHARACTERISTIC_IFACE,
-				"Value", G_DBUS_PROPERTY_CHANGED_FLAG_FLUSH);
-
+	g_dbus_emit_property_changed(btd_get_dbus_connection(), chrc->path,
+					GATT_CHARACTERISTIC_IFACE, "Value");
 }
 
 static void chrc_read_cb(bool success, uint8_t att_ecode, const uint8_t *value,
@@ -869,7 +867,7 @@ static bool chrc_write_complete(void *data)
 {
 	struct characteristic *chrc = data;
 
-	chrc->write_id = 0;
+	chrc->write_id = false;
 
 	/*
 	 * The characteristic might have been unregistered during the read.
@@ -943,11 +941,11 @@ static DBusMessage *characteristic_write_value(DBusConnection *conn,
 		goto fail;
 
 	supported = true;
-
-	if (bt_gatt_client_write_without_response(gatt,
+	chrc->write_id = bt_gatt_client_write_without_response(gatt,
 					chrc->value_handle,
 					chrc->props & BT_GATT_CHRC_PROP_AUTH,
-					value, value_len))
+					value, value_len);
+	if (chrc->write_id)
 		return dbus_message_new_method_return(msg);
 
 fail:
@@ -1523,9 +1521,6 @@ static struct service *service_create(struct gatt_db_attribute *attr,
 	/* Set service active so we can skip discovering next time */
 	gatt_db_service_set_active(attr, true);
 
-	/* Mark the service as claimed since it going to be exported */
-	gatt_db_service_set_claimed(attr, true);
-
 	return service;
 }
 
@@ -1810,24 +1805,10 @@ fail:
 
 void btd_gatt_client_ready(struct btd_gatt_client *client)
 {
+	struct bt_gatt_client *gatt;
+
 	if (!client)
 		return;
-
-	if (!client->gatt) {
-		error("GATT client not initialized");
-		return;
-	}
-
-	client->ready = true;
-
-	DBG("GATT client ready");
-
-	create_services(client);
-}
-
-void btd_gatt_client_connected(struct btd_gatt_client *client)
-{
-	struct bt_gatt_client *gatt;
 
 	gatt = btd_device_get_gatt_client(client->device);
 	if (!gatt) {
@@ -1835,10 +1816,18 @@ void btd_gatt_client_connected(struct btd_gatt_client *client)
 		return;
 	}
 
-	DBG("Device connected.");
-
 	bt_gatt_client_unref(client->gatt);
 	client->gatt = bt_gatt_client_ref(gatt);
+
+	client->ready = true;
+
+	DBG("GATT client ready");
+
+	if (queue_isempty(client->services)) {
+		DBG("Exporting services");
+		create_services(client);
+		return;
+	}
 
 	/*
 	 * Services have already been created before. Re-enable notifications
