@@ -60,10 +60,8 @@ struct device_addr_type {
 };
 
 int device_addr_type_cmp(gconstpointer a, gconstpointer b);
-GSList *btd_device_get_sdp_uuids(struct btd_device *device);
-GSList *btd_device_get_gatt_uuids(struct btd_device *device);
-void device_probe_profiles(struct btd_device *device, GSList *profiles,
-								bool gatt);
+GSList *btd_device_get_uuids(struct btd_device *device);
+void device_probe_profiles(struct btd_device *device, GSList *profiles);
 const sdp_record_t *btd_device_get_record(struct btd_device *device,
 						const char *uuid);
 struct gatt_primary *btd_device_get_primary(struct btd_device *device,
