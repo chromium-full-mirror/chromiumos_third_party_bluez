@@ -810,7 +810,7 @@ const char *bt_compidtostr(int compid)
 	case 273:
 		return "Steelseries ApS";
 	case 274:
-		return "vyzybl Inc.";
+		return "Visybl Inc.";
 	case 275:
 		return "Openbrain Technologies, Co., Ltd.";
 	case 276:
@@ -1489,6 +1489,96 @@ const char *bt_compidtostr(int compid)
 		return "DDS, Inc.";
 	case 613:
 		return "SMK Corporation";
+	case 614:
+		return "Schawbel Technologies LLC";
+	case 615:
+		return "XMI Systems SA";
+	case 616:
+		return "Cerevo";
+	case 617:
+		return "Torrox GmbH & Co KG";
+	case 618:
+		return "Gemalto";
+	case 619:
+		return "DEKA Research & Development Corp.";
+	case 620:
+		return "Domster Tadeusz Szydlowski";
+	case 621:
+		return "Technogym SPA";
+	case 622:
+		return "FLEURBAEY BVBA";
+	case 623:
+		return "Aptcode Solutions";
+	case 624:
+		return "LSI ADL Technology";
+	case 625:
+		return "Animas Corp";
+	case 626:
+		return "Alps Electric Co., Ltd.";
+	case 627:
+		return "OCEASOFT";
+	case 628:
+		return "Motsai Research";
+	case 629:
+		return "Geotab";
+	case 630:
+		return "E.G.O. Elektro-Gertebau GmbH";
+	case 631:
+		return "bewhere inc";
+	case 632:
+		return "Johnson Outdoors Inc";
+	case 633:
+		return "steute Schaltgerate GmbH & Co. KG";
+	case 634:
+		return "Ekomini inc.";
+	case 635:
+		return "DEFA AS";
+	case 636:
+		return "Aseptika Ltd";
+	case 637:
+		return "HUAWEI Technologies Co., Ltd. ( 华为技术有限公司 )";
+	case 638:
+		return "HabitAware, LLC";
+	case 639:
+		return "ruwido austria gmbh";
+	case 640:
+		return "ITEC corporation";
+	case 641:
+		return "StoneL";
+	case 642:
+		return "Sonova AG";
+	case 643:
+		return "Maven Machines, Inc.";
+	case 644:
+		return "Synapse Electronics";
+	case 645:
+		return "Standard Innovation Inc.";
+	case 646:
+		return "RF Code, Inc.";
+	case 647:
+		return "Wally Ventures S.L.";
+	case 648:
+		return "Willowbank Electronics Ltd";
+	case 649:
+		return "SK Telecom";
+	case 650:
+		return "Jetro AS";
+	case 651:
+		return "Code Gears LTD";
+	case 652:
+		return "NANOLINK APS";
+	case 653:
+		return "IF, LLC";
+	case 654:
+		return "RF Digital Corp";
+	case 655:
+		return "Church & Dwight Co., Inc";
+	case 656:
+		return "Multibit Oy";
+	case 657:
+		return "CliniCloud Inc";
+	case 658:
+		return "SwiftSensors";
 	case 65535:
 		return "internal use";
 	default:
