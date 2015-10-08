@@ -8,6 +8,7 @@
 #include <config.h>
 #endif
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -19,12 +20,16 @@
 
 #include "lib/mgmt.h"
 #include "lib/sdp.h"
+#include "lib/uuid.h"
+
 #include "src/adapter.h"
 #include "src/dbus-common.h"
 #include "src/device.h"
 #include "src/error.h"
 #include "src/log.h"
 #include "src/plugin.h"
+#include "src/profile.h"
+#include "src/service.h"
 #include "src/shared/mgmt.h"
 
 #define DBUS_PATH "/org/bluez"
@@ -36,6 +41,9 @@
 
 #define DBUS_BLUEZ_DEVICE_INTERFACE "org.bluez.Device1"
 
+#define SERVICE_RETRIES 1
+#define SERVICE_RETRY_TIMEOUT 2
+
 static struct mgmt *mgmt_if = NULL;
 
 static bool supports_le_services = false;
@@ -43,6 +51,47 @@ static bool supports_conn_info = false;
 
 static int interfaces_added_watch_id = 0;
 static int interfaces_removed_watch_id = 0;
+
+static unsigned int service_id = 0;
+
+static const char *services_to_reconnect[] = {
+		HSP_AG_UUID, HFP_AG_UUID, NULL };
+static GSList *retry_devices = NULL;
+
+struct retry_data {
+	struct btd_device *dev;
+	uint8_t retries;
+	guint timer;
+};
+
+static void destroy_retry_data(void* user_data)
+{
+	struct retry_data *data = user_data;
+
+	if (data->timer > 0)
+		g_source_remove(data->timer);
+
+	g_free(data);
+}
+
+static struct retry_data *get_retry_data(struct btd_device *dev)
+{
+	struct retry_data *data;
+	GSList *l;
+
+	for (l = retry_devices; l ; l = l->next) {
+		struct retry_data *data = l->data;
+
+		if (data->dev == dev)
+			return data;
+	}
+
+	data = g_new0(struct retry_data, 1);
+	data->dev = dev;
+
+	retry_devices = g_slist_prepend(retry_devices, data);
+	return data;
+}
 
 static gboolean chromium_property_get_supports_le_services(
 					const GDBusPropertyTable *property,
@@ -302,6 +351,120 @@ static const GDBusPropertyTable chromium_properties[] = {
 	{ }
 };
 
+/* Checks if any type of audio gateway is connected. There are two profiles
+ * we care about here: HFP and HSP. */
+static gboolean is_dev_connected(struct btd_device *dev)
+{
+	struct btd_service *service;
+	const char **uuid;
+
+	for (uuid = services_to_reconnect; *uuid; uuid++) {
+		service = btd_device_get_service(dev, *uuid);
+		if (service == NULL)
+			continue;
+		if (btd_service_get_state(service) ==
+				BTD_SERVICE_STATE_CONNECTED)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+static gboolean connect_dev(gpointer user_data)
+{
+	struct retry_data *data = user_data;
+	struct btd_service *service;
+	struct btd_profile *profile;
+	const char **uuid;
+
+	data->timer = 0;
+	data->retries++;
+
+	if (is_dev_connected(data->dev))
+		return FALSE;
+
+	for (uuid = services_to_reconnect; *uuid; uuid++) {
+		service = btd_device_get_service(data->dev, *uuid);
+		if (service == NULL)
+			continue;
+
+		profile = btd_service_get_profile(service);
+		info("Reconnect profile %s", profile->name);
+
+		btd_service_connect(service);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+static void set_timer(gpointer user_data)
+{
+	struct retry_data *data = user_data;
+
+	if (is_dev_connected(data->dev))
+		return;
+
+	if (data->timer == 0)
+		data->timer = g_timeout_add_seconds(SERVICE_RETRY_TIMEOUT,
+						    connect_dev, data);
+}
+
+static void service_cb(struct btd_service *service,
+		       btd_service_state_t old_state,
+		       btd_service_state_t new_state,
+		       void *user_data)
+{
+	struct btd_device *dev = btd_service_get_device(service);
+	struct btd_profile *profile = btd_service_get_profile(service);
+	struct retry_data *data;
+	const char **uuid;
+	bool reconnect = false;
+
+	for (uuid = services_to_reconnect; *uuid; uuid++) {
+		if (g_str_equal(profile->remote_uuid, *uuid)) {
+			reconnect = true;
+			break;
+		}
+	}
+	if (!reconnect)
+		return;
+
+	data = get_retry_data(dev);
+
+	switch (new_state) {
+	case BTD_SERVICE_STATE_UNAVAILABLE:
+		if (data->timer > 0) {
+			g_source_remove(data->timer);
+			data->timer = 0;
+		}
+		break;
+	case BTD_SERVICE_STATE_DISCONNECTED:
+		if (old_state == BTD_SERVICE_STATE_CONNECTING) {
+			int err = btd_service_get_error(service);
+
+			if (err == -EAGAIN) {
+				if (data->retries < SERVICE_RETRIES)
+					set_timer(data);
+				else
+					data->retries = 0;
+			} else if (data->timer > 0) {
+				g_source_remove(data->timer);
+				data->timer = 0;
+			}
+		}
+		break;
+	case BTD_SERVICE_STATE_CONNECTING:
+		break;
+	case BTD_SERVICE_STATE_CONNECTED:
+		if (data->timer > 0) {
+			g_source_remove(data->timer);
+			data->timer = 0;
+		}
+		break;
+	case BTD_SERVICE_STATE_DISCONNECTING:
+		break;
+	}
+}
+
 static void read_version_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -349,6 +512,8 @@ static int chromium_init(void)
 		DBUS_PATH, DBUS_PLUGIN_INTERFACE,
 		NULL, NULL, chromium_properties, NULL, NULL);
 
+	service_id = btd_service_add_state_cb(service_cb, NULL);
+
 	/* Listen for new device objects being added so we can add the plugin
 	 * interface to them.
 	 */
@@ -379,6 +544,9 @@ static void chromium_exit(void)
 
 	mgmt_unref(mgmt_if);
 	mgmt_if = NULL;
+
+	btd_service_remove_state_cb(service_id);
+	g_slist_free_full(retry_devices, destroy_retry_data);
 
 	remove_dbus_watches();
 }
