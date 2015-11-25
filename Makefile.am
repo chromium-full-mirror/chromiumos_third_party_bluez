@@ -327,12 +327,14 @@ unit_test_sdp_SOURCES = unit/test-sdp.c \
 unit_test_sdp_LDADD = lib/libbluetooth-internal.la \
 				src/libshared-glib.la @GLIB_LIBS@
 
-unit_tests += unit/test-avdtp
+# Disable the AVDTP tests because they are consistently flaking
+# see crbug.com/560915
+# unit_tests += unit/test-avdtp
 
-unit_test_avdtp_SOURCES = unit/test-avdtp.c \
-				src/log.h src/log.c \
-				android/avdtp.c android/avdtp.h
-unit_test_avdtp_LDADD = src/libshared-glib.la @GLIB_LIBS@
+# unit_test_avdtp_SOURCES = unit/test-avdtp.c \
+#				src/log.h src/log.c \
+#				android/avdtp.c android/avdtp.h
+# unit_test_avdtp_LDADD = src/libshared-glib.la @GLIB_LIBS@
 
 # Disable the AVCTP/AVRCP tests. AVRCP and AVCTP tests. The source files in
 # question aren't relevant to Chrome OS and these tests are failing. (See
