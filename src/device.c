@@ -2704,13 +2704,23 @@ fail:
 	return NULL;
 }
 
+static bool device_add_uuid(struct btd_device *device, const char *uuid)
+{
+	if (g_slist_find_custom(device->uuids, uuid, bt_uuid_strcmp))
+		return false;
+
+	device->uuids = g_slist_insert_sorted(device->uuids, g_strdup(uuid), bt_uuid_strcmp);
+
+	return true;
+}
+
 static void load_info(struct btd_device *device, const char *local,
 			const char *peer, GKeyFile *key_file)
 {
 	char *str;
 	gboolean store_needed = FALSE;
 	gboolean blocked;
-	char **uuids;
+	char **uuids, **sdp_uuids, **gatt_uuids;
 	int source, vendor, product, version;
 	char **techno, **t;
 
@@ -2818,6 +2828,33 @@ next:
 
 		/* Discovered services restored from storage */
 		device->bredr_state.svc_resolved = true;
+	}
+
+	/* Load device profile list from legacy property */
+	sdp_uuids = g_key_file_get_string_list(key_file, "General", "SDPServices",
+						NULL, NULL);
+	if (sdp_uuids) {
+		char **uuid;
+
+		for (uuid = sdp_uuids; *uuid; uuid++)
+			device_add_uuid(device, *uuid);
+
+		g_strfreev(sdp_uuids);
+
+		/* Discovered services restored from storage */
+		device->bredr_state.svc_resolved = true;
+	}
+
+	/* Load device profile list from legacy property */
+	gatt_uuids = g_key_file_get_string_list(key_file, "General", "GATTServices",
+						NULL, NULL);
+	if (gatt_uuids) {
+		char **uuid;
+
+		for (uuid = gatt_uuids; *uuid; uuid++)
+			device_add_uuid(device, *uuid);
+
+		g_strfreev(gatt_uuids);
 	}
 
 	/* Load device id */
