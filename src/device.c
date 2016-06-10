@@ -849,6 +849,35 @@ static gboolean dev_property_get_class(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean dev_property_exists_type(const GDBusPropertyTable *property,
+								void *data)
+{
+	struct btd_device *device = data;
+
+	return device->bredr || device->le;
+}
+
+static gboolean dev_property_get_type(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *device = data;
+	const char *type;
+
+	if (!device->bredr && !device->le)
+		return FALSE;
+
+	if (!device->bredr)
+		type = "LE";
+	else if (!device->le)
+		type = "BR/EDR";
+	else
+		type = "DUAL";
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &type);
+
+	return TRUE;
+}
+
 static gboolean get_appearance(const GDBusPropertyTable *property, void *data,
 							uint16_t *appearance)
 {
@@ -2752,6 +2781,8 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "Alias", "s", dev_property_get_alias, dev_property_set_alias },
 	{ "Class", "u", dev_property_get_class, NULL,
 					dev_property_exists_class },
+	{ "Type", "s", dev_property_get_type, NULL,
+					dev_property_exists_type },
 	{ "Appearance", "q", dev_property_get_appearance, NULL,
 					dev_property_exists_appearance },
 	{ "Icon", "s", dev_property_get_icon, NULL,

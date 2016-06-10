@@ -158,6 +158,11 @@ Properties	string Address [readonly]
 
 			The Bluetooth class of device of the remote device.
 
+		string Type [readonly, optional]
+
+			The carriers supported by this remote device. If it
+			exists, it can be one of "BR/EDR", "LE", or "DUAL".
+
 		uint16 Appearance [readonly, optional]
 
 			External appearance of device, as found on GAP service.
