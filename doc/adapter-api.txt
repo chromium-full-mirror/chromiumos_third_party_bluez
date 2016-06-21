@@ -204,6 +204,52 @@ Methods		void StartDiscovery()
 					 org.bluez.Error.NotReady
 					 org.bluez.Error.Failed
 
+		uint32 CreateServiceRecord(dict record)
+
+			This method creates an entry with the local SDP server
+			for this adapter for the specified record. This method
+			will only create the SDP record and not start listening
+			on any ports. It is up to the caller of the method to
+			ensure the validity of the service record. This record
+			will not be parsed for any validation but will instead
+			directly be inserted into the local SDP server’s
+			records.
+
+			The return value from this method will be the 32 bit
+			handle for the created service record.
+
+			The record dictionary will have dictionary entries of
+			the format: {id : (type, size, value)}, where,
+
+			uint16 id:	The 16 bit attribute ID for an
+					attribute.
+			uint8 type:	This will contain the type of the
+					attribute value. Attribute type values
+					are defined in the Bluetooth spec in
+					Volume 3, Part B, 3.2.
+			uint32 size:	This is the size of the attribute
+					value.
+			variant value:	This will contain the attribute value
+					for a given attribute_id. This variant
+					can either contain a primitive type, or
+					if type is SEQUENCE, an array of struct
+					of the signature (type, size, value).
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.AlreadyExists
+					 org.bluez.Error.Failed
+					 org.bluez.Error.InvalidArguments
+
+		void RemoveServiceRecord(uint32 handle)
+
+			This method removes the SDP record with the given
+			handle from the local SDP server.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.DoesNotExist
+					 org.bluez.Error.Failed
+					 org.bluez.Error.InvalidArguments
+
 Properties	string Address [readonly]
 
 			The Bluetooth device address.

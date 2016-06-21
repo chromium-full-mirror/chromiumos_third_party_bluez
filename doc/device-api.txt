@@ -120,6 +120,43 @@ Methods		void Connect()
 			Possible errors: org.bluez.Error.DoesNotExist
 					 org.bluez.Error.Failed
 
+		array{array{dict}} GetServiceRecords()
+
+			This method returns the complete service records of all
+			discovered BR/EDR services of the connected device till
+			now. The return value will be an array of an array of
+			dictionary entries. Each nested array of dictionary
+			entries will contain one service record. Each pair in
+			the returned dictionary entries will represent an
+			attribute in the service record.
+
+			The dictionary entries in the returned array of entries
+			will be of the format: {id : (type, size, value)} where,
+
+			uint16 id:	The 16 bit attribute ID for an
+					attribute.
+			uint8 type:	This will contain the type of the
+					attribute value. Attribute type values
+					are defined in the Bluetooth spec in
+					Volume 3, Part B, 3.2.
+			uint32 size:	This is the size of the attribute
+					value.
+			variant value:	This will contain the attribute value
+					for a given attribute_id. This variant
+					can either contain a primitive type, or
+					if type is SEQUENCE, an array of struct
+					of the signature (type, size, value).
+
+			Since the service record contains the service UUID and
+			name, these fields do not need to be given separately.
+			This method should be called after the ServiceResolved
+			property for this object has been set to true otherwise
+			it may return a partial or stale cached list.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.NotConnected
+					 org.bluez.Error.Failed
+
 Properties	string Address [readonly]
 
 			The Bluetooth device address of the remote device.
