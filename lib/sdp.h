@@ -397,6 +397,19 @@ extern "C" {
 #define SDP_URL_STR32		0x47
 
 /*
+ * These are Chromium specific SDP data types which map the above SDP datatype
+ * but without specifying the sizes of types.
+ */
+#define SDP_VAL_TYPE_NIL	0x00
+#define SDP_VAL_TYPE_UINT	0x01
+#define SDP_VAL_TYPE_INT	0x02
+#define SDP_VAL_TYPE_UUID	0x03
+#define SDP_VAL_TYPE_STRING	0x04
+#define SDP_VAL_TYPE_BOOL	0x05
+#define SDP_VAL_TYPE_SEQUENCE	0x06
+#define SDP_VAL_TYPE_URL	0x07
+
+/*
  * The PDU identifiers of SDP packets between client and server
  */
 #define SDP_ERROR_RSP		0x01
