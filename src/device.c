@@ -2507,6 +2507,296 @@ static DBusMessage *cancel_pairing(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+static dbus_bool_t append_attr_value(sdp_data_t* val,
+					DBusMessageIter *val_entry)
+{
+	DBusMessageIter val_struct;
+	DBusMessageIter val_variant;
+	DBusMessageIter val_seq_array;
+
+	uint8_t value_type;
+	void* value = NULL;
+	uint32_t value_size = (uint32_t) val->unitSize;
+	sdp_data_t *data;
+	char *str = NULL;
+
+	int type;
+	const char *type_sig;
+
+	if (!dbus_message_iter_open_container(val_entry, DBUS_TYPE_STRUCT,
+						NULL, &val_struct))
+		return FALSE;
+
+	switch (val->dtd) {
+	case SDP_DATA_NIL:
+		goto val_nil;
+	case SDP_BOOL:
+		value_type = SDP_VAL_TYPE_BOOL;
+		value = &val->val.uint8;
+		value_size = sizeof(uint8_t);
+		type_sig = DBUS_TYPE_BOOLEAN_AS_STRING;
+		type = DBUS_TYPE_BOOLEAN;
+		break;
+	case SDP_UINT8:
+		value_type = SDP_VAL_TYPE_UINT;
+		value = &val->val.uint8;
+		value_size = sizeof(uint8_t);
+		type_sig = DBUS_TYPE_BYTE_AS_STRING;
+		type = DBUS_TYPE_BYTE;
+		break;
+	case SDP_UINT16:
+		value_type = SDP_VAL_TYPE_UINT;
+		value = &val->val.uint16;
+		value_size = sizeof(uint16_t);
+		type_sig = DBUS_TYPE_UINT16_AS_STRING;
+		type = DBUS_TYPE_UINT16;
+		break;
+	case SDP_UINT32:
+		value_type = SDP_VAL_TYPE_UINT;
+		value = &val->val.uint32;
+		value_size = sizeof(uint32_t);
+		type_sig = DBUS_TYPE_UINT32_AS_STRING;
+		type = DBUS_TYPE_UINT32;
+		break;
+	case SDP_UINT64:
+		value_type = SDP_VAL_TYPE_UINT;
+		value = &val->val.uint64;
+		value_size = sizeof(uint64_t);
+		type_sig = DBUS_TYPE_UINT64_AS_STRING;
+		type = DBUS_TYPE_UINT64;
+		break;
+	case SDP_INT8:
+		value_type = SDP_VAL_TYPE_INT;
+		value = &val->val.int8;
+		value_size = sizeof(int8_t);
+		type_sig = DBUS_TYPE_BYTE_AS_STRING;
+		type = DBUS_TYPE_BYTE;
+		break;
+	case SDP_INT16:
+		value_type = SDP_VAL_TYPE_INT;
+		value = &val->val.int16;
+		value_size = sizeof(int16_t);
+		type_sig = DBUS_TYPE_INT16_AS_STRING;
+		type = DBUS_TYPE_INT16;
+		break;
+	case SDP_INT32:
+		value_type = SDP_VAL_TYPE_INT;
+		value = &val->val.int32;
+		value_size = sizeof(int32_t);
+		type_sig = DBUS_TYPE_INT32_AS_STRING;
+		type = DBUS_TYPE_INT32;
+		break;
+	case SDP_INT64:
+		value_type = SDP_VAL_TYPE_INT;
+		value = &val->val.int64;
+		value_size = sizeof(int64_t);
+		type_sig = DBUS_TYPE_INT64_AS_STRING;
+		type = DBUS_TYPE_INT64;
+		break;
+	case SDP_UUID16:
+	case SDP_UUID32:
+	case SDP_UUID128:
+		// Although a UUID is passed as a string in format
+		// "0000XXXX-0000-1000-8000-00805F9B34FB", |value_size|
+		// should hold the original length of a UUID. The length unit
+		// is byte, so a length can be 2, 4, 16.
+		if (val->dtd == SDP_UUID16)
+			value_size = sizeof(uint16_t);
+		else if (val->dtd == SDP_UUID32)
+			value_size = sizeof(uint32_t);
+		else
+			value_size = sizeof(uint128_t);
+		value_type = SDP_VAL_TYPE_UUID;
+		str = bt_uuid2string(&val->val.uuid);
+		value = &str;
+		type_sig = DBUS_TYPE_STRING_AS_STRING;
+		type = DBUS_TYPE_STRING;
+		break;
+	case SDP_TEXT_STR8:
+	case SDP_TEXT_STR16:
+	case SDP_TEXT_STR32:
+		// TODO(chromium:633929): Distinguish string and data array by
+		// checking if the given string is in UTF-8 format or not. For
+		// now the binary case is skipped by setting |str| as a empty
+		// string.
+		str = val->val.str;
+		if (!dbus_validate_utf8(str, NULL))
+			str = "";
+		value_size = strlen(str);
+		value_type = SDP_VAL_TYPE_STRING;
+		value = &str;
+		type_sig = DBUS_TYPE_STRING_AS_STRING;
+		type = DBUS_TYPE_STRING;
+		break;
+	case SDP_URL_STR8:
+	case SDP_URL_STR16:
+	case SDP_URL_STR32:
+		value_type = SDP_VAL_TYPE_URL;
+		str = val->val.str;
+		value_size = strlen(str);
+		value = &str;
+		type_sig = DBUS_TYPE_STRING_AS_STRING;
+		type = DBUS_TYPE_STRING;
+		break;
+	case SDP_ALT8:
+	case SDP_ALT16:
+	case SDP_ALT32:
+	case SDP_SEQ8:
+	case SDP_SEQ16:
+	case SDP_SEQ32: {
+		uint32_t size = 0;
+
+		value_type = SDP_VAL_TYPE_SEQUENCE;
+
+		// Calculate the number of elements in the sequence.
+		for (data = val->val.dataseq; data; data = data->next)
+			size++;
+
+		if (!dbus_message_iter_append_basic(&val_struct,
+						DBUS_TYPE_BYTE, &value_type))
+			return FALSE;
+		if (!dbus_message_iter_append_basic(&val_struct,
+						DBUS_TYPE_UINT32, &size))
+			return FALSE;
+		if (!dbus_message_iter_open_container(&val_struct,
+				DBUS_TYPE_VARIANT, "a(yuv)", &val_variant))
+			return FALSE;
+		if (!dbus_message_iter_open_container(&val_variant,
+				DBUS_TYPE_ARRAY, "(yuv)", &val_seq_array))
+			return FALSE;
+
+		for (data = val->val.dataseq; data; data = data->next)
+			append_attr_value(data, &val_seq_array);
+
+		if (!dbus_message_iter_close_container(&val_variant,
+							&val_seq_array))
+			return FALSE;
+		if (!dbus_message_iter_close_container(&val_struct,
+							&val_variant))
+			return FALSE;
+		goto done;
+	}
+	default:
+		goto val_nil;
+	}
+
+	if (!dbus_message_iter_append_basic(&val_struct,
+						DBUS_TYPE_BYTE, &value_type))
+		goto failed_to_append;
+	if (!dbus_message_iter_append_basic(&val_struct,
+						DBUS_TYPE_UINT32, &value_size))
+		goto failed_to_append;
+	if (!dbus_message_iter_open_container(&val_struct, DBUS_TYPE_VARIANT,
+						type_sig, &val_variant))
+		goto failed_to_append;
+	if (!dbus_message_iter_append_basic(&val_variant, type, value))
+		goto failed_to_append;
+
+	if (value_type == SDP_VAL_TYPE_UUID)
+		free(str);
+
+	if (!dbus_message_iter_close_container(&val_struct, &val_variant))
+		return FALSE;
+
+val_nil:
+done:
+	if (!dbus_message_iter_close_container(val_entry, &val_struct))
+		return FALSE;
+	return TRUE;
+
+failed_to_append:
+	if (value_type == SDP_VAL_TYPE_UUID)
+		free(str);
+	return FALSE;
+}
+
+static dbus_bool_t append_attr(sdp_data_t *attr, DBusMessageIter *attr_dict)
+{
+	DBusMessageIter attr_entry;
+
+	if (!dbus_message_iter_open_container(attr_dict, DBUS_TYPE_DICT_ENTRY,
+				NULL, &attr_entry))
+		return FALSE;
+
+	if (!dbus_message_iter_append_basic(&attr_entry, DBUS_TYPE_UINT16,
+						&attr->attrId))
+		return FALSE;
+
+	if (!append_attr_value(attr, &attr_entry))
+		return FALSE;
+
+	if (!dbus_message_iter_close_container(attr_dict, &attr_entry))
+		return FALSE;
+
+	return TRUE;
+}
+
+static dbus_bool_t append_record(const sdp_record_t *rec,
+					DBusMessageIter *attr_array)
+{
+	sdp_list_t *seq;
+	DBusMessageIter attr_dict;
+
+	if (!dbus_message_iter_open_container(attr_array, DBUS_TYPE_ARRAY,
+						"{q(yuv)}", &attr_dict))
+		return FALSE;
+
+	for (seq = rec->attrlist; seq; seq = seq->next) {
+		sdp_data_t *attr = (sdp_data_t *) seq->data;
+		if (!append_attr(attr, &attr_dict))
+			return FALSE;
+	}
+
+	if (!dbus_message_iter_close_container(attr_array, &attr_dict))
+		return FALSE;
+
+	return TRUE;
+}
+
+static DBusMessage *get_service_records(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	struct btd_device *dev = data;
+	sdp_list_t *seq;
+	DBusMessage *reply;
+	DBusMessageIter rec_array;
+	DBusMessageIter attr_array;
+
+	if (!btd_adapter_get_powered(dev->adapter))
+		return btd_error_not_ready(msg);
+
+	if (!btd_device_is_connected(dev))
+		return btd_error_not_connected(msg);
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply)
+		return btd_error_failed(msg, "Failed to create method reply");
+
+	/* Load records from storage if there is nothing in cache */
+	if (!dev->tmp_records)
+		return btd_error_failed(msg, "SDP record not found");
+
+	dbus_message_iter_init_append(reply, &rec_array);
+
+	if (!dbus_message_iter_open_container(&rec_array, DBUS_TYPE_ARRAY,
+						"a{q(yuv)}", &attr_array))
+		return FALSE;
+
+	for (seq = dev->tmp_records; seq; seq = seq->next) {
+		sdp_record_t *rec = (sdp_record_t *) seq->data;
+		if (!rec)
+			continue;
+		if (!append_record(rec, &attr_array))
+			return btd_error_failed(msg,
+						"SDP record attachment failed");
+	}
+
+	if (!dbus_message_iter_close_container(&rec_array, &attr_array))
+		return FALSE;
+
+	return reply;
+}
+
 static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Disconnect", NULL, NULL, dev_disconnect) },
 	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },
@@ -2516,6 +2806,9 @@ static const GDBusMethodTable device_methods[] = {
 						NULL, disconnect_profile) },
 	{ GDBUS_ASYNC_METHOD("Pair", NULL, NULL, pair_device) },
 	{ GDBUS_METHOD("CancelPairing", NULL, NULL, cancel_pairing) },
+	{ GDBUS_ASYNC_METHOD("GetServiceRecords", NULL,
+			GDBUS_ARGS({"records", "aa{q(yuv)}"}),
+			get_service_records) },
 	{ }
 };
 
