@@ -47,6 +47,7 @@
 #include "bluetooth/sdp_lib.h"
 #include "lib/uuid.h"
 #include "lib/mgmt.h"
+#include "lib/sdp.h"
 
 #include "gdbus/gdbus.h"
 
@@ -2933,6 +2934,407 @@ static DBusMessage *remove_device(DBusConnection *conn,
 	return NULL;
 }
 
+static int parse_int_uint_variant(DBusMessageIter *iter, bool unsign,
+					uint32_t size, void **val, uint8_t *dtd)
+{
+	int dbus_type = DBUS_TYPE_INVALID;
+	char arg[4];
+
+	switch(size) {
+	case 1:
+		if (unsign) {
+			*val = malloc(sizeof(uint8_t));
+			*dtd = SDP_UINT8;
+		} else {
+			*val = malloc(sizeof(int8_t));
+			*dtd = SDP_INT8;
+		}
+		dbus_type = DBUS_TYPE_BYTE;
+		break;
+	case 2:
+		if (unsign) {
+			*val = malloc(sizeof(uint16_t));
+			*dtd = SDP_UINT16;
+			dbus_type = DBUS_TYPE_UINT16;
+		} else {
+			*val = malloc(sizeof(int16_t));
+			*dtd = SDP_INT16;
+			dbus_type = DBUS_TYPE_INT16;
+		}
+		break;
+	case 4:
+		if (unsign) {
+			*val = malloc(sizeof(uint32_t));
+			*dtd = SDP_UINT32;
+			dbus_type = DBUS_TYPE_UINT32;
+		} else {
+			*val = malloc(sizeof(int32_t));
+			*dtd = SDP_INT32;
+			dbus_type = DBUS_TYPE_INT32;
+		}
+		break;
+	case 8:
+		if (unsign) {
+			*val = malloc(sizeof(uint64_t));
+			*dtd = SDP_UINT64;
+			dbus_type = DBUS_TYPE_UINT64;
+		} else {
+			*val = malloc(sizeof(int64_t));
+			*dtd = SDP_INT64;
+			dbus_type = DBUS_TYPE_INT64;
+		}
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (!*val)
+		return -1;
+
+	if (dbus_message_iter_get_arg_type(iter) != dbus_type) {
+		free(val);
+		return -EINVAL;
+	}
+	dbus_message_iter_get_basic(iter, arg);
+
+	memcpy(*val, arg, size);
+
+	return 0;
+}
+
+static int parse_str_variant(DBusMessageIter *iter, void **val, int *str_len)
+{
+	const char *str;
+
+	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_STRING)
+		return -EINVAL;
+	dbus_message_iter_get_basic(iter, &str);
+
+	if (!str)
+		return -1;
+
+	*str_len = strlen(str) + 1;
+
+	*val = calloc(*str_len, sizeof(char));
+	if (!val)
+		return -1;
+
+	strncpy(*val, str, *str_len - 1);
+
+	return 0;
+}
+
+static int parse_attr_value(DBusMessageIter *val_struct,
+					sdp_data_t **attr)
+{
+	DBusMessageIter iter, val_variant;
+	uint8_t val_type = SDP_VAL_TYPE_NIL;
+	uint32_t val_size = 0;
+
+	uint8_t dtd;
+	void *val = NULL;
+	int str_len = 0;
+	int ret = 0;
+
+	*attr = NULL;
+
+	if (dbus_message_iter_get_arg_type(val_struct) != DBUS_TYPE_STRUCT)
+		return -EINVAL;
+	dbus_message_iter_recurse(val_struct, &iter);
+
+	// Extract attribute value type.
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_BYTE)
+		return -EINVAL;
+	dbus_message_iter_get_basic(&iter, &val_type);
+	if (!dbus_message_iter_next(&iter))
+		return -ENODATA;
+
+	// Extract attribute value size.
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_UINT32)
+		return -EINVAL;
+	dbus_message_iter_get_basic(&iter, &val_size);
+	if (!dbus_message_iter_next(&iter))
+		return -ENODATA;
+
+	// Extract attribute value based on its type.
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_VARIANT)
+		return -EINVAL;
+	dbus_message_iter_recurse(&iter, &val_variant);
+
+	switch(val_type) {
+	case SDP_VAL_TYPE_NIL:
+		dtd = SDP_DATA_NIL;
+		break;
+	case SDP_VAL_TYPE_UINT: {
+		ret = parse_int_uint_variant(&val_variant, true, val_size, &val,
+						&dtd);
+		if (ret < 0)
+			return ret;
+		break;
+	}
+	case SDP_VAL_TYPE_INT: {
+		ret = parse_int_uint_variant(&val_variant, true, val_size, &val,
+						&dtd);
+		if (ret < 0)
+			return ret;
+		break;
+	}
+	case SDP_VAL_TYPE_UUID: {
+		// The UUID string is in "%08x-%04x-%04x-%04x-%08x%04x" format.
+		// Take Bluetooth base UUID for instance, the base UUID string
+		// is "00000000-0000-1000-8000-00805F9B34FB". Extra action may
+		// be needed to change the UUID type of a newly-created |uuid|
+		// based on the |val_size| field.
+		uuid_t *uuid = NULL;
+		const char *uuid_str;
+		void *arg = NULL;
+
+		if (dbus_message_iter_get_arg_type(&val_variant) !=
+				DBUS_TYPE_STRING)
+			return -EINVAL;
+		dbus_message_iter_get_basic(&val_variant, &uuid_str);
+
+		if (!uuid_str)
+			return -1;
+
+		uuid = (uuid_t *)malloc(sizeof(uuid_t));
+		if (!uuid)
+			return -1;
+
+		if (bt_string2uuid(uuid, uuid_str) < 0) {
+			free(uuid);
+			return -1;
+		}
+
+		switch(val_size) {
+		case 2:
+			dtd = SDP_UUID16;
+			if (!sdp_uuid128_to_uuid(uuid)) {
+				free(uuid);
+				return -1;
+			}
+			arg = &uuid->value.uuid16;
+			break;
+		case 4:
+			dtd = SDP_UUID32;
+			if (!sdp_uuid128_to_uuid(uuid)) {
+				free(uuid);
+				return -1;
+			}
+			arg = &uuid->value.uuid32;
+			break;
+		case 16:
+			dtd = SDP_UUID128;
+			arg = &uuid->value.uuid128;
+			break;
+		default:
+			free(uuid);
+			return -EINVAL;
+		}
+
+		val = malloc(val_size);
+		memcpy(val, arg, val_size);
+
+		free(uuid);
+		break;
+	}
+	case SDP_VAL_TYPE_STRING: {
+		dtd = SDP_TEXT_STR8;
+		ret = parse_str_variant(&val_variant, &val, &str_len);
+		if (ret < 0)
+			return ret;
+		break;
+	}
+	case SDP_VAL_TYPE_BOOL: {
+		dbus_bool_t *arg = NULL;
+
+		dtd = SDP_BOOL;
+
+		if (dbus_message_iter_get_arg_type(&val_variant) !=
+				DBUS_TYPE_BOOLEAN)
+			return -EINVAL;
+		dbus_message_iter_get_basic(&val_variant, arg);
+
+		if (!arg)
+			return -1;
+
+		val = malloc(sizeof(bool));
+		if (!val)
+			return -1;
+
+		memcpy(val, arg, sizeof(bool));
+		break;
+	}
+	case SDP_VAL_TYPE_URL: {
+		dtd = SDP_URL_STR8;
+		ret = parse_str_variant(&val_variant, &val, &str_len);
+		if (ret < 0)
+			return ret;
+		break;
+	}
+	case SDP_VAL_TYPE_SEQUENCE: {
+		sdp_data_t *seq = NULL;
+		DBusMessageIter seq_iter;
+
+		dtd = SDP_SEQ32;
+
+		if (dbus_message_iter_get_arg_type(&val_variant) !=
+				DBUS_TYPE_ARRAY)
+			return -EINVAL;
+
+		dbus_message_iter_recurse(&val_variant, &seq_iter);
+
+		// Recursively extract the value from each element of the
+		// sequence.
+		while (dbus_message_iter_get_arg_type(&seq_iter) ==
+				DBUS_TYPE_STRUCT) {
+			sdp_data_t *data;
+
+			ret = parse_attr_value(&seq_iter, &data);
+			if (!data || ret < 0) {
+				if (data)
+					sdp_data_free(data);
+				if (seq)
+					sdp_data_free(seq);
+
+				return ret;
+			}
+			seq = sdp_seq_append(seq, data);
+
+			dbus_message_iter_next(&seq_iter);
+		}
+
+		val = seq;
+		break;
+	}
+	default:
+		return -EINVAL;
+	}
+
+	*attr = sdp_data_alloc_with_length(dtd, val, str_len);
+	if (!*attr) {
+		ret = -1;
+		goto error_alloc_attr;
+	}
+
+	return 0;
+
+error_alloc_attr:
+	if (!val)
+		return ret;
+
+	if (val_type == SDP_VAL_TYPE_SEQUENCE)
+		sdp_data_free((sdp_data_t *)val);
+	else
+		free(val);
+
+	return ret;
+}
+
+static int parse_record(DBusMessageIter *rec_array,
+				sdp_record_t *rec)
+{
+	DBusMessageIter attr_dict;
+	sdp_data_t *attr = NULL;
+	int ret = 0;
+
+	if (dbus_message_iter_get_arg_type(rec_array) != DBUS_TYPE_ARRAY)
+		return -EINVAL;
+
+	dbus_message_iter_recurse(rec_array, &attr_dict);
+
+	while(dbus_message_iter_get_arg_type(&attr_dict) ==
+							DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter entry;
+		uint16_t attr_id;
+
+		dbus_message_iter_recurse(&attr_dict, &entry);
+
+		// Extract attribute ID.
+		if (dbus_message_iter_get_arg_type(&entry) != DBUS_TYPE_UINT16)
+			return -EINVAL;
+		dbus_message_iter_get_basic(&entry, &attr_id);
+		if (!dbus_message_iter_next(&entry))
+			return -ENODATA;
+
+		// Extract attribute value structure.
+		ret = parse_attr_value(&entry, &attr);
+		if (ret < 0)
+			goto error_parse_attr;
+
+		// Add the new attribute to the record.
+		if (sdp_attr_add(rec, attr_id, attr) < 0) {
+			ret = -1;
+			goto error_parse_attr;
+		}
+
+		dbus_message_iter_next(&attr_dict);
+	}
+
+	return 0;
+
+error_parse_attr:
+	if (attr)
+		sdp_data_free(attr);
+
+	return ret;
+}
+
+static DBusMessage *create_service_record(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	DBusMessage *reply;
+	sdp_record_t *rec;
+	DBusMessageIter rec_array, iter;
+	int ret = 0;
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if(!dbus_message_iter_init(msg, &rec_array))
+		return btd_error_failed(msg, "Failed to read record argument");
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply)
+		return btd_error_failed(msg, "Failed to create method reply");
+
+	rec = sdp_record_alloc();
+	if (!rec)
+		goto failed_to_alloc;
+
+	ret = parse_record(&rec_array, rec);
+	if (ret < 0) {
+		sdp_record_free(rec);
+		if (ret == -EINVAL || ret == -ENODATA)
+			return btd_error_invalid_args(msg);
+		else
+			return btd_error_failed(msg,
+					"Failed to parse record argument");
+	}
+
+	ret = adapter_service_add(adapter, rec);
+	if (ret < 0) {
+		sdp_record_free(rec);
+		if (ret == -EEXIST)
+			return btd_error_already_exists(msg);
+		else
+			return btd_error_failed(msg, "Failed to add record");
+	}
+
+	dbus_message_iter_init_append(reply, &iter);
+	if (!dbus_message_iter_append_basic(
+				&iter, DBUS_TYPE_UINT32, &rec->handle)) {
+		sdp_record_free(rec);
+		return btd_error_failed(msg, "Failed to append record handle");
+	}
+
+	return reply;
+
+failed_to_alloc:
+	return btd_error_failed(msg, "Failed to allocate SDP record");
+}
+
 static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
 	{ GDBUS_METHOD("SetDiscoveryFilter",
@@ -2941,6 +3343,10 @@ static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_METHOD("StopDiscovery", NULL, NULL, stop_discovery) },
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
 			GDBUS_ARGS({ "device", "o" }), NULL, remove_device) },
+	{ GDBUS_METHOD("CreateServiceRecord",
+			GDBUS_ARGS({"record", "a{q(yuv)}"}),
+			GDBUS_ARGS({"handle", "u"}),
+			create_service_record)},
 	{ }
 };
 
