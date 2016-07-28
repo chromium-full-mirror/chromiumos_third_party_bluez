@@ -3355,6 +3355,29 @@ failed_to_alloc:
 	return btd_error_failed(msg, "Failed to allocate SDP record");
 }
 
+static DBusMessage *remove_service_record(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	uint32_t rec_handle = 0xffffffff;
+	sdp_record_t *rec = NULL;
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_UINT32, &rec_handle,
+							DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	rec = sdp_record_find(rec_handle);
+	if (!rec)
+		return btd_error_does_not_exist(msg);
+
+	adapter_service_remove(adapter, rec_handle);
+
+	return dbus_message_new_method_return(msg);
+}
+
 static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
 	{ GDBUS_METHOD("SetDiscoveryFilter",
@@ -3367,6 +3390,8 @@ static const GDBusMethodTable adapter_methods[] = {
 			GDBUS_ARGS({"record", "a{q(yuv)}"}),
 			GDBUS_ARGS({"handle", "u"}),
 			create_service_record)},
+	{ GDBUS_METHOD("RemoveServiceRecord", GDBUS_ARGS({"handle", "u"}), NULL,
+			remove_service_record)},
 	{ }
 };
 
