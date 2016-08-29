@@ -3483,7 +3483,7 @@ static int parse_int_uint_variant(DBusMessageIter *iter, bool unsign,
 		return -1;
 
 	if (dbus_message_iter_get_arg_type(iter) != dbus_type) {
-		free(val);
+		free(*val);
 		return -EINVAL;
 	}
 	dbus_message_iter_get_basic(iter, arg);
@@ -3564,7 +3564,7 @@ static int parse_attr_value(DBusMessageIter *val_struct,
 		break;
 	}
 	case SDP_VAL_TYPE_INT: {
-		ret = parse_int_uint_variant(&val_variant, true, val_size, &val,
+		ret = parse_int_uint_variant(&val_variant, false, val_size, &val,
 						&dtd);
 		if (ret < 0)
 			return ret;
