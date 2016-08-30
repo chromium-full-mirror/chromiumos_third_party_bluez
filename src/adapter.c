@@ -3516,7 +3516,7 @@ static int parse_str_variant(DBusMessageIter *iter, void **val, int *str_len)
 }
 
 static int parse_attr_value(DBusMessageIter *val_struct,
-					sdp_data_t **attr)
+					sdp_data_t **attr, sdp_record_t* rec)
 {
 	DBusMessageIter iter, val_variant;
 	uint8_t val_type = SDP_VAL_TYPE_NIL;
@@ -3626,6 +3626,11 @@ static int parse_attr_value(DBusMessageIter *val_struct,
 		val = malloc(val_size);
 		memcpy(val, arg, val_size);
 
+		// Insert the UUID into |rec|'s search pattern. The ownership
+		// of |uuid| will NOT be transferred, so |uuid| should be freed
+		// after use.
+		sdp_pattern_add_uuid(rec, uuid);
+
 		free(uuid);
 		break;
 	}
@@ -3681,7 +3686,7 @@ static int parse_attr_value(DBusMessageIter *val_struct,
 				DBUS_TYPE_STRUCT) {
 			sdp_data_t *data;
 
-			ret = parse_attr_value(&seq_iter, &data);
+			ret = parse_attr_value(&seq_iter, &data, rec);
 			if (!data || ret < 0) {
 				if (data)
 					sdp_data_free(data);
@@ -3749,7 +3754,7 @@ static int parse_record(DBusMessageIter *rec_array,
 			return -ENODATA;
 
 		// Extract attribute value structure.
-		ret = parse_attr_value(&entry, &attr);
+		ret = parse_attr_value(&entry, &attr, rec);
 		if (ret < 0)
 			goto error_parse_attr;
 
@@ -3767,6 +3772,9 @@ static int parse_record(DBusMessageIter *rec_array,
 error_parse_attr:
 	if (attr)
 		sdp_data_free(attr);
+
+	// Release the UUID pattern list.
+	sdp_list_free(rec->pattern, free);
 
 	return ret;
 }
