@@ -1797,8 +1797,8 @@ static uint8_t select_conn_bearer(struct btd_device *dev)
 	time_t bredr_last = NVAL_TIME, le_last = NVAL_TIME;
 	time_t current = time(NULL);
 
-	/* If the address is private it can only be connected over LE */
-	if (device_address_is_private(dev))
+	/* If the address is random it can only be connected over LE */
+	if (dev->bdaddr_type == BDADDR_LE_RANDOM)
 		return dev->bdaddr_type;
 
 	if (dev->bredr_seen) {
