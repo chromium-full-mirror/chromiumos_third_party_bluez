@@ -275,8 +275,34 @@ static const uint16_t uuid_list[] = {
 	0
 };
 
+struct pending_sdp_query {
+	bdaddr_t dev_bdaddr;
+	DBusConnection *conn;
+	DBusMessage *msg;
+};
+
 static int device_browse_gatt(struct btd_device *device, DBusMessage *msg);
 static int device_browse_sdp(struct btd_device *device, DBusMessage *msg);
+
+static struct pending_sdp_query *pending_sdp_query_new(DBusConnection *conn,
+				DBusMessage *msg, const struct btd_device *dev)
+{
+	struct pending_sdp_query *query;
+
+	query = g_new0(struct pending_sdp_query, 1);
+	query->dev_bdaddr = dev->bdaddr;
+	query->conn = dbus_connection_ref(conn);
+	query->msg = dbus_message_ref(msg);
+
+	return query;
+}
+
+static void pending_sdp_query_free(struct pending_sdp_query *query)
+{
+	dbus_connection_unref(query->conn);
+	dbus_message_unref(query->msg);
+	g_free(query);
+}
 
 static struct bearer_state *get_state(struct btd_device *dev,
 							uint8_t bdaddr_type)
@@ -2789,28 +2815,13 @@ static dbus_bool_t append_record(const sdp_record_t *rec,
 	return TRUE;
 }
 
-static DBusMessage *get_service_records(DBusConnection *conn,
-					DBusMessage *msg, void *data)
+static dbus_bool_t append_records(DBusMessage *reply, sdp_list_t *seq)
 {
-	struct btd_device *dev = data;
-	sdp_list_t *seq;
-	DBusMessage *reply;
 	DBusMessageIter rec_array;
 	DBusMessageIter attr_array;
 
-	if (!btd_adapter_get_powered(dev->adapter))
-		return btd_error_not_ready(msg);
-
-	if (!btd_device_is_connected(dev))
-		return btd_error_not_connected(msg);
-
-	reply = dbus_message_new_method_return(msg);
-	if (!reply)
-		return btd_error_failed(msg, "Failed to create method reply");
-
-	/* Load records from storage if there is nothing in cache */
-	if (!dev->tmp_records)
-		return btd_error_failed(msg, "SDP record not found");
+	if (!seq)
+		return FALSE;
 
 	dbus_message_iter_init_append(reply, &rec_array);
 
@@ -2818,17 +2829,94 @@ static DBusMessage *get_service_records(DBusConnection *conn,
 						"a{q(yuv)}", &attr_array))
 		return FALSE;
 
-	for (seq = dev->tmp_records; seq; seq = seq->next) {
+	for (; seq; seq = seq->next) {
 		sdp_record_t *rec = (sdp_record_t *) seq->data;
 		if (!rec)
 			continue;
 		if (!append_record(rec, &attr_array))
-			return btd_error_failed(msg,
-						"SDP record attachment failed");
+			return FALSE;
 	}
 
 	if (!dbus_message_iter_close_container(&rec_array, &attr_array))
 		return FALSE;
+
+	return TRUE;
+}
+
+static void get_service_records_cb(struct btd_device *dev, int err,
+						void *user_data)
+{
+	struct pending_sdp_query *query = user_data;
+	DBusMessage *reply;
+	sdp_list_t *seq = dev->tmp_records;
+
+	if (memcmp(&query->dev_bdaddr, &dev->bdaddr, sizeof(bdaddr_t))) {
+		reply = btd_error_failed(query->msg, "Device mismatched");
+		goto send_reply;
+	}
+
+	if (!dev->bredr_state.svc_resolved) {
+		reply = btd_error_not_ready(query->msg);
+		goto send_reply;
+	}
+
+	/* Load records from storage if there is nothing in cache */
+	if (!seq) {
+		reply = btd_error_failed(query->msg, "SDP record not found");
+		goto send_reply;
+	}
+
+	reply = dbus_message_new_method_return(query->msg);
+	if (!reply) {
+		reply = btd_error_failed(query->msg, "Failed to create method reply");
+		goto send_reply;
+	}
+
+	if (!append_records(reply, dev->tmp_records))
+		reply = btd_error_failed(query->msg, "SDP record attachment failed");
+
+send_reply:
+	g_dbus_send_message(query->conn, reply);
+	pending_sdp_query_free(query);
+}
+
+static DBusMessage *get_service_records(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	struct btd_device *dev = data;
+	DBusMessage *reply;
+	struct pending_sdp_query *query = NULL;
+	sdp_list_t *seq = dev->tmp_records;
+
+	if (!btd_adapter_get_powered(dev->adapter))
+		return btd_error_not_ready(msg);
+
+	if (!btd_device_is_connected(dev)) {
+		/*
+		 * Do a SDP service discovery on the device if the device is not
+		 * previously connected. SDP records will be returned later in
+		 * get_service_records_cb.
+		 */
+		query = pending_sdp_query_new(conn, msg, dev);
+		device_wait_for_svc_complete(dev, get_service_records_cb,
+						query);
+		device_browse_sdp(dev, NULL);
+		return NULL;
+	}
+
+	if (!dev->bredr_state.svc_resolved)
+		return btd_error_not_ready(msg);
+
+	/* Load records from storage if there is nothing in cache */
+	if (!seq)
+		return btd_error_failed(msg, "SDP record not found");
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply)
+		return btd_error_failed(msg, "Failed to create method reply");
+
+	if (!append_records(reply, seq))
+		return btd_error_failed(msg, "SDP record attachment failed");
 
 	return reply;
 }
