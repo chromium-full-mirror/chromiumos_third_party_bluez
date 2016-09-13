@@ -32,6 +32,7 @@
 #include "lib/bluetooth.h"
 #include "lib/mgmt.h"
 #include "lib/sdp.h"
+#include "hcid.h"
 
 #include "adapter.h"
 #include "dbus-common.h"
@@ -215,6 +216,12 @@ static void client_remove(void *data)
 	g_dbus_emit_property_changed(btd_get_dbus_connection(),
 				adapter_get_path(client->manager->adapter),
 				LE_ADVERTISING_MGR_IFACE, "ActiveInstances");
+}
+
+/* A dummy wrapper of client_remove called in queue_foreach. */
+static void remove_advertisement(void *data, void *user_data)
+{
+	client_remove(data);
 }
 
 static void client_disconnect_cb(DBusConnection *conn, void *user_data)
@@ -1365,6 +1372,120 @@ static const GDBusPropertyTable properties[] = {
 	{ }
 };
 
+static int adapter_set_advertising_intervals(struct btd_adv_manager *manager,
+						DBusMessage *msg,
+						uint16_t min_interval_ms,
+						uint16_t max_interval_ms)
+{
+	struct {
+		struct mgmt_tlv entry;
+		uint16_t value;
+	} __packed params [] =
+	{
+		/* Convert milli-seconds to multiples of 0.625 ms which are used
+		 * in the kernel.
+		 * See mgmt-api.txt for the definition of the magic numbers used
+		 * here.
+		 */
+		{{0x000a, sizeof(uint16_t)},
+		 (min_interval_ms / 0.625)},
+		{{0x000b, sizeof(uint16_t)},
+		 (max_interval_ms / 0.625)},
+	};
+	DBusMessage *reply;
+
+	if (params[0].value == 0 && params[1].value == 0) {
+		btd_info(manager->mgmt_index, "Reset Advertising Intervals.");
+		params[0].value = main_opts.default_params.le_min_adv_interval;
+		params[1].value = main_opts.default_params.le_max_adv_interval;
+	} else if (params[0].value < 0x0020 || params[0].value > 0x4000 ||
+			params[1].value < 0x0020 || params[1].value > 0x4000) {
+		btd_debug(manager->mgmt_index,
+				"Invalid intervals provided 0x%04x, 0x%04x",
+				min_interval_ms, max_interval_ms);
+		reply = btd_error_invalid_args(msg);
+		g_dbus_send_message(btd_get_dbus_connection(), reply);
+		return false;
+	} else {
+		btd_info(manager->mgmt_index,
+				"Set Advertising Intervals: 0x%04x, 0x%04x",
+				params[0].value, params[1].value);
+	}
+
+	if (!mgmt_send(manager->mgmt, MGMT_OP_SET_DEF_SYSTEM_CONFIG,
+			manager->mgmt_index, sizeof(params), params, NULL, NULL, NULL)) {
+		btd_error(manager->mgmt_index,
+				"Failed to set default system config for hci%u",
+				manager->mgmt_index);
+		return false;
+	}
+
+	/* The interval may have changed, refresh the adv publication */
+	btd_adv_manager_refresh(manager);
+
+	g_dbus_send_message(btd_get_dbus_connection(),
+					dbus_message_new_method_return(msg));
+
+	return true;
+}
+
+static DBusMessage *set_advertising_intervals(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct btd_adv_manager *manager = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	dbus_uint16_t min_interval_ms, max_interval_ms;
+
+	DBG("set_advertising_intervals: sender %s", sender);
+
+	if (!dbus_message_get_args(msg, NULL,
+					DBUS_TYPE_UINT16, &min_interval_ms,
+					DBUS_TYPE_UINT16, &max_interval_ms,
+					DBUS_TYPE_INVALID)) {
+		return btd_error_invalid_args(msg);
+	}
+
+	/* The adapter is not required to be powered to set advertising
+	 * intervals. Hence, just go ahead to set the intervals.
+	 */
+	if (!adapter_set_advertising_intervals(manager, msg, min_interval_ms,
+						max_interval_ms)) {
+		return btd_error_failed(msg,
+					"failed to set advertising intervals");
+	}
+
+	return NULL;
+}
+
+static DBusMessage *reset_advertising(DBusConnection *conn, DBusMessage *msg,
+					void *user_data)
+{
+	struct btd_adv_manager *manager = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+
+	DBG("reset_advertising: sender %s", sender);
+
+	/* if manager->ads is empty, no need to remove any advertisements. */
+	if (queue_isempty(manager->clients)) {
+		btd_info(manager->mgmt_index,
+				"hci%d: no advertisements to clear",
+				manager->mgmt_index);
+	} else {
+		/* Remove advertisements one by one. The advertising would be
+                 * disabled when the last one is removed.
+                 */
+		queue_foreach(manager->clients, remove_advertisement, NULL);
+	}
+
+	/* Reset the advertising intervals to default by assigning 0, 0. */
+	if (!adapter_set_advertising_intervals(manager, msg, 0, 0)) {
+		return btd_error_failed(msg,
+					"failed to set advertising intervals");
+	}
+
+	return dbus_message_new_method_return(msg);
+}
+
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_ASYNC_METHOD("RegisterAdvertisement",
 					GDBUS_ARGS({ "advertisement", "o" },
@@ -1374,6 +1495,12 @@ static const GDBusMethodTable methods[] = {
 						GDBUS_ARGS({ "service", "o" }),
 						NULL,
 						unregister_advertisement) },
+	{ GDBUS_ASYNC_METHOD("SetAdvertisingIntervals",
+				GDBUS_ARGS({"min_interval_ms", "q"},
+						{"max_interval_ms", "q"}),
+				NULL, set_advertising_intervals)},
+	{ GDBUS_ASYNC_METHOD("ResetAdvertising", NULL, NULL,
+						reset_advertising) },
 	{ }
 };
 
