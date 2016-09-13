@@ -101,6 +101,7 @@ struct mgmt_rp_read_index_list {
 #define MGMT_SETTING_PRIVACY		0x00002000
 #define MGMT_SETTING_CONFIGURATION	0x00004000
 #define MGMT_SETTING_STATIC_ADDRESS	0x00008000
+#define MGMT_SETTING_ADVERTISING_INTERVALS	0x00010000
 
 #define MGMT_OP_READ_INFO		0x0004
 struct mgmt_rp_read_info {
@@ -530,6 +531,15 @@ struct mgmt_rp_get_adv_size_info {
 
 #define MGMT_OP_START_LIMITED_DISCOVERY	0x0041
 
+#define MGMT_OP_SET_ADVERTISING_INTERVALS	0x0042
+#define ADVERTISING_INTERVAL_UNIT_TIME 0.625
+struct mgmt_cp_set_advertising_intervals {
+	/* A unit of the intervals below is 0.625 ms.*/
+	uint16_t min_interval;
+	uint16_t max_interval;
+} __packed;
+#define MGMT_SET_ADVERTISING_INTERVALS_SIZE	4
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
@@ -809,6 +819,7 @@ static const char *mgmt_op[] = {
 	"Remove Advertising",
 	"Get Advertising Size Information",		/* 0x0040 */
 	"Start Limited Discovery",
+	"Set Advertising Intervals",
 };
 
 static const char *mgmt_ev[] = {

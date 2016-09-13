@@ -374,6 +374,7 @@ static const char *settings_str[] = {
 				"privacy",
 				"configuration",
 				"static-addr",
+				"advertising-intervals",
 };
 
 static const char *settings2str(uint32_t settings)
