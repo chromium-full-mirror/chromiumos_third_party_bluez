@@ -2810,6 +2810,34 @@ Start Limited Discovery Command
 				Invalid Index
 
 
+Set Advertising Intervals Command
+=================================
+
+	Command Code:		0x0101
+	Controller Index:	<controller id>
+	Command Parameters:	Min_Interval     (2 Octets)
+				Max_Interval     (2 Octets)
+	Return Parameters:	Current_Settings (4 Octets)
+
+	This command is used to set advertising intervals. The intervals
+	are expressed in multiples of 0.625 ms. The default values of
+	both intervals are 0x0800. Valid Min_Interval and Max_Interval
+	values must fall between 0x0020 and 0x4000.
+
+	The advertising intervals are first kept in hdev struct. The values
+	would be sent to the controller and take effect when advertising is
+	actually enabled. If the advertising intervals are set when
+	advertising is already on, the advertising would be disabled and
+	re-enabled to make the intervals take effect.
+
+	This command generates a Command Complete event on success or
+	a Command Status event on failure.
+
+	Possible errors:	Busy
+				Rejected
+				Invalid Parameters
+
+
 Command Complete Event
 ======================
 
