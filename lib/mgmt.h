@@ -103,6 +103,7 @@ struct mgmt_rp_read_index_list {
 #define MGMT_SETTING_STATIC_ADDRESS	0x00008000
 #define MGMT_SETTING_PHY_CONFIGURATION	0x00010000
 #define MGMT_SETTING_WIDEBAND_SPEECH	0x00020000
+#define MGMT_SETTING_ADVERTISING_INTERVALS	0x00040000
 
 #define MGMT_OP_READ_INFO		0x0004
 struct mgmt_rp_read_info {
@@ -602,6 +603,15 @@ struct mgmt_cp_set_blocked_keys {
 
 #define MGMT_OP_SET_WIDEBAND_SPEECH	0x0047
 
+#define MGMT_OP_SET_ADVERTISING_INTERVALS	0x0048
+#define ADVERTISING_INTERVAL_UNIT_TIME 0.625
+struct mgmt_cp_set_advertising_intervals {
+	/* A unit of the intervals below is 0.625 ms.*/
+	uint16_t min_interval;
+	uint16_t max_interval;
+} __packed;
+#define MGMT_SET_ADVERTISING_INTERVALS_SIZE	4
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
@@ -898,6 +908,7 @@ static const char *mgmt_op[] = {
 	"Set PHY Configuration",
 	"Set Blocked Keys",
 	"Set Wideband Speech",
+	"Set Advertising Intervals",			/* 0x0048 */
 };
 
 static const char *mgmt_ev[] = {

@@ -184,6 +184,19 @@ Methods		RegisterAdvertisement(object advertisement, dict options)
 			Possible errors: org.bluez.Error.InvalidArguments
 					 org.bluez.Error.DoesNotExist
 
+		void SetAdvertisingIntervals(uint16 min_interval_ms,
+					     uint16 max_interval_ms)
+
+			This method sets the advertising intervals.
+
+			The parameters min_interval_ms and max_interval_ms
+			are specified in milli-seconds. Valid values of
+			the intervals must fall between 20 ms and 10,240 ms.
+
+			Possible errors: org.bluez.Error.Failed
+					 org.bluez.Error.InProgress
+					 org.bluez.Error.InvalidArguments
+
 Properties	byte ActiveInstances
 
 			Number of active advertising instances.

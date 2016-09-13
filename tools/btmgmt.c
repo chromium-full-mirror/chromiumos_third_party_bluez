@@ -355,6 +355,7 @@ static const char *settings_str[] = {
 				"static-addr",
 				"phy-configuration",
 				"wide-band-speech",
+				"advertising-intervals",
 };
 
 static const char *settings2str(uint32_t settings)

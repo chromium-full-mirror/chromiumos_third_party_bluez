@@ -11669,6 +11669,7 @@ static const struct bitfield_data mgmt_settings_table[] = {
 	{ 15, "Static Address"		},
 	{ 16, "PHY Configuration"	},
 	{ 17, "Wideband Speech"		},
+	{ 18, "Advertising Intervals"	},
 	{ }
 };
 
@@ -12988,6 +12989,23 @@ static void mgmt_set_phy_cmd(const void *data, uint16_t size)
 	mgmt_print_phys("Selected PHYs", selected_phys);
 }
 
+static void mgmt_set_adv_interval_cmd(const void *data, uint16_t size)
+{
+	uint16_t min_adv_interval = get_le16(data);
+	uint16_t max_adv_interval = get_le16(data+2);
+
+	print_field("Min advertising interval: 0x%4.4x", min_adv_interval);
+	print_field("Max advertising interval: 0x%4.4x", max_adv_interval);
+}
+
+static void mgmt_set_adv_interval_rsp(const void *data, uint16_t size)
+{
+	uint32_t current_settings = get_le32(data);
+
+	print_field("Current settings: 0x%8.8x", current_settings);
+}
+
+
 struct mgmt_data {
 	uint16_t opcode;
 	const char *str;
@@ -13207,6 +13225,9 @@ static const struct mgmt_data mgmt_command_table[] = {
 	{ 0x0045, "Set PHY Configuration",
 				mgmt_set_phy_cmd, 4, true,
 				mgmt_null_rsp, 0, true },
+	{ 0x0048, "LE Set Advertising Interval",
+				mgmt_set_adv_interval_cmd, 4, true,
+				mgmt_set_adv_interval_rsp, 4, true},
 	{ }
 };
 

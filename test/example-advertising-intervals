@@ -1,0 +1,52 @@
+#!/usr/bin/python
+
+# Copyright 2016 The Chromium OS Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""A simple script to set advertising intervals through the dbus method.
+
+Usage:
+    $ ./example_advertising_intervals.py min_interval_ms max_interval_ms
+
+    Example:
+    # Set both min and max advertising intervals to 200 ms.
+    $ ./example_advertising_intervals.py 200 200
+"""
+
+import dbus
+import time
+import subprocess
+import sys
+
+argv = sys.argv
+argc = len(argv)
+prog = argv[0]
+if argc == 3:
+    min_interval_ms = int(argv[1])
+    max_interval_ms = int(argv[2])
+    print 'Set advertising intervals: [%d, %d]' % (min_interval_ms,
+                                                   max_interval_ms)
+else:
+    print 'Usage: python %s min_interval_ms max_interval_ms' % prog
+    print '       python %s 200 200' % prog
+    sys.exit(1)
+
+
+# Set advertising intervals.
+bus = dbus.SystemBus()
+adapter = bus.get_object('org.bluez', '/org/bluez/hci0')
+adapter.SetAdvertisingIntervals(
+        min_interval_ms, max_interval_ms,
+        dbus_interface='org.bluez.LEAdvertisingManager1')
+
+
+# Wait a little while for dbus method to complete.
+time.sleep(0.2)
+
+
+# Check the current settings using btmgmt.
+btmgmt_cmd = 'btmgmt info'
+for line in subprocess.check_output(btmgmt_cmd.split()).splitlines():
+    if 'current settings' in line:
+        print line.strip()
