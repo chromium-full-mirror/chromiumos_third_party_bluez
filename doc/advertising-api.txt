@@ -118,3 +118,12 @@ Methods		RegisterAdvertisement(object advertisement, dict options)
 			Possible errors: org.bluez.Error.Failed
 					 org.bluez.Error.InProgress
 					 org.bluez.Error.InvalidArguments
+
+		void ResetAdvertising()
+
+			This method removes all advertisements and resets
+			advertising intervals to default.
+
+			Possible errors: org.bluez.Error.Failed
+					 org.bluez.Error.InProgress
+					 org.bluez.Error.InvalidArguments

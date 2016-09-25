@@ -162,6 +162,12 @@ static void client_remove(void *data)
 	g_idle_add(client_free_idle_cb, client);
 }
 
+/* A dummy wrapper of client_remove called in queue_foreach. */
+static void remove_advertisement(void *data, void *user_data)
+{
+	client_remove(data);
+}
+
 static void client_disconnect_cb(DBusConnection *conn, void *user_data)
 {
 	DBG("Client disconnected");
@@ -756,9 +762,13 @@ static int adapter_set_advertising_intervals(struct btd_adv_manager *manager,
 	cp.min_interval = min_interval_ms / ADVERTISING_INTERVAL_UNIT_TIME;
 	cp.max_interval = max_interval_ms / ADVERTISING_INTERVAL_UNIT_TIME;
 
-	btd_info(manager->mgmt_index,
-			"Set Advertising Intervals: 0x%04x, 0x%04x",
-			cp.min_interval, cp.max_interval);
+	if (cp.min_interval == 0 && cp.max_interval == 0) {
+		btd_info(manager->mgmt_index, "Reset Advertising Intervals.");
+        } else {
+		btd_info(manager->mgmt_index,
+				"Set Advertising Intervals: 0x%04x, 0x%04x",
+				cp.min_interval, cp.max_interval);
+	}
 
 	if (mgmt_send(manager->mgmt,
 			MGMT_OP_SET_ADVERTISING_INTERVALS, manager->mgmt_index,
@@ -798,6 +808,35 @@ static DBusMessage *set_advertising_intervals(DBusConnection *conn,
 	return NULL;
 }
 
+static DBusMessage *reset_advertising(DBusConnection *conn, DBusMessage *msg,
+					void *user_data)
+{
+	struct btd_adv_manager *manager = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+
+	DBG("reset_advertising: sender %s", sender);
+
+	/* if manager->ads is empty, no need to remove any advertisements. */
+	if (queue_isempty(manager->clients)) {
+		btd_info(manager->mgmt_index,
+				"hci%d: no advertisements to clear",
+				manager->mgmt_index);
+	} else {
+		/* Remove advertisements one by one. The advertising would be
+                 * disabled when the last one is removed.
+                 */
+		queue_foreach(manager->clients, remove_advertisement, NULL);
+	}
+
+	/* Reset the advertising intervals to default by assigning 0, 0. */
+	if (!adapter_set_advertising_intervals(manager, msg, 0, 0)) {
+		return btd_error_failed(msg,
+					"failed to set advertising intervals");
+	}
+
+	return dbus_message_new_method_return(msg);
+}
+
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_ASYNC_METHOD("RegisterAdvertisement",
 					GDBUS_ARGS({ "advertisement", "o" },
@@ -811,6 +850,8 @@ static const GDBusMethodTable methods[] = {
 				GDBUS_ARGS({"min_interval_ms", "q"},
 						{"max_interval_ms", "q"}),
 				NULL, set_advertising_intervals)},
+	{ GDBUS_ASYNC_METHOD("ResetAdvertising", NULL, NULL,
+						reset_advertising) },
 	{ }
 };
 
