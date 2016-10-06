@@ -1824,32 +1824,6 @@ static uint8_t select_conn_bearer(struct btd_device *dev)
 	return dev->bdaddr_type;
 }
 
-// This function is only going to return true for a small subset of devices.
-// This change is going to go into M53, hence we really want to restrict this
-// only to devices we are reasonably sure are affected by the dual-mode bug.
-// This function does not attempt to expansively account for all devices that
-// are dual mode and should be forced to go over BR/EDR.
-static bool is_audio_device(uint32_t class)
-{
-	// Is the major device class Audio/Video.
-	if (((class & 0x1f00) >> 8) != 0x04)
-		return false;
-
-	switch ((class & 0xfc) >> 2) {
-	case 0x01:    /* Wearable Headset Device */
-	case 0x02:    /* Hands-free Device */
-	case 0x04:    /* Microphone */
-	case 0x05:    /* Loudspeaker */
-	case 0x06:    /* Headphones */
-	case 0x07:    /* Portable Audio */
-	case 0x08:    /* Car Audio */
-	case 0x0a:    /* HiFi Audio Device */
-		return true;
-	default:
-		return false;
-  }
-}
-
 static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -1862,11 +1836,6 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 		bdaddr_type = BDADDR_BREDR;
 	else
 		bdaddr_type = select_conn_bearer(dev);
-
-	// If this is an audio device, always force to use BREDR, dual mode doesn't
-	// work correctly yet. TODO(rkc): Fix this once we have a full solution.
-	if (is_audio_device(dev->class))
-		bdaddr_type = BDADDR_BREDR;
 
 	if (bdaddr_type != BDADDR_BREDR) {
 		int err;
@@ -2424,11 +2393,6 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 		bdaddr_type = BDADDR_BREDR;
 	else
 		bdaddr_type = select_conn_bearer(device);
-
-	// If this is an audio device, always force to use BREDR, dual mode doesn't
-	// work correctly yet. TODO(rkc): Fix this once we have a full solution.
-	if (is_audio_device(device->class))
-		bdaddr_type = BDADDR_BREDR;
 
 	state = get_state(device, bdaddr_type);
 
