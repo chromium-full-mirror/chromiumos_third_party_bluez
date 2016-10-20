@@ -2975,8 +2975,7 @@ static const GDBusPropertyTable device_properties[] = {
 					dev_property_exists_tx_power },
 	{ "ServicesResolved", "b", dev_property_get_svc_resolved, NULL, NULL },
 	{ "AdvertisingFlags", "ay", dev_property_get_flags, NULL,
-					dev_property_flags_exist,
-					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL},
+						dev_property_flags_exist },
 
 	{ }
 };
