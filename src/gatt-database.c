@@ -2606,12 +2606,6 @@ struct btd_gatt_database *btd_gatt_database_new(struct btd_adapter *adapter)
 	database->profiles = queue_new();
 	database->ccc_callbacks = queue_new();
 
-	database->db_id = gatt_db_register(database->db, gatt_db_service_added,
-							gatt_db_service_removed,
-							database, NULL);
-	if (!database->db_id)
-		goto fail;
-
 	addr = btd_adapter_get_address(adapter);
 	database->le_io = bt_io_listen(connect_cb, NULL, NULL, NULL, &gerr,
 					BT_IO_OPT_SOURCE_BDADDR, addr,
@@ -2646,6 +2640,13 @@ struct btd_gatt_database *btd_gatt_database_new(struct btd_adapter *adapter)
 						adapter_get_path(adapter));
 
 	register_core_services(database);
+
+	database->db_id = gatt_db_register(database->db, gatt_db_service_added,
+							gatt_db_service_removed,
+							database, NULL);
+	if (!database->db_id)
+		goto fail;
+
 
 	return database;
 
