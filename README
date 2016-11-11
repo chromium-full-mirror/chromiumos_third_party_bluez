@@ -105,6 +105,16 @@ For a working system, certain configuration options need to be enabled:
 		support systemd. In that case all integration with the
 		init system is up to the package.
 
+	--disable-network
+
+		Disable PANU, NAP, GN profiles
+
+		By default bluetoothd supports PANU, NAP and GN profile using a
+		built-in plugin, this option disables it.
+
+		This option is provided for distributions that do not have any
+		network capabilities.
+
 	--enable-experimental
 
 		Enable experimental plugins
