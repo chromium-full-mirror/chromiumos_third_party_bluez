@@ -106,7 +106,7 @@ struct rfcomm_rpn {
 	uint8_t xon;
 	uint8_t xoff;
 	uint16_t pm;
-};
+} __attribute__ ((packed));
 
 struct rfcomm_rls {
 	uint8_t dlci;
@@ -265,7 +265,6 @@ static inline bool mcc_pn(struct rfcomm_frame *rfcomm_frame, uint8_t indent)
 {
 	struct l2cap_frame *frame = &rfcomm_frame->l2cap_frame;
 	struct rfcomm_pn pn;
-	uint16_t mtu;
 
 	/* rfcomm_pn struct is defined in rfcomm.h */
 
@@ -285,10 +284,8 @@ static inline bool mcc_pn(struct rfcomm_frame *rfcomm_frame, uint8_t indent)
 	if (!l2cap_frame_get_u8(frame, &pn.ack_timer))
 		return false;
 
-	/* prevent unaligned memory access */
-	if (!l2cap_frame_get_le16(frame, &mtu))
+	if (!l2cap_frame_get_le16(frame, &pn.mtu))
 		return false;
-	pn.mtu = mtu;
 
 	if (!l2cap_frame_get_u8(frame, &pn.max_retrans))
 		return false;
