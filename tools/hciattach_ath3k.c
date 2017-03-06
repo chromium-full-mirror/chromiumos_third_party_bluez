@@ -576,17 +576,51 @@ static int ps_config_download(int fd, int tag_count)
 #define PS_ASIC_FILE			"PS_ASIC.pst"
 #define PS_FPGA_FILE			"PS_FPGA.pst"
 
+#define PS_ASIC_FILE_PREFIX		"PS_ASIC-"
+#define PS_FPGA_FILE_PREFIX		"PS_FPGA-"
+
 static void get_ps_file_name(uint32_t devtype, uint32_t rom_version,
 							char *path)
 {
 	char *filename;
+	char *filenameprefix;
+	char *postfix = NULL;
+	char buf[20];
+	FILE *stream;
 
-	if (devtype == 0xdeadc0de)
-		filename = PS_ASIC_FILE;
-	else
+	if (devtype == 0xdeadc0de) {
+ 		filename = PS_ASIC_FILE;
+		filenameprefix = PS_ASIC_FILE_PREFIX;
+	}
+	else {
 		filename = PS_FPGA_FILE;
+		filenameprefix = PS_FPGA_FILE_PREFIX;
+	}
 
-	snprintf(path, MAXPATHLEN, "%s%x/%s", FW_PATH, rom_version, filename);
+	stream = fopen("/sys/firmware/vpd/ro/region", "r");
+	if (!stream)
+		perror("VPD region file not exist, use default PS file\n");
+	else {
+		postfix = fgets(buf, 20, stream);
+		if (!postfix)
+			perror("VPD region file read error\n");
+
+		fclose(stream);
+	}
+
+	if (!postfix)
+		snprintf(path, MAXPATHLEN, "%s%x/%s", FW_PATH, rom_version, filename);
+	else {
+		snprintf(path, MAXPATHLEN, "%s%x/%s%s%s", FW_PATH, rom_version,
+				filenameprefix, postfix, ".pst");
+		stream = fopen(path, "r");
+		if (!stream) {
+			perror("PS file with region code not exist, use default PS file\n");
+			snprintf(path, MAXPATHLEN, "%s%x/%s", FW_PATH, rom_version, filename);
+		}
+		else
+			fclose(stream);
+	}
 }
 
 #define PATCH_FILE        "RamPatch.txt"
