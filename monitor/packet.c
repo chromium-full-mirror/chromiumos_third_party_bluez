@@ -58,6 +58,7 @@
 #include "packet.h"
 
 #define COLOR_CHANNEL_LABEL		COLOR_WHITE
+#define COLOR_FRAME_LABEL		COLOR_WHITE
 #define COLOR_INDEX_LABEL		COLOR_WHITE
 #define COLOR_TIMESTAMP			COLOR_YELLOW
 
@@ -264,6 +265,17 @@ void packet_select_index(uint16_t index)
 
 #define print_space(x) printf("%*c", (x), ' ');
 
+#define MAX_INDEX 16
+
+struct index_data {
+	uint8_t  type;
+	uint8_t  bdaddr[6];
+	uint16_t manufacturer;
+	size_t	frame;
+};
+
+static struct index_data index_list[MAX_INDEX];
+
 static void print_packet(struct timeval *tv, struct ucred *cred, char ident,
 					uint16_t index, const char *channel,
 					const char *color, const char *label,
@@ -272,6 +284,7 @@ static void print_packet(struct timeval *tv, struct ucred *cred, char ident,
 	int col = num_columns();
 	char line[256], ts_str[96];
 	int n, ts_len = 0, ts_pos = 0, len = 0, pos = 0;
+	static size_t last_frame;
 
 	if (channel) {
 		if (use_color()) {
@@ -285,6 +298,20 @@ static void print_packet(struct timeval *tv, struct ucred *cred, char ident,
 			ts_pos += n;
 			ts_len += n;
 		}
+	} else if (index != HCI_DEV_NONE &&
+				index_list[index].frame != last_frame) {
+		if (use_color()) {
+			n = sprintf(ts_str + ts_pos, "%s", COLOR_FRAME_LABEL);
+			if (n > 0)
+				ts_pos += n;
+		}
+
+		n = sprintf(ts_str + ts_pos, " #%zu", index_list[index].frame);
+		if (n > 0) {
+			ts_pos += n;
+			ts_len += n;
+		}
+		last_frame = index_list[index].frame;
 	}
 
 	if ((filter_mask & PACKET_FILTER_SHOW_INDEX) &&
@@ -3834,16 +3861,6 @@ static int addr2str(const uint8_t *addr, char *str)
 	return sprintf(str, "%2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X",
 			addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
 }
-
-#define MAX_INDEX 16
-
-struct index_data {
-	uint8_t  type;
-	uint8_t  bdaddr[6];
-	uint16_t manufacturer;
-};
-
-static struct index_data index_list[MAX_INDEX];
 
 void packet_monitor(struct timeval *tv, struct ucred *cred,
 					uint16_t index, uint16_t opcode,
@@ -9166,6 +9183,8 @@ void packet_hci_command(struct timeval *tv, struct ucred *cred, uint16_t index,
 	char extra_str[25], vendor_str[150];
 	int i;
 
+	index_list[index].frame++;
+
 	if (size < HCI_COMMAND_HDR_SIZE) {
 		sprintf(extra_str, "(len %d)", size);
 		print_packet(tv, cred, '*', index, NULL, COLOR_ERROR,
@@ -9267,6 +9286,8 @@ void packet_hci_event(struct timeval *tv, struct ucred *cred, uint16_t index,
 	char extra_str[25];
 	int i;
 
+	index_list[index].frame++;
+
 	if (size < HCI_EVENT_HDR_SIZE) {
 		sprintf(extra_str, "(len %d)", size);
 		print_packet(tv, cred, '*', index, NULL, COLOR_ERROR,
@@ -9339,6 +9360,8 @@ void packet_hci_acldata(struct timeval *tv, struct ucred *cred, uint16_t index,
 	uint8_t flags = acl_flags(handle);
 	char handle_str[16], extra_str[32];
 
+	index_list[index].frame++;
+
 	if (size < HCI_ACL_HDR_SIZE) {
 		if (in)
 			print_packet(tv, cred, '*', index, NULL, COLOR_ERROR,
@@ -9380,6 +9403,8 @@ void packet_hci_scodata(struct timeval *tv, struct ucred *cred, uint16_t index,
 	uint16_t handle = le16_to_cpu(hdr->handle);
 	uint8_t flags = acl_flags(handle);
 	char handle_str[16], extra_str[32];
+
+	index_list[index].frame++;
 
 	if (size < HCI_SCO_HDR_SIZE) {
 		if (in)
