@@ -610,6 +610,11 @@ static struct btd_adv_client *client_create(struct btd_adv_manager *manager,
 	if (!client->client)
 		goto fail;
 
+	client->instance = util_get_uid(&manager->instance_bitmap,
+							manager->max_ads);
+	if (!client->instance)
+		goto fail;
+
 	client->owner = g_strdup(sender);
 	if (!client->owner)
 		goto fail;
@@ -631,11 +636,6 @@ static struct btd_adv_client *client_create(struct btd_adv_manager *manager,
 
 	client->data = bt_ad_new();
 	if (!client->data)
-		goto fail;
-
-	client->instance = util_get_uid(&manager->instance_bitmap,
-							manager->max_ads);
-	if (!client->instance)
 		goto fail;
 
 	client->manager = manager;
