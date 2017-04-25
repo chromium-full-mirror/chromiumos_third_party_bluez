@@ -34,8 +34,10 @@
 #define PACKET_FILTER_SHOW_ACL_DATA	(1 << 4)
 #define PACKET_FILTER_SHOW_SCO_DATA	(1 << 5)
 #define PACKET_FILTER_ZERO_DATA		(1 << 6)
+#define PACKET_FILTER_SHOW_A2DP_STREAM	(1 << 6)
 
 bool packet_get_zero_data_filter();
+bool packet_has_filter(unsigned long filter);
 void packet_set_filter(unsigned long filter);
 void packet_add_filter(unsigned long filter);
 void packet_del_filter(unsigned long filter);

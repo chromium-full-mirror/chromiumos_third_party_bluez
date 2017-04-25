@@ -71,6 +71,7 @@ static void usage(void)
 		"\t-t, --time             Show time instead of time offset\n"
 		"\t-T, --date             Show time and date information\n"
 		"\t-S, --sco              Dump SCO traffic\n"
+		"\t-A, --a2dp             Dump A2DP stream traffic\n"
 		"\t-E, --ellisys [ip]     Send Ellisys HCI Injection\n"
 		"\t-h, --help             Show help options\n");
 }
@@ -89,6 +90,7 @@ static const struct option main_options[] = {
 	{ "time",    no_argument,       NULL, 't' },
 	{ "date",    no_argument,       NULL, 'T' },
 	{ "sco",     no_argument,	NULL, 'S' },
+	{ "a2dp",    no_argument,	NULL, 'A' },
 	{ "ellisys", required_argument, NULL, 'E' },
 	{ "todo",    no_argument,       NULL, '#' },
 	{ "version", no_argument,       NULL, 'v' },
@@ -118,7 +120,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSE:vhc0",
+		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSAE:vhc0",
 						main_options, NULL);
 		if (opt < 0)
 			break;
@@ -177,6 +179,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'S':
 			filter_mask |= PACKET_FILTER_SHOW_SCO_DATA;
+			break;
+		case 'A':
+			filter_mask |= PACKET_FILTER_SHOW_A2DP_STREAM;
 			break;
 		case 'E':
 			ellisys_server = optarg;

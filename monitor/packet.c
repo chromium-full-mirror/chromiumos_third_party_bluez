@@ -226,6 +226,11 @@ bool packet_get_zero_data_filter()
 	return filter_mask & PACKET_FILTER_ZERO_DATA;
 }
 
+bool packet_has_filter(unsigned long filter)
+{
+	return filter_mask & filter;
+}
+
 void packet_set_filter(unsigned long filter)
 {
 	filter_mask = filter;
