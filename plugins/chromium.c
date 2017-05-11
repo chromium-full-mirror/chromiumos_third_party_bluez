@@ -44,6 +44,16 @@
 #define SERVICE_RETRIES 1
 #define SERVICE_RETRY_TIMEOUT 2
 
+// Range of valid connection intervals defined by the Bluetooth spec.
+#define MIN_VALID_CONNECTION_INTERVAL 0x0006  // 6 * 1.25 = 7.5ms
+#define MAX_VALID_CONNECTION_INTERVAL 0x0C80  // 3200 * 1.25 = 4000ms
+
+// Default LE connection parameter values used by the kernel (hci_core.c).
+#define DEFAULT_MIN_CONNECTION_INTERVAL 0x0028  // 40 * 1.25 = 50ms
+#define DEFAULT_MAX_CONNECTION_INTERVAL 0x0038  // 56 * 1.25 = 70ms
+#define DEFAULT_CONNECTION_LATENCY 0x0000
+#define DEFAULT_CONNECTION_TIMEOUT 0x002A
+
 static struct mgmt *mgmt_if = NULL;
 
 static bool supports_le_services = false;
@@ -194,7 +204,7 @@ static void get_conn_info_complete(uint8_t status, uint16_t length,
 	}
 
 	if (!g_dbus_send_message(btd_get_dbus_connection(), reply))
-		error("DBus send failed.");
+		error("D-Bus send failed.");
 	dbus_message_unref(msg);
 }
 
@@ -231,12 +241,137 @@ static DBusMessage *get_conn_info(DBusConnection *conn, DBusMessage *msg,
 	return NULL;
 }
 
+static void load_conn_params_complete(uint8_t status, uint16_t length,
+					const void *param, void *user_data)
+{
+	DBusMessage *msg = user_data;
+	DBusMessage *reply;
+
+	if (status != MGMT_STATUS_SUCCESS)
+		reply = btd_error_failed(msg, mgmt_errstr(status));
+	else
+		reply = dbus_message_new_method_return(msg);
+
+	if (!g_dbus_send_message(btd_get_dbus_connection(), reply))
+		error("D-Bus send failed.");
+	dbus_message_unref(msg);
+}
+
+static bool parse_connection_parameters(DBusMessage *msg,
+					struct mgmt_conn_param* conn_param_out)
+{
+	uint16_t min_interval = DEFAULT_MIN_CONNECTION_INTERVAL;
+	uint16_t max_interval = DEFAULT_MAX_CONNECTION_INTERVAL;
+	DBusMessageIter iter, param_dict;
+
+	if(!dbus_message_iter_init(msg, &iter))
+		return false;
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
+		return false;
+
+	dbus_message_iter_recurse(&iter, &param_dict);
+	while (dbus_message_iter_get_arg_type(&param_dict) == DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter param_entry;
+		char *key;
+		uint16_t value;
+
+		// Parse key for current dictonary entry.
+		dbus_message_iter_recurse(&param_dict, &param_entry);
+		if (dbus_message_iter_get_arg_type(&param_entry) != DBUS_TYPE_STRING)
+			break;
+		dbus_message_iter_get_basic(&param_entry, &key);
+
+		// Parse value for current dictionary entry.
+		if (!dbus_message_iter_next(&param_entry)
+				|| dbus_message_iter_get_arg_type(&param_entry) != DBUS_TYPE_UINT16)
+			return false;
+		dbus_message_iter_get_basic(&param_entry, &value);
+
+		// Assign value to proper parameter.
+		if (!strcmp("MinimumConnectionInterval", key))
+			min_interval = value;
+		else if (!strcmp("MaximumConnectionInterval", key))
+			max_interval = value;
+		else
+			return false;
+
+		dbus_message_iter_next(&param_dict);
+	}
+
+	if (dbus_message_iter_get_arg_type(&param_dict) != DBUS_TYPE_INVALID)
+		return false;
+
+	if (min_interval < MIN_VALID_CONNECTION_INTERVAL ||
+			min_interval > MAX_VALID_CONNECTION_INTERVAL ||
+			max_interval < MIN_VALID_CONNECTION_INTERVAL ||
+			max_interval > MAX_VALID_CONNECTION_INTERVAL ||
+			max_interval < min_interval)
+		return false;
+
+	conn_param_out->min_interval = min_interval;
+	conn_param_out->max_interval = max_interval;
+	conn_param_out->latency = DEFAULT_CONNECTION_LATENCY;
+	conn_param_out->timeout = DEFAULT_CONNECTION_TIMEOUT;
+	return true;
+}
+
+static DBusMessage *set_le_connection_parameters(DBusConnection *conn,
+				DBusMessage *msg, void *data)
+{
+	const char *device_path = dbus_message_get_path(msg);
+	struct btd_adapter *adapter = NULL;
+	struct btd_device *device = NULL;
+	struct mgmt_conn_param conn_param;
+	struct mgmt_cp_load_conn_param *cp;
+	size_t cp_size;
+	unsigned int id;
+	uint16_t bdaddr_type;
+
+	if (!mgmt_if)
+		return btd_error_not_ready(msg);
+
+	if (!find_device_by_path(device_path, &adapter, &device))
+		return btd_error_does_not_exist(msg);
+
+	bdaddr_type = btd_device_get_bdaddr_type(device);
+	if (bdaddr_type != BDADDR_LE_PUBLIC && bdaddr_type != BDADDR_LE_RANDOM)
+		return btd_error_not_supported(msg);
+
+	conn_param.addr.bdaddr = *device_get_address(device);
+	conn_param.addr.type = bdaddr_type;
+
+	if (!parse_connection_parameters(msg, &conn_param))
+		return btd_error_invalid_args(msg);
+
+	cp_size = sizeof(struct mgmt_cp_load_conn_param) + sizeof(conn_param);
+	cp = g_try_malloc0(cp_size);
+	if (cp == NULL)
+		return btd_error_failed(msg, "Failed to allocate memory.");
+	cp->param_count = htobs(1);
+	memcpy(cp->params, &conn_param, sizeof(conn_param));
+
+	dbus_message_ref(msg);
+	id = mgmt_send(mgmt_if, MGMT_OP_LOAD_CONN_PARAM,
+			btd_adapter_get_index(adapter), cp_size, cp,
+			load_conn_params_complete, msg, NULL);
+
+	g_free(cp);
+
+	if (!id)
+		return btd_error_failed(msg, "Failed to call mgmt API.");
+	return NULL;
+}
+
 static const GDBusMethodTable device_methods[] = {
 	/* GetConnInfo is a simple DBus wrapper over the get_conn_info mgmt API.
 	 */
 	{ GDBUS_ASYNC_METHOD("GetConnInfo", NULL, GDBUS_ARGS({"TXPower", "y"},
 					{"MaximumTXPower", "y"}, {"RSSI", "y"}),
 		get_conn_info) },
+	{ GDBUS_ASYNC_METHOD("SetLEConnectionParameters",
+		GDBUS_ARGS({ "parameters", "a{sq}"}), NULL,
+		set_le_connection_parameters) },
 	{ }
 };
 
