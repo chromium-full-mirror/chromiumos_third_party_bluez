@@ -1,0 +1,66 @@
+BlueZ Chromium Device Plugin API description
+***********************************
+
+Service		org.bluez
+Interface	org.chromium.BluetoothDevice
+Object path	[variable prefix]/{hci0,hci1,...}
+
+Methods		(uint16_t, uint16_t, uint16_t) GetConnInfo()
+
+			This method returns the RSSI, TX Power, and maximum TX Power readings for
+			the device if it is connected.
+
+			The return value is a tuple of
+					rssi: uint16
+							The RSSI of the remote device.
+
+					tx_power: uint16
+							The transmit power of the local adapter.
+
+					max_tx_power: uint16
+							The maximum transmit power of the local adapter.
+
+			An invalid value of -127 will be returned if a field cannot be read.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.Failed
+					org.bluez.Error.NotConnected
+					org.bluez.Error.DoesNotExist
+					org.bluez.Error.NotSupported
+
+		SetLEConnectionParameters(dict parameters)
+
+			This method sets the parameters to request when creating a LE connection
+			to the device. This call will fail if the device is already connected.
+
+			Parameters that may be set in the parameters dictionary include the
+			following:
+				MinimumConnectionInterval: uint16
+						The minimum connection interval. Must be a value between (0x0006 and
+						0x0C80). Note that to get the time in milliseconds, you must
+						multiply this value by 1.25ms.
+
+				MaximumConnectionInterval: uint16
+						The maximum connection interval. Must be a value between (0x0006 and
+						0x0C80) and greater than MinimumConnectionInterval. Note that to get
+						the time in milliseconds, you must multiply this value by 1.25ms.
+
+			Possible errors:
+					org.bluez.Error.NotReady
+					org.bluez.Error.AlreadyConnected
+					org.bluez.Error.Failed
+					org.bluez.Error.DoesNotExist
+					org.bluez.Error.NotSupported
+					org.bluez.Error.InvalidArguments
+
+
+Properties	boolean SupportsLEServices [readonly]
+
+			Whether or not LE is supported in this version of BlueZ and kernel. Should
+			now be true for all supported kernel versions.
+
+		boolean SupportsConnInfo [readonly]
+
+			Whether or not the GetConnInfo() API is supported in this version of BlueZ
+			and kernel. Should now be true for all supported kernel versions.
+
