@@ -4751,7 +4751,7 @@ static void adapter_start(struct btd_adapter *adapter)
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
 
-	DBG("adapter %s has been enabled", adapter->path);
+	info("adapter %s has been enabled", adapter->path);
 
 	trigger_passive_scanning(adapter);
 }
@@ -6356,7 +6356,7 @@ static void adapter_stop(struct btd_adapter *adapter)
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
 
-	DBG("adapter %s has been disabled", adapter->path);
+	info("adapter %s has been disabled", adapter->path);
 }
 
 int btd_register_adapter_driver(struct btd_adapter_driver *driver)
