@@ -192,6 +192,7 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 			gdbus/libgdbus-internal.la \
 			src/libshared-glib.la \
+			-lmetrics-$(BASE_VER) \
 			@BACKTRACE_LIBS@ @GLIB_LIBS@ @DBUS_LIBS@ -ldl -lrt \
 			$(builtin_ldadd)
 src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
