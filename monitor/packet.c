@@ -319,8 +319,9 @@ static void print_packet(struct timeval *tv, struct ucred *cred, char ident,
 		}
 
 		if (filter_mask & PACKET_FILTER_SHOW_TIME) {
-			n = sprintf(ts_str + ts_pos, " %02d:%02d:%02d.%06lu",
-				tm.tm_hour, tm.tm_min, tm.tm_sec, tv->tv_usec);
+			n = sprintf(ts_str + ts_pos, " %02d:%02d:%02jd.%06jd",
+				tm.tm_hour, tm.tm_min, (intmax_t) tm.tm_sec,
+				(intmax_t) tv->tv_usec);
 			if (n > 0) {
 				ts_pos += n;
 				ts_len += n;
@@ -328,8 +329,9 @@ static void print_packet(struct timeval *tv, struct ucred *cred, char ident,
 		}
 
 		if (filter_mask & PACKET_FILTER_SHOW_TIME_OFFSET) {
-			n = sprintf(ts_str + ts_pos, " %lu.%06lu",
-					tv->tv_sec - time_offset, tv->tv_usec);
+			n = sprintf(ts_str + ts_pos, " %jd.%06jd",
+					(intmax_t) tv->tv_sec - time_offset,
+					(intmax_t) tv->tv_usec);
 			if (n > 0) {
 				ts_pos += n;
 				ts_len += n;
