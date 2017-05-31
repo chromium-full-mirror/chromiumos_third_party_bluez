@@ -552,11 +552,33 @@ static void browse_request_free(struct browse_req *req)
 	g_free(req);
 }
 
+static bool gatt_cache_is_enabled(struct btd_device *device)
+{
+	switch (main_opts.gatt_cache) {
+	case BT_GATT_CACHE_YES:
+		return device_is_paired(device, device->bdaddr_type);
+	case BT_GATT_CACHE_NO:
+		return false;
+	case BT_GATT_CACHE_ALWAYS:
+	default:
+		return true;
+	}
+}
+
+static void gatt_cache_cleanup(struct btd_device *device)
+{
+	if (gatt_cache_is_enabled(device))
+		return;
+
+	gatt_db_clear(device->db);
+}
+
 static void gatt_client_cleanup(struct btd_device *device)
 {
 	if (!device->client)
 		return;
 
+	gatt_cache_cleanup(device);
 	bt_gatt_client_set_service_changed(device->client, NULL, NULL, NULL);
 	bt_gatt_client_set_ready_handler(device->client, NULL, NULL, NULL);
 	bt_gatt_client_unref(device->client);
@@ -2236,6 +2258,9 @@ static void store_gatt_db(struct btd_device *device)
 		return;
 	}
 
+	if (!gatt_cache_is_enabled(device))
+		return;
+
 	ba2str(btd_adapter_get_address(adapter), src_addr);
 	ba2str(&device->bdaddr, dst_addr);
 
@@ -3779,6 +3804,9 @@ static void load_gatt_db(struct btd_device *device, const char *local,
 {
 	char **keys, filename[PATH_MAX];
 	GKeyFile *key_file;
+
+	if (!gatt_cache_is_enabled(device))
+		return;
 
 	DBG("Restoring %s gatt database from file", peer);
 
