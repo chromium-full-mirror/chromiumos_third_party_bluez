@@ -926,6 +926,11 @@ static struct btd_adv_manager *manager_create(struct btd_adapter *adapter)
 	return manager;
 }
 
+struct btd_adv_client *new_dummy_adv_client(void)
+{
+	return g_try_malloc0(sizeof(struct btd_adv_client));
+}
+
 struct btd_adv_manager *btd_adv_manager_new(struct btd_adapter *adapter)
 {
 	struct btd_adv_manager *manager;

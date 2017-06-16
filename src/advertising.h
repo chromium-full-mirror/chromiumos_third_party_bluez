@@ -20,5 +20,7 @@
 struct btd_adapter;
 struct btd_adv_manager;
 
+struct btd_adv_client *new_dummy_adv_client(void);
+
 struct btd_adv_manager *btd_adv_manager_new(struct btd_adapter *adapter);
 void btd_adv_manager_destroy(struct btd_adv_manager *manager);

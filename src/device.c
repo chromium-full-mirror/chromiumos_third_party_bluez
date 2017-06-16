@@ -268,6 +268,11 @@ struct pending_sdp_query {
 static int device_browse_gatt(struct btd_device *device, DBusMessage *msg);
 static int device_browse_sdp(struct btd_device *device, DBusMessage *msg);
 
+struct btd_device *new_dummy_device(void)
+{
+	return g_try_malloc0(sizeof(struct btd_device));
+}
+
 static struct pending_sdp_query *pending_sdp_query_new(DBusConnection *conn,
 				DBusMessage *msg, const struct btd_device *dev)
 {
