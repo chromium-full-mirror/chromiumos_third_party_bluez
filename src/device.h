@@ -26,6 +26,8 @@
 
 struct btd_device;
 
+struct btd_device *new_dummy_device(void);
+
 struct btd_device *device_create(struct btd_adapter *adapter,
 				const bdaddr_t *address, uint8_t bdaddr_type);
 struct btd_device *device_create_from_storage(struct btd_adapter *adapter,

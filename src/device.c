@@ -299,6 +299,11 @@ static void pending_sdp_query_free(struct pending_sdp_query *query)
 	g_free(query);
 }
 
+struct btd_device *new_dummy_device(void)
+{
+	return g_try_malloc0(sizeof(struct btd_device));
+}
+
 static struct bearer_state *get_state(struct btd_device *dev,
 							uint8_t bdaddr_type)
 {

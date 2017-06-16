@@ -313,6 +313,11 @@ static struct btd_adapter *btd_adapter_lookup(uint16_t index)
 	return NULL;
 }
 
+struct btd_adapter *new_dummy_adapter(void)
+{
+	return g_try_malloc0(sizeof(struct btd_adapter));
+}
+
 struct btd_adapter *btd_adapter_get_default(void)
 {
 	GList *list;

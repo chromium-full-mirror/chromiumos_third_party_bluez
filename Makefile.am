@@ -267,10 +267,10 @@ endif
 
 pkglibexec_PROGRAMS += src/bluetoothd
 
-src_bluetoothd_SOURCES = $(builtin_sources) \
+bluetoothd_sources = $(builtin_sources) \
 			$(attrib_sources) $(btio_sources) \
 			src/bluetooth.ver \
-			src/main.c src/log.h src/log.c \
+			src/log.h src/log.c \
 			src/backtrace.h src/backtrace.c \
 			src/rfkill.c src/hcid.h src/sdpd.h \
 			src/sdpd-server.c src/sdpd-request.c \
@@ -293,7 +293,9 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 			src/gatt-client.h src/gatt-client.c \
 			src/device.h src/device.c \
 			src/dbus-common.c src/dbus-common.h \
-			src/eir.h src/eir.c
+			src/eir.h src/eir.c \
+			src/metrics.h src/metrics.c
+src_bluetoothd_SOURCES = $(bluetoothd_sources) src/main.c
 src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 			gdbus/libgdbus-internal.la \
 			src/libshared-glib.la \
@@ -302,7 +304,6 @@ src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 			$(builtin_ldadd)
 src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
 				-Wl,--version-script=$(srcdir)/src/bluetooth.ver
-
 src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
 				gdbus/libgdbus-internal.la \
 				src/libshared-glib.la \
@@ -332,6 +333,21 @@ include Makefile.tools
 include Makefile.obexd
 include android/Makefile.am
 include Makefile.mesh
+
+unit_tests += unit/metrics_unittests
+unit_metrics_unittests_SOURCES = $(bluetoothd_sources) src/metrics_unittests.c
+unit_metrics_unittests_LDADD = lib/libbluetooth-internal.la \
+			gdbus/libgdbus-internal.la \
+			src/libshared-glib.la \
+			-lmetrics-$(BASE_VER) \
+			$(BACKTRACE_LIBS) $(GLIB_LIBS) $(DBUS_LIBS) -ldl -lrt \
+			$(builtin_ldadd)
+unit_metrics_unittests_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic
+unit_metrics_unittests_DEPENDENCIES = lib/libbluetooth-internal.la \
+				gdbus/libgdbus-internal.la \
+				src/libshared-glib.la
+unit_metrics_unittests_CFLAGS = $(AM_CFLAGS) -DBLUETOOTH_PLUGIN_BUILTIN \
+					-DPLUGINDIR=\""$(build_plugindir)"\"
 
 if HID2HCI
 rulesdir = $(UDEV_DIR)/rules.d
@@ -374,7 +390,6 @@ EXTRA_DIST += doc/btsnoop.txt
 EXTRA_DIST += tools/magic.btsnoop
 
 AM_CPPFLAGS += $(DBUS_CFLAGS) $(GLIB_CFLAGS) -I$(builddir)/lib
-
 
 unit_tests += unit/test-eir
 
