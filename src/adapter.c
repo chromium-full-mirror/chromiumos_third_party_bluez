@@ -77,6 +77,7 @@
 #include "gatt-database.h"
 #include "advertising.h"
 #include "eir.h"
+#include "metrics.h"
 
 #define ADAPTER_INTERFACE	"org.bluez.Adapter1"
 
@@ -555,6 +556,12 @@ static void settings_changed(struct btd_adapter *adapter, uint32_t settings)
 		g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Discoverable");
 		store_adapter_info(adapter);
+
+		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
+		if ((adapter->current_settings & MGMT_SETTING_DISCOVERABLE))
+			metrics_start_timer(TIMER_DISCOVERABLE, timer_data);
+		else
+			metrics_stop_timer(TIMER_DISCOVERABLE, timer_data);
 	}
 
 	if (changed_mask & MGMT_SETTING_BONDABLE) {
@@ -1464,6 +1471,11 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 		adapter->discovering = true;
 		g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Discovering");
+
+		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
+		metrics_start_timer(TIMER_DISCOVERY, timer_data);
+		metrics_send_enum(ENUM_TYPE_DISCOVERY, rp->type, false);
+
 		return;
 	}
 
@@ -1723,6 +1735,9 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 		adapter->discovering = false;
 		g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Discovering");
+
+		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
+		metrics_stop_timer(TIMER_DISCOVERY, timer_data);
 
 		trigger_passive_scanning(adapter);
 	}
@@ -6079,6 +6094,8 @@ static void update_found_devices(struct btd_adapter *adapter,
 		}
 
 		dev = adapter_create_device(adapter, bdaddr, bdaddr_type);
+
+		metrics_send_enum(ENUM_TYPE_FOUND_DEVICE, bdaddr_type, false);
 	}
 
 	if (!dev) {
@@ -7279,6 +7296,8 @@ static void dev_disconnected(struct btd_adapter *adapter,
 
 	bonding_attempt_complete(adapter, &addr->bdaddr, addr->type,
 						MGMT_STATUS_DISCONNECTED);
+
+	metrics_send_enum(ENUM_TYPE_DISCONN_REASON, reason, true);
 }
 
 void btd_add_disconnect_cb(btd_disconnect_cb func)
@@ -8993,6 +9012,9 @@ int adapter_init(void)
 
 	DBG("sending read version command");
 
+	if (!metrics_init())
+		error("Failed to init UMA metrics");
+
 	if (mgmt_send(mgmt_master, MGMT_OP_READ_VERSION,
 				MGMT_INDEX_NONE, 0, NULL,
 				read_version_complete, NULL, NULL) > 0)
@@ -9038,6 +9060,8 @@ void adapter_cleanup(void)
 	mgmt_master = NULL;
 
 	dbus_conn = NULL;
+
+	metrics_deinit();
 }
 
 void adapter_shutdown(void)

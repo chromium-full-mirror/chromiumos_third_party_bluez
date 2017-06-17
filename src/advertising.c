@@ -33,6 +33,7 @@
 #include "dbus-common.h"
 #include "error.h"
 #include "log.h"
+#include "metrics.h"
 #include "src/shared/ad.h"
 #include "src/shared/mgmt.h"
 #include "src/shared/queue.h"
@@ -148,6 +149,9 @@ static void client_remove(void *data)
 {
 	struct btd_adv_client *client = data;
 	struct mgmt_cp_remove_advertising cp;
+
+	struct metrics_timer_data timer_data = {NULL, NULL, client};
+	metrics_stop_timer(TIMER_ADVERTISEMENT, timer_data);
 
 	g_dbus_client_set_disconnect_watch(client->client, NULL, NULL);
 
@@ -424,12 +428,18 @@ static void add_client_complete(struct btd_adv_client *client, uint8_t status)
 		queue_remove(client->manager->clients, client);
 		g_idle_add(client_free_idle_cb, client);
 
-	} else
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, status, true);
+	} else {
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, ADV_SUCCEED, false);
 		reply = dbus_message_new_method_return(client->reg);
+	}
 
 	g_dbus_send_message(btd_get_dbus_connection(), reply);
 	dbus_message_unref(client->reg);
 	client->reg = NULL;
+
+	struct metrics_timer_data data = {NULL, NULL, client};
+	metrics_start_timer(TIMER_ADVERTISEMENT, data);
 }
 
 static void add_adv_callback(uint8_t status, uint16_t length,
@@ -497,6 +507,8 @@ static DBusMessage *refresh_advertisement(struct btd_adv_client *client)
 
 	if (!adv_data || (adv_data_len > calc_max_adv_len(client, flags))) {
 		error("Advertising data too long or couldn't be generated.");
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT,
+					ADV_FAIL_ADV_DATA_TOO_LONG, false);
 
 		return g_dbus_create_error(client->reg, ERROR_INTERFACE
 						".InvalidLength",
@@ -509,6 +521,8 @@ static DBusMessage *refresh_advertisement(struct btd_adv_client *client)
 
 	if (!cp) {
 		error("Couldn't allocate for MGMT!");
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, ADV_FAIL_MGMT_SEND,
+					false);
 
 		free(adv_data);
 
@@ -526,6 +540,8 @@ static DBusMessage *refresh_advertisement(struct btd_adv_client *client)
 				client->manager->mgmt_index, param_len, cp,
 				add_adv_callback, client, NULL)) {
 		error("Failed to add Advertising Data");
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, ADV_FAIL_MGMT_SEND,
+					false);
 
 		free(cp);
 
@@ -572,6 +588,8 @@ static DBusMessage *parse_advertisement(struct btd_adv_client *client)
 	return refresh_advertisement(client);
 
 fail:
+	metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, ADV_FAIL_PARSE_ADV_DATA,
+				false);
 	return btd_error_failed(client->reg, "Failed to parse advertisement.");
 }
 
