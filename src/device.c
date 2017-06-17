@@ -75,6 +75,7 @@
 #include "storage.h"
 #include "attrib-server.h"
 #include "eir.h"
+#include "metrics.h"
 
 #define DISCONNECT_TIMER	2
 #define DISCOVERY_TIMER		1
@@ -1645,6 +1646,8 @@ static void device_profile_connected(struct btd_device *dev,
 {
 	struct btd_service *pending;
 	GSList *l;
+	metrics_conn_result result = CONN_BREDR_SUCCEED;
+	struct metrics_timer_data timer_data = {dev->adapter, dev, NULL};
 
 	DBG("%s %s (%d)", profile->name, strerror(-err), -err);
 
@@ -1662,7 +1665,6 @@ static void device_profile_connected(struct btd_device *dev,
 			goto done;
 		}
 	}
-
 
 	pending = dev->pending->data;
 	l = find_service_with_profile(dev->pending, profile);
@@ -1695,12 +1697,26 @@ done:
 	l = find_service_with_state(dev->services, BTD_SERVICE_STATE_CONNECTED);
 
 	if (err && l == NULL) {
+
 		/* Fallback to LE bearer if supported */
 		if (err == -EHOSTDOWN && dev->le && !dev->le_state.connected) {
 			err = device_connect_le(dev);
 			if (err == 0)
 				return;
 		}
+
+		switch (-err) {
+		case EHOSTDOWN:
+			result = CONN_FAIL_BREDR_PAGE_TIMEOUT;
+			break;
+		case EHOSTUNREACH: /* adapter not powered */
+		case ECONNABORTED: /* adapter powered down */
+			result = CONN_FAIL_NONPOWERED;
+			break;
+		default:
+			result = CONN_FAIL_UNKNOWN;
+		}
+		metrics_cancel_timer(TIMER_CONNECT, timer_data);
 
 		g_dbus_send_message(dbus_conn,
 				btd_error_failed(dev->connect, strerror(-err)));
@@ -1710,6 +1726,9 @@ done:
 			device_browse_sdp(dev, NULL);
 		g_dbus_send_reply(dbus_conn, dev->connect, DBUS_TYPE_INVALID);
 	}
+
+	metrics_stop_timer(TIMER_CONNECT, timer_data);
+	metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
 
 	dbus_message_unref(dev->connect);
 	dev->connect = NULL;
@@ -1903,11 +1922,16 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 	DBG("%s %s, client %s", dev->path, uuid ? uuid : "(all)",
 						dbus_message_get_sender(msg));
 
-	if (dev->pending || dev->connect || dev->browse)
+	if (dev->pending || dev->connect || dev->browse) {
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BUSY, false);
 		return btd_error_in_progress(msg);
+	}
 
-	if (!btd_adapter_get_powered(dev->adapter))
+	if (!btd_adapter_get_powered(dev->adapter)) {
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_NONPOWERED,
+					false);
 		return btd_error_not_ready(msg);
+	}
 
 	btd_device_set_temporary(dev, false);
 
@@ -1918,10 +1942,16 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 	if (!dev->pending) {
 		if (dev->svc_refreshed) {
 			if (find_service_with_state(dev->services,
-						BTD_SERVICE_STATE_CONNECTED))
+						BTD_SERVICE_STATE_CONNECTED)) {
+				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+						CONN_ALREADY_BREDR, false);
 				return dbus_message_new_method_return(msg);
-			else
+			} else {
+				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+					CONN_FAIL_BREDR_PROFILE_UNAVAILABLE,
+					false);
 				return btd_error_not_available(msg);
+			}
 		}
 
 		goto resolve_services;
@@ -1929,8 +1959,13 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 
 	err = connect_next(dev);
 	if (err < 0) {
-		if (err == -EALREADY)
+		if (err == -EALREADY) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+						CONN_ALREADY_BREDR, false);
 			return dbus_message_new_method_return(msg);
+		}
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BREDR,
+					false);
 		return btd_error_failed(msg, strerror(-err));
 	}
 
@@ -1945,8 +1980,14 @@ resolve_services:
 		err = device_browse_sdp(dev, msg);
 	else
 		err = device_browse_gatt(dev, msg);
-	if (err < 0)
+
+	if (err < 0) {
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+			bdaddr_type == BDADDR_BREDR ? CONN_FAIL_BROWSE_SDP :
+							CONN_FAIL_BROWSE_GATT,
+			false);
 		return btd_error_failed(msg, strerror(-err));
+	}
 
 	return NULL;
 }
@@ -2005,6 +2046,7 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 {
 	struct btd_device *dev = user_data;
 	uint8_t bdaddr_type;
+	struct metrics_timer_data timer_data = {dev->adapter, dev, NULL};
 
 	if (dev->bredr_state.connected) {
 		/*
@@ -2025,8 +2067,11 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 	if (bdaddr_type != BDADDR_BREDR) {
 		int err;
 
-		if (dev->le_state.connected)
+		if (dev->le_state.connected) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+						CONN_ALREADY_LE, false);
 			return dbus_message_new_method_return(msg);
+		}
 
 		btd_device_set_temporary(dev, false);
 
@@ -2036,13 +2081,22 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 		}
 
 		err = device_connect_le(dev);
-		if (err < 0)
+		if (err < 0) {
+			metrics_conn_result result = CONN_FAIL_LE;
+			if (err == -EALREADY)
+				result = CONN_ALREADY_LE;
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
 			return btd_error_failed(msg, strerror(-err));
+		}
+
+		metrics_start_timer(TIMER_CONNECT, timer_data);
 
 		dev->connect = dbus_message_ref(msg);
 
 		return NULL;
 	}
+
+	metrics_start_timer(TIMER_CONNECT, timer_data);
 
 	return connect_profiles(dev, bdaddr_type, msg, NULL);
 }
@@ -2656,11 +2710,16 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 
 	btd_device_set_temporary(device, false);
 
-	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INVALID))
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INVALID)) {
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT,
+					PAIR_FAIL_INVALID_PARAMS, false);
 		return btd_error_invalid_args(msg);
+	}
 
-	if (device->bonding)
+	if (device->bonding) {
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY, false);
 		return btd_error_in_progress(msg);
+	}
 
 	if (device->bredr_state.bonded)
 		bdaddr_type = device->bdaddr_type;
@@ -2671,8 +2730,11 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 
 	state = get_state(device, bdaddr_type);
 
-	if (state->bonded)
+	if (state->bonded) {
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT,
+					PAIR_FAIL_ALREAY_PAIRED, false);
 		return btd_error_already_exists(msg);
+	}
 
 	sender = dbus_message_get_sender(msg);
 
@@ -2712,9 +2774,13 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	}
 
 	if (err < 0) {
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY, false);
 		bonding_request_free(device->bonding);
 		return btd_error_failed(msg, strerror(-err));
 	}
+
+	struct metrics_timer_data timer_data = {adapter, device, NULL};
+	metrics_start_timer(TIMER_PAIRING, timer_data);
 
 	return NULL;
 }
@@ -5538,6 +5604,7 @@ static void att_connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
 	DBusMessage *reply;
 	uint8_t io_cap;
 	int err = 0;
+	struct metrics_timer_data timer_data = {device->adapter, device, NULL};
 
 	g_io_channel_unref(device->att_io);
 	device->att_io = NULL;
@@ -5576,6 +5643,9 @@ static void att_connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
 
 	err = adapter_create_bonding(device->adapter, &device->bdaddr,
 					device->bdaddr_type, io_cap);
+
+	if (!err)
+		metrics_start_timer(TIMER_PAIRING, timer_data);
 done:
 	if (device->bonding && err < 0) {
 		reply = btd_error_failed(device->bonding->msg, strerror(-err));
@@ -5593,6 +5663,14 @@ done:
 							strerror(-err));
 		else
 			reply = dbus_message_new_method_return(device->connect);
+
+		if (err < 0)
+			metrics_cancel_timer(TIMER_PAIRING, timer_data);
+		else
+			metrics_stop_timer(TIMER_CONNECT, timer_data);
+
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+			err < 0 ? CONN_FAIL_LE : CONN_LE_SUCCEED, false);
 
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);
@@ -6188,8 +6266,11 @@ void device_bonding_complete(struct btd_device *device, uint8_t bdaddr_type,
 	struct bonding_req *bonding = device->bonding;
 	struct authentication_req *auth = device->authr;
 	struct bearer_state *state = get_state(device, bdaddr_type);
+	struct metrics_timer_data timer_data = {device->adapter, device, NULL};
 
 	DBG("bonding %p status 0x%02x", bonding, status);
+
+	metrics_send_enum(ENUM_TYPE_PAIR_RESULT, status, true);
 
 	if (auth && auth->agent)
 		agent_cancel(auth->agent);
@@ -6197,8 +6278,12 @@ void device_bonding_complete(struct btd_device *device, uint8_t bdaddr_type,
 	if (status) {
 		device_cancel_authentication(device, TRUE);
 		device_bonding_failed(device, status);
+
+		metrics_cancel_timer(TIMER_PAIRING, timer_data);
 		return;
 	}
+
+	metrics_stop_timer(TIMER_PAIRING, timer_data);
 
 	device_auth_req_free(device);
 
