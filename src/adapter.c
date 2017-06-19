@@ -5760,7 +5760,7 @@ static void load_config(struct btd_adapter *adapter)
 	/* Get power status */
 	powered = g_key_file_get_boolean(key_file, "General", "Powered", &gerr);
 	if (gerr) {
-		powered = false;
+		powered = true;
 		g_error_free(gerr);
 		gerr = NULL;
 	}
