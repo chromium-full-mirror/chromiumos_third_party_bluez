@@ -490,6 +490,7 @@ static guint setup_signalfd(void)
 static char *option_debug = NULL;
 static char *option_plugin = NULL;
 static char *option_noplugin = NULL;
+static char *option_configfile = NULL;
 static gboolean option_compat = FALSE;
 static gboolean option_detach = TRUE;
 static gboolean option_version = FALSE;
@@ -505,6 +506,9 @@ static void free_options(void)
 
 	g_free(option_noplugin);
 	option_noplugin = NULL;
+
+	g_free(option_configfile);
+	option_configfile = NULL;
 }
 
 static void disconnect_dbus(void)
@@ -577,6 +581,8 @@ static GOptionEntry options[] = {
 				"Specify plugins to load", "NAME,..," },
 	{ "noplugin", 'P', 0, G_OPTION_ARG_STRING, &option_noplugin,
 				"Specify plugins not to load", "NAME,..." },
+	{ "configfile", 'f', 0, G_OPTION_ARG_STRING, &option_configfile,
+				"Specify an explicit path to the config file", "FILE"},
 	{ "compat", 'C', 0, G_OPTION_ARG_NONE, &option_compat,
 				"Provide deprecated command line interfaces" },
 	{ "experimental", 'E', 0, G_OPTION_ARG_NONE, &option_experimental,
@@ -636,7 +642,11 @@ int main(int argc, char *argv[])
 
 	sd_notify(0, "STATUS=Starting up");
 
-	main_conf = load_config(CONFIGDIR "/main.conf");
+	if (option_configfile) {
+		main_conf = load_config(option_configfile);
+	} else {
+		main_conf = load_config(CONFIGDIR "/main.conf");
+	}
 
 	parse_config(main_conf);
 
