@@ -79,6 +79,8 @@ static void test_timer_unknown_type()
 	struct metrics_timer_data data_adv = {NULL, NULL, client};
 
 	ASSERT_FALSE(metrics_start_timer(100, data_adv));
+
+	g_free(client);
 }
 
 /* Tests the timer with start, cancel and stop operations.
