@@ -855,6 +855,32 @@ static DBusMessage *reset_advertising(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+static DBusMessage *get_max_adv_instances(DBusConnection *conn,
+						DBusMessage *msg,
+						void *user_data)
+{
+	struct btd_adv_manager *manager = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	DBusMessage *reply;
+	DBusMessageIter iter;
+
+	DBG("get_max_adv_instances: sender %s", sender);
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply)
+		return btd_error_failed(msg, "Failed to create method reply");
+
+	if (!manager->max_ads)
+		return btd_error_not_supported(msg);
+
+	dbus_message_iter_init_append(reply, &iter);
+	if (!dbus_message_iter_append_basic(&iter, DBUS_TYPE_BYTE,
+						&manager->max_ads))
+		return btd_error_failed(msg, "Failed to append record handle");
+
+	return reply;
+}
+
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_ASYNC_METHOD("RegisterAdvertisement",
 					GDBUS_ARGS({ "advertisement", "o" },
@@ -870,6 +896,10 @@ static const GDBusMethodTable methods[] = {
 				NULL, set_advertising_intervals)},
 	{ GDBUS_ASYNC_METHOD("ResetAdvertising", NULL, NULL,
 						reset_advertising) },
+	{ GDBUS_ASYNC_METHOD("GetMaximumAdvertisementInstances",
+				NULL,
+				GDBUS_ARGS({"max_adv_instances", "y"}),
+				get_max_adv_instances) },
 	{ }
 };
 
