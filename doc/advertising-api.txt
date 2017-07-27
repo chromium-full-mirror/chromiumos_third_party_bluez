@@ -127,3 +127,8 @@ Methods		RegisterAdvertisement(object advertisement, dict options)
 			Possible errors: org.bluez.Error.Failed
 					 org.bluez.Error.InProgress
 					 org.bluez.Error.InvalidArguments
+
+Properties	bool IsTXPowerSupported [readonly]
+
+			Whether setting TX power for individual advertisements
+			is supported.
