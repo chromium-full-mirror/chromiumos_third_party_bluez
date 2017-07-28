@@ -127,11 +127,3 @@ Methods		RegisterAdvertisement(object advertisement, dict options)
 			Possible errors: org.bluez.Error.Failed
 					 org.bluez.Error.InProgress
 					 org.bluez.Error.InvalidArguments
-
-		uint8 GetMaximumAdvertisementInstances()
-
-			This method returns the number of maximum advertisements
-			supported.
-
-			Possible errors: org.bluez.Error.Failed
-					 org.bluez.Error.NotSupported
