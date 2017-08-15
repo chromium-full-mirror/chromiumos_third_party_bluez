@@ -2119,20 +2119,30 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	struct watch_client *client;
-	bool is_discovering;
+	bool discovery_client_exists;
 
 	DBG("sender %s", sender);
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
 
-	is_discovering = get_discovery_client(adapter, sender, &client);
+	discovery_client_exists = get_discovery_client(
+			adapter, sender, &client);
 
 	/*
 	 * Every client can only start one discovery, if the client
 	 * already started a discovery then return an error.
 	 */
-	if (is_discovering)
+	if (discovery_client_exists)
+		return btd_error_busy(msg);
+
+	/*
+	 * adapter->discovery_list being empty but adapter->discovering being
+	 * true indicates that there is a stop discovery operation in progress.
+	 * Prevent a new start discovery request when the previous
+	 * stop discovery is in progress.
+	 */
+	if (!adapter->discovery_list && adapter->discovering)
 		return btd_error_busy(msg);
 
 	/*
@@ -2419,6 +2429,16 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 						compare_sender);
 	if (!list)
 		return btd_error_failed(msg, "No discovery started");
+
+	/*
+	 * adapter->discovery_list being not empty but adapter->discovering
+	 * being false indicates that there is a start discovery operation in
+	 * progress.
+	 * Prevent a new stop discovery request when the previous start
+	 * discovery is in progress.
+	 */
+	if (!adapter->discovering)
+		return btd_error_busy(msg);
 
 	client = list->data;
 
