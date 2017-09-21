@@ -215,6 +215,10 @@ struct btd_adapter {
 	bool filtered_discovery;	/* we are doing filtered discovery */
 	bool no_scan_restart_delay;	/* when this flag is set, restart scan
 					 * without delay */
+	/* indicates whether there is start discovery operation in progress */
+	bool start_discovery_in_progress;
+	/* indicates whether there is stop discovery operation in progress */
+	bool stop_discovery_in_progress;
 	uint8_t discovery_type;		/* current active discovery type */
 	uint8_t discovery_enable;	/* discovery enabled/disabled */
 	bool discovery_suspended;	/* discovery has been suspended */
@@ -1450,6 +1454,8 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 
 	DBG("status 0x%02x", status);
 
+	adapter->start_discovery_in_progress = false;
+
 	if (length < sizeof(*rp)) {
 		btd_error(adapter->dev_id,
 			"Wrong size of start discovery return parameters");
@@ -1551,6 +1557,7 @@ static gboolean start_discovery_timeout(gpointer user_data)
 		struct mgmt_cp_start_discovery cp;
 
 		cp.type = new_type;
+		adapter->start_discovery_in_progress = true;
 		mgmt_send(adapter->mgmt, MGMT_OP_START_DISCOVERY,
 				adapter->dev_id, sizeof(cp), &cp,
 				start_discovery_complete, adapter, NULL);
@@ -1563,6 +1570,7 @@ static gboolean start_discovery_timeout(gpointer user_data)
 	DBG("sending MGMT_OP_START_SERVICE_DISCOVERY %d, %d, %d",
 				sd_cp->rssi, sd_cp->type, sd_cp->uuid_count);
 
+	adapter->start_discovery_in_progress = true;
 	mgmt_send(adapter->mgmt, MGMT_OP_START_SERVICE_DISCOVERY,
 		  adapter->dev_id, sizeof(*sd_cp) + sd_cp->uuid_count * 16,
 		  sd_cp, start_discovery_complete, adapter, NULL);
@@ -1726,6 +1734,8 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 	struct btd_adapter *adapter = user_data;
 
 	DBG("status 0x%02x", status);
+
+	adapter->stop_discovery_in_progress = false;
 
 	if (status == MGMT_STATUS_SUCCESS) {
 		adapter->discovery_type = 0x00;
@@ -2082,6 +2092,7 @@ static void discovery_disconnect(DBusConnection *conn, void *user_data)
 
 	cp.type = adapter->discovery_type;
 
+	adapter->stop_discovery_in_progress = true;
 	mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY,
 				adapter->dev_id, sizeof(cp), &cp,
 				stop_discovery_complete, adapter, NULL);
@@ -2134,6 +2145,15 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 	 */
 	if (is_discovering)
 		return btd_error_busy(msg);
+
+	/*
+	 * We are still waiting for mgmt response from kernel about the
+	 * previous stop discovery request.
+	 */
+	if (adapter->stop_discovery_in_progress) {
+		DBG("error: stop discovery in progress");
+		return btd_error_busy(msg);
+	}
 
 	/*
 	 * If there was pre-set filter, just reconnect it to discovery_list,
@@ -2420,6 +2440,15 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 	if (!list)
 		return btd_error_failed(msg, "No discovery started");
 
+	/*
+	 * We are still waiting for mgmt response from kernel about the
+	 * previous start discovery request.
+	 */
+	if (adapter->start_discovery_in_progress) {
+		DBG("error: start discovery in progress");
+		return btd_error_busy(msg);
+	}
+
 	client = list->data;
 
 	cp.type = adapter->discovery_type;
@@ -2449,6 +2478,7 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 		return dbus_message_new_method_return(msg);
 	}
 
+	adapter->stop_discovery_in_progress = true;
 	mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY,
 				adapter->dev_id, sizeof(cp), &cp,
 				stop_discovery_complete, adapter, NULL);
