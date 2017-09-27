@@ -66,6 +66,8 @@ struct btd_adv_client {
 	bool include_tx_power;
 	struct bt_ad *data;
 	uint8_t instance;
+
+	bool being_destroyed;
 };
 
 struct dbus_obj_match {
@@ -120,6 +122,18 @@ static gboolean client_free_idle_cb(void *data)
 	return FALSE;
 }
 
+static void client_free_schedule(struct btd_adv_client *client)
+{
+	if(client) {
+		if (client->being_destroyed)
+			error("Destroying a client twice!\n");
+		else {
+			client->being_destroyed = true;
+			g_idle_add(client_free_idle_cb, client);
+		}
+	}
+}
+
 static void client_release(void *data)
 {
 	struct btd_adv_client *client = data;
@@ -163,7 +177,7 @@ static void client_remove(void *data)
 
 	queue_remove(client->manager->clients, client);
 
-	g_idle_add(client_free_idle_cb, client);
+	client_free_schedule(client);
 }
 
 /* A dummy wrapper of client_remove called in queue_foreach. */
@@ -426,7 +440,7 @@ static void add_client_complete(struct btd_adv_client *client, uint8_t status)
 		reply = btd_error_failed(client->reg,
 					"Failed to register advertisement");
 		queue_remove(client->manager->clients, client);
-		g_idle_add(client_free_idle_cb, client);
+		client_free_schedule(client);
 
 		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, status, true);
 	} else {
@@ -605,7 +619,7 @@ static void client_proxy_added(GDBusProxy *proxy, void *data)
 	/* Failed to publish for some reason, remove. */
 	queue_remove(client->manager->clients, client);
 
-	g_idle_add(client_free_idle_cb, client);
+	client_free_schedule(client);
 
 	g_dbus_send_message(btd_get_dbus_connection(), reply);
 
@@ -624,6 +638,7 @@ static struct btd_adv_client *client_create(struct btd_adv_manager *manager,
 		return NULL;
 
 	client = new0(struct btd_adv_client, 1);
+	client->being_destroyed = false;
 	client->client = g_dbus_client_new_full(conn, sender, path, path);
 	if (!client->client)
 		goto fail;
