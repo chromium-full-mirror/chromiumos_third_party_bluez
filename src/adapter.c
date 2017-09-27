@@ -4859,11 +4859,42 @@ static void free_service_auth(gpointer data, gpointer user_data)
 	g_free(auth);
 }
 
+static void remove_discovery_list(struct btd_adapter* adapter)
+{
+	while (adapter->set_filter_list) {
+		struct watch_client *client;
+
+		client = adapter->set_filter_list->data;
+
+		/* g_dbus_remove_watch will remove the client from the
+		 * adapter's list and free it using the discovery_destroy
+		 * function.
+		 */
+		g_dbus_remove_watch(dbus_conn, client->watch);
+	}
+
+	while (adapter->discovery_list) {
+		struct watch_client *client;
+
+		client = adapter->discovery_list->data;
+
+		/* g_dbus_remove_watch will remove the client from the
+		 * adapter's list and free it using the discovery_destroy
+		 * function.
+		 */
+		g_dbus_remove_watch(dbus_conn, client->watch);
+	}
+}
+
 static void adapter_free(gpointer user_data)
 {
 	struct btd_adapter *adapter = user_data;
 
 	DBG("%p", adapter);
+
+	// Make sure the adapter's discovery list is cleaned up before freeing
+	// the adapter.
+	remove_discovery_list(adapter);
 
 	if (adapter->load_ltks_timeout > 0)
 		g_source_remove(adapter->load_ltks_timeout);
@@ -6354,29 +6385,7 @@ static void adapter_stop(struct btd_adapter *adapter)
 
 	cancel_passive_scanning(adapter);
 
-	while (adapter->set_filter_list) {
-		struct watch_client *client;
-
-		client = adapter->set_filter_list->data;
-
-		/* g_dbus_remove_watch will remove the client from the
-		 * adapter's list and free it using the discovery_destroy
-		 * function.
-		 */
-		g_dbus_remove_watch(dbus_conn, client->watch);
-	}
-
-	while (adapter->discovery_list) {
-		struct watch_client *client;
-
-		client = adapter->discovery_list->data;
-
-		/* g_dbus_remove_watch will remove the client from the
-		 * adapter's list and free it using the discovery_destroy
-		 * function.
-		 */
-		g_dbus_remove_watch(dbus_conn, client->watch);
-	}
+	remove_discovery_list(adapter);
 
 	adapter->filtered_discovery = false;
 	adapter->no_scan_restart_delay = false;
