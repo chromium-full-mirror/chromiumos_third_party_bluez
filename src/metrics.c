@@ -14,25 +14,12 @@
 #include "log.h"
 #include "metrics/c_metrics_library.h"
 
-/* Names of histograms */
-#define H_NAME_DISCOVERABLE_LEN	"BlueZ.TimeLengthOfDiscoverable"
-#define H_NAME_DISCOVERY_LEN	"BlueZ.TimeLengthOfDiscovering"
-#define H_NAME_PAIRING_LEN	"BlueZ.TimeLengthOfPairing"
-#define H_NAME_ADV_LEN		"BlueZ.TimeLengthOfAdvertisement"
-#define H_NAME_CONN_LEN		"BlueZ.TimeLengthOfSetupConnection"
-#define H_NAME_DISCOVERY_TYPE	"BlueZ.TypeOfDiscovery"
-#define H_NAME_FOUND_DEVICE_TYPE	"BlueZ.TypeOfFoundDevice"
-#define H_NAME_ADV_REG_RESULT	"BlueZ.ResultOfAdvertisementRegistration"
-#define H_NAME_DISCONN_REASON	"BlueZ.ReasonOfDisconnection"
-#define H_NAME_PAIR_RESULT	"BlueZ.ResultOfPairing"
-#define H_NAME_CONN_RESULT	"BlueZ.ResultOfConnection"
-
 /* The default value of number of buckets used in Count histogram. */
-#define DEFAULT_BUCKETS_NUM		50
+#define DEFAULT_BUCKETS_NUM	50
 
 /* The lower and upper bounds of time length samples. */
-#define TIME_LENGTH_MAX 1800.00  // A half hour in seconds
-#define TIME_LENGTH_MIN 0.00
+#define TIME_LENGTH_MAX		1800.00  // A half hour in seconds
+#define TIME_LENGTH_MIN		0.00
 
 /* Discovery type maps to lib/mgmt.h and src/adapter.c */
 #define BLUEZ_DISCOVERY_TYPE_BREDR (1 << BDADDR_BREDR)
