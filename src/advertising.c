@@ -643,6 +643,11 @@ static struct btd_adv_client *client_create(struct btd_adv_manager *manager,
 	if (!client->client)
 		goto fail;
 
+	metrics_send(H_NAME_NUM_EXISTING_ADV,
+			util_num_of_used_uid(&manager->instance_bitmap,
+						manager->max_ads),
+			NUM_ADV_MIN, NUM_ADV_MAX, NUM_ADV_MAX + 1);
+
 	client->instance = util_get_uid(&manager->instance_bitmap,
 							manager->max_ads);
 	if (!client->instance)

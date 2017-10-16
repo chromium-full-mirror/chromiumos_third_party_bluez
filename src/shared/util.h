@@ -107,6 +107,7 @@ unsigned char util_get_dt(const char *parent, const char *name);
 
 uint8_t util_get_uid(unsigned int *bitmap, uint8_t max);
 void util_clear_uid(unsigned int *bitmap, uint8_t id);
+uint8_t util_num_of_used_uid(const unsigned int *bitmap, uint8_t max);
 
 static inline int8_t get_s8(const void *ptr)
 {
