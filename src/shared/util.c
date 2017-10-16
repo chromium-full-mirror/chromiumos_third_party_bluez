@@ -1028,3 +1028,16 @@ int strsuffix(const char *str, const char *suffix)
 
 	return strncmp(str + len - suffix_len, suffix, suffix_len);
 }
+
+/* Calculate the number of used uid */
+uint8_t util_num_of_used_uid(const unsigned int *bitmap, uint8_t max)
+{
+	unsigned int bm = *bitmap;
+	uint8_t num = 0;
+
+	while (bm) {
+		bm &= (bm - 1);
+		num++;
+	}
+	return num;
+}

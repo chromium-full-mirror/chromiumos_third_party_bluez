@@ -10,6 +10,29 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+/* Names of histograms */
+#define H_NAME_DISCOVERABLE_LEN	"BlueZ.TimeLengthOfDiscoverable"
+#define H_NAME_DISCOVERY_LEN	"BlueZ.TimeLengthOfDiscovering"
+#define H_NAME_PAIRING_LEN	"BlueZ.TimeLengthOfPairing"
+#define H_NAME_ADV_LEN		"BlueZ.TimeLengthOfAdvertisement"
+#define H_NAME_CONN_LEN		"BlueZ.TimeLengthOfSetupConnection"
+#define H_NAME_DISCOVERY_TYPE	"BlueZ.TypeOfDiscovery"
+#define H_NAME_FOUND_DEVICE_TYPE	"BlueZ.TypeOfFoundDevice"
+#define H_NAME_ADV_REG_RESULT	"BlueZ.ResultOfAdvertisementRegistration"
+#define H_NAME_DISCONN_REASON	"BlueZ.ReasonOfDisconnection"
+#define H_NAME_PAIR_RESULT	"BlueZ.ResultOfPairing"
+#define H_NAME_CONN_RESULT	"BlueZ.ResultOfConnection"
+#define H_NAME_ADAPTER_LOST	"BlueZ.AdapterLost"
+#define H_NAME_NUM_EXISTING_ADV	"BlueZ.NumberOfExistingAdvertisements"
+
+/* The lower and upper bounds of regular samples of occurrence. */
+#define OCCURRENCE_MAX 2
+#define OCCURRENCE_MIN 0
+
+/* The lower and upper bounds of number of registered advertisements. */
+#define NUM_ADV_MAX 6
+#define NUM_ADV_MIN 0
+
 struct btd_adapter;
 struct btd_device;
 

@@ -112,6 +112,7 @@ unsigned char util_get_dt(const char *parent, const char *name);
 
 uint8_t util_get_uid(unsigned int *bitmap, uint8_t max);
 void util_clear_uid(unsigned int *bitmap, uint8_t id);
+uint8_t util_num_of_used_uid(const unsigned int *bitmap, uint8_t max);
 
 const char *bt_uuid16_to_str(uint16_t uuid);
 const char *bt_uuid32_to_str(uint32_t uuid);

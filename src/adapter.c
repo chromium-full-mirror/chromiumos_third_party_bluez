@@ -5404,6 +5404,8 @@ static void adapter_free(gpointer user_data)
 	struct btd_adapter *adapter = user_data;
 
 	DBG("%p", adapter);
+	metrics_send(H_NAME_ADAPTER_LOST, 1, OCCURRENCE_MIN, OCCURRENCE_MAX,
+							OCCURRENCE_MAX + 1);
 
 	if (adapter->pairable_timeout_id > 0) {
 		g_source_remove(adapter->pairable_timeout_id);

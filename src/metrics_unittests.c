@@ -180,6 +180,30 @@ static void test_send_enum()
 					false));
 }
 
+/* Tests sending samples with valid/invalid histogram name, MIN value, MAX value
+ * or number of buckets. */
+static void test_send()
+{
+	// invalid histogram name
+	ASSERT_FALSE(metrics_send(NULL, 0, NUM_ADV_MIN, NUM_ADV_MAX,
+					NUM_ADV_MAX + 1));
+	// invalid sample value
+	ASSERT_FALSE(metrics_send(H_NAME_NUM_EXISTING_ADV, -1, NUM_ADV_MIN,
+					NUM_ADV_MAX, NUM_ADV_MAX + 1));
+	// invalid MIN value
+	ASSERT_FALSE(metrics_send(H_NAME_NUM_EXISTING_ADV, 0, NUM_ADV_MAX,
+					NUM_ADV_MAX, NUM_ADV_MAX + 1));
+	// invalid MAX value
+	ASSERT_FALSE(metrics_send(H_NAME_NUM_EXISTING_ADV, 0, NUM_ADV_MIN,
+					NUM_ADV_MIN, NUM_ADV_MAX + 1));
+	// invalid number of buckets
+	ASSERT_FALSE(metrics_send(H_NAME_NUM_EXISTING_ADV, 0, NUM_ADV_MIN,
+					NUM_ADV_MAX, 0));
+	// all valid
+	ASSERT_TRUE(metrics_send(H_NAME_NUM_EXISTING_ADV, 0, NUM_ADV_MIN,
+				NUM_ADV_MAX, NUM_ADV_MAX + 1));
+}
+
 int main(int argc, char *argv[])
 {
 	metrics_init();
@@ -191,6 +215,7 @@ int main(int argc, char *argv[])
 	test_timer_mismatched_type_and_data();
 	test_timer_redundant_start();
 	test_send_enum();
+	test_send();
 
 	metrics_deinit();
 	return 0;
