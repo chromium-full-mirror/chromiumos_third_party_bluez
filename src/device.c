@@ -5765,6 +5765,12 @@ bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 		return false;
 	}
 
+	// This may be reached when the device already has att attached to it.
+	// In this case cleanup the att first before assigning the new one,
+	// otherwise the old att may fire a disconnect event at later time
+	// and will invoke operations on the already freed device pointer.
+	if (dev->attrib || dev->att)
+		attio_cleanup(dev);
 	dev->attrib = attrib;
 	dev->att = g_attrib_get_att(attrib);
 
