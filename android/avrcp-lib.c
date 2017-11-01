@@ -933,7 +933,7 @@ static bool parse_attributes(uint32_t *params, uint16_t params_len,
 
 	for (i = 0; i < number && params_len >= sizeof(*attrs); i++,
 					params_len -= sizeof(*attrs)) {
-		attrs[i] = be32_to_cpu(params[i]);
+		attrs[i] = get_be32(&params[i]);
 
 		if (attrs[i] == AVRCP_MEDIA_ATTRIBUTE_ILLEGAL ||
 				attrs[i] > AVRCP_MEDIA_ATTRIBUTE_LAST)
