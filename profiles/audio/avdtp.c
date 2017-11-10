@@ -1001,6 +1001,7 @@ static void avdtp_sep_set_state(struct avdtp *session,
 			handle_unanswered_req(session, stream);
 		/* Remove pending commands for this stream from the queue */
 		cleanup_queue(session, stream);
+		session->streams = g_slist_remove(session->streams, stream);
 		break;
 	default:
 		break;
@@ -1013,11 +1014,8 @@ static void avdtp_sep_set_state(struct avdtp *session,
 		cb->cb(stream, old_state, state, err_ptr, cb->user_data);
 	}
 
-	if (state == AVDTP_STATE_IDLE &&
-				g_slist_find(session->streams, stream)) {
-		session->streams = g_slist_remove(session->streams, stream);
+	if (state == AVDTP_STATE_IDLE)
 		stream_free(stream);
-	}
 }
 
 static void finalize_discovery(struct avdtp *session, int err)
@@ -1153,7 +1151,7 @@ static void set_disconnect_timer(struct avdtp *session)
 	if (session->dc_timer)
 		remove_disconnect_timer(session);
 
-	if (!session->stream_setup)
+	if (!session->stream_setup && !session->streams)
 		session->dc_timer = g_idle_add(disconnect_timeout, session);
 	else
 		session->dc_timer = g_timeout_add_seconds(DISCONNECT_TIMEOUT,
