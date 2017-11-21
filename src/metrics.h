@@ -25,13 +25,13 @@
 #define H_NAME_ADAPTER_LOST	"BlueZ.AdapterLost"
 #define H_NAME_NUM_EXISTING_ADV	"BlueZ.NumberOfExistingAdvertisements"
 
-/* The lower and upper bounds of regular samples of occurrence. */
-#define OCCURRENCE_MAX 2
-#define OCCURRENCE_MIN 0
-
 /* The lower and upper bounds of number of registered advertisements. */
 #define NUM_ADV_MAX 6
 #define NUM_ADV_MIN 0
+
+/* This is used to prevent sending repeated samples of continuous adapter
+ * losts. 10 seconds */
+#define TIME_LENGTH_LAST_LOST	10.00
 
 struct btd_adapter;
 struct btd_device;
@@ -51,6 +51,7 @@ typedef enum {
 	TIMER_PAIRING,
 	TIMER_ADVERTISEMENT,
 	TIMER_CONNECT,
+	TIMER_ADAPTER_LOST,
 } metrics_timer_type;
 
 typedef enum {
