@@ -1204,9 +1204,6 @@ static void set_volume(uint8_t volume, struct btd_device *dev, void *user_data)
 	struct media_player *mp = user_data;
 	GSList *l;
 
-	if (mp->volume == volume)
-		return;
-
 	mp->volume = volume;
 
 	for (l = mp->adapter->endpoints; l; l = l->next) {
@@ -1221,7 +1218,8 @@ static void set_volume(uint8_t volume, struct btd_device *dev, void *user_data)
 		if (transport == NULL)
 			continue;
 
-		media_transport_update_volume(transport, volume);
+		if (media_transport_get_volume(transport) != volume)
+			media_transport_update_volume(transport, volume);
 	}
 }
 
