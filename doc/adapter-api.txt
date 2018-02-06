@@ -37,6 +37,22 @@ Methods		void StartDiscovery()
 					 org.bluez.Error.Failed
 					 org.bluez.Error.NotAuthorized
 
+		void PauseDiscovery()
+
+			This pauses all device discovery sessions and should
+			only be called on system suspend.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.Busy
+
+		void UnpauseDiscovery()
+
+			This unpauses all device discovery sessions and should
+			only be called on system resume.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.Failed
+
 		void RemoveDevice(object device)
 
 			This removes the remote device object at the given
