@@ -72,6 +72,7 @@ static struct metrics_timer *metrics_timer_create(metrics_timer_type type,
 	case TIMER_ADVERTISEMENT:
 	case TIMER_CONNECT:
         case TIMER_ADAPTER_LOST:
+        case TIMER_CHIP_LOST:
 		timer = g_new0(struct metrics_timer, 1);
 		if (!timer)
 			break;
@@ -318,6 +319,10 @@ bool metrics_start_timer(metrics_timer_type type,
 		if (data.adapter || data.device || data.adv_client)
 			return false;
 		break;
+	case TIMER_CHIP_LOST:
+		if (data.adapter || data.device || data.adv_client)
+			return false;
+		break;
 	default:
 		return false;
 	}
@@ -417,6 +422,9 @@ bool metrics_stop_timer(metrics_timer_type type,
 		break;
 	case TIMER_ADAPTER_LOST:
 		name = H_NAME_ADAPTER_LOST;
+		break;
+	case TIMER_CHIP_LOST:
+		name = H_NAME_CHIP_LOST;
 		break;
 	default:
 		goto failed;

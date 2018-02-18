@@ -120,8 +120,16 @@ static GSList *adapter_drivers = NULL;
 static GSList *disconnect_list = NULL;
 static GSList *conn_fail_list = NULL;
 
-static guint metrics_timer_id = 0;	/* Timer ID of delay task of metrics */
-static time_t metrics_last_lost_time;	/* Time of the previous adapter lost */
+/* Timer ID of delay task of metrics */
+static guint adapter_lost_metrics_timer_id = 0;
+/* Timer ID of delay task of metrics (specific to hardware disconnection) */
+static guint chip_lost_metrics_timer_id = 0;
+/* Time of the previous adapter lost */
+static time_t metrics_last_adapter_lost_time;
+/* Time of the previous adapter lost (specific to hardware disconnection) */
+static time_t metrics_last_chip_lost_time;
+/* Time of the last system resume from suspend */
+static time_t last_system_resume_time;
 
 struct link_key_info {
 	bdaddr_t bdaddr;
@@ -2558,6 +2566,7 @@ static DBusMessage *unpause_discovery(DBusConnection *conn,
 		return btd_error_failed(msg, "Discovery not paused");
 
 	adapter->discovery_suspended_by_system = false;
+	time(&last_system_resume_time);
 	resume_discovery(adapter, 0);
 	return dbus_message_new_method_return(msg);
 }
@@ -4968,8 +4977,20 @@ static gboolean record_adapter_lost()
 {
 	struct metrics_timer_data timer_data = {NULL, NULL, NULL};
 
+	DBG("sending adapter lost metrics");
 	metrics_stop_timer(TIMER_ADAPTER_LOST, timer_data);
-	metrics_timer_id = 0;
+	adapter_lost_metrics_timer_id = 0;
+
+        return FALSE;
+}
+
+static gboolean record_chip_lost()
+{
+	struct metrics_timer_data timer_data = {NULL, NULL, NULL};
+
+	DBG("sending chip lost metrics");
+	metrics_stop_timer(TIMER_CHIP_LOST, timer_data);
+	chip_lost_metrics_timer_id = 0;
 
         return FALSE;
 }
@@ -5033,14 +5054,15 @@ static void adapter_free(gpointer user_data)
 
 	time(&cur_time);
 	// Prevent sending duplicate samples for continuous adapter losts
-	if (difftime(cur_time, metrics_last_lost_time) <
+	if (difftime(cur_time, metrics_last_adapter_lost_time) <
 		TIME_LENGTH_LAST_LOST) {
-		metrics_last_lost_time = cur_time;
+		metrics_last_adapter_lost_time = cur_time;
 		return;
 	}
-	metrics_last_lost_time = cur_time;
+	metrics_last_adapter_lost_time = cur_time;
 	metrics_start_timer(TIMER_ADAPTER_LOST, timer_data);
-	metrics_timer_id = g_timeout_add_seconds(TIME_LENGTH_LAST_LOST,
+	adapter_lost_metrics_timer_id = g_timeout_add_seconds(
+						TIME_LENGTH_LAST_LOST,
 						record_adapter_lost, NULL);
 }
 
@@ -5959,9 +5981,9 @@ static struct btd_adapter *btd_adapter_new(uint16_t index)
 {
 	struct btd_adapter *adapter;
 
-	if (!!metrics_timer_id) {
-		g_source_remove(metrics_timer_id);
-		metrics_timer_id = 0;
+	if (!!adapter_lost_metrics_timer_id) {
+		g_source_remove(adapter_lost_metrics_timer_id);
+		adapter_lost_metrics_timer_id = 0;
 		record_adapter_lost();
 	}
 
@@ -8924,10 +8946,23 @@ failed:
 	btd_adapter_unref(adapter);
 }
 
+gboolean suspend_resume_just_happened(struct btd_adapter *adapter) {
+	time_t cur_time;
+	time(&cur_time);
+	return (adapter->discovery_suspended_by_system ||
+		difftime(cur_time, last_system_resume_time) <= 1);
+}
+
 static void index_added(uint16_t index, uint16_t length, const void *param,
 							void *user_data)
 {
 	struct btd_adapter *adapter;
+
+	if (!!chip_lost_metrics_timer_id) {
+		g_source_remove(chip_lost_metrics_timer_id);
+		chip_lost_metrics_timer_id = 0;
+		record_chip_lost();
+	}
 
 	DBG("index %u", index);
 
@@ -8976,6 +9011,8 @@ static void index_removed(uint16_t index, uint16_t length, const void *param,
 							void *user_data)
 {
 	struct btd_adapter *adapter;
+	struct metrics_timer_data timer_data = {NULL, NULL, NULL};
+	time_t cur_time;
 
 	DBG("index %u", index);
 
@@ -8983,6 +9020,21 @@ static void index_removed(uint16_t index, uint16_t length, const void *param,
 	if (!adapter) {
 		warn("Ignoring index removal for a non-existent adapter");
 		return;
+	}
+
+	if (!suspend_resume_just_happened(adapter)) {
+		time(&cur_time);
+		// Prevent sending duplicate samples for continuous adapter lost
+		if (difftime(cur_time, metrics_last_chip_lost_time) <
+			TIME_LENGTH_LAST_LOST) {
+			metrics_last_chip_lost_time = cur_time;
+			return;
+		}
+		metrics_last_chip_lost_time = cur_time;
+		metrics_start_timer(TIMER_CHIP_LOST, timer_data);
+		chip_lost_metrics_timer_id = g_timeout_add_seconds(
+							TIME_LENGTH_LAST_LOST,
+							record_chip_lost, NULL);
 	}
 
 	adapter_unregister(adapter);
@@ -9155,7 +9207,9 @@ int adapter_init(void)
 
 	if (!metrics_init())
 		error("Failed to init UMA metrics");
-	time(&metrics_last_lost_time);
+	time(&metrics_last_adapter_lost_time);
+	time(&metrics_last_chip_lost_time);
+	time(&last_system_resume_time);
 
 	if (mgmt_send(mgmt_master, MGMT_OP_READ_VERSION,
 				MGMT_INDEX_NONE, 0, NULL,
