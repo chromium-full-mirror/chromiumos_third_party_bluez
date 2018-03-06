@@ -528,7 +528,7 @@ static uint8_t get_mode(const char *mode)
 		return MODE_UNKNOWN;
 }
 
-static const char *adapter_dir(struct btd_adapter *adapter)
+const char *btd_adapter_get_storage_dir(struct btd_adapter *adapter)
 {
 	static char dir[25];
 
@@ -569,7 +569,7 @@ static void store_adapter_info(struct btd_adapter *adapter)
 						adapter->desired_powered);
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/settings",
-						adapter_dir(adapter));
+					btd_adapter_get_storage_dir(adapter));
 
 	create_file(filename, S_IRUSR | S_IWUSR);
 
@@ -4555,7 +4555,7 @@ static int load_irk(struct btd_adapter *adapter, uint8_t *irk)
 	int ret;
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/identity",
-						adapter_dir(adapter));
+					btd_adapter_get_storage_dir(adapter));
 
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
@@ -4996,7 +4996,8 @@ static void load_devices(struct btd_adapter *adapter)
 	DIR *dir;
 	struct dirent *entry;
 
-	snprintf(dirname, PATH_MAX, STORAGEDIR "/%s", adapter_dir(adapter));
+	snprintf(dirname, PATH_MAX, STORAGEDIR "/%s",
+					btd_adapter_get_storage_dir(adapter));
 
 	dir = opendir(dirname);
 	if (!dir) {
@@ -5025,7 +5026,8 @@ static void load_devices(struct btd_adapter *adapter)
 			continue;
 
 		snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
-					adapter_dir(adapter), entry->d_name);
+					btd_adapter_get_storage_dir(adapter),
+					entry->d_name);
 
 		key_file = g_key_file_new();
 		g_key_file_load_from_file(key_file, filename, 0, NULL);
@@ -6760,7 +6762,7 @@ static void load_config(struct btd_adapter *adapter)
 	key_file = g_key_file_new();
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/settings",
-						adapter_dir(adapter));
+					btd_adapter_get_storage_dir(adapter));
 
 	if (stat(filename, &st) < 0) {
 		convert_config(adapter, filename, key_file);
@@ -8371,7 +8373,7 @@ static void store_link_key(struct btd_adapter *adapter,
 	ba2str(device_get_address(device), device_addr);
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
-					adapter_dir(adapter), device_addr);
+			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 
@@ -8464,7 +8466,7 @@ static void store_longtermkey(struct btd_adapter *adapter, const bdaddr_t *peer,
 	ba2str(peer, device_addr);
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
-					adapter_dir(adapter), device_addr);
+			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 
@@ -8595,8 +8597,8 @@ static void store_csrk(struct btd_adapter *adapter, const bdaddr_t *peer,
 
 	ba2str(peer, device_addr);
 
-	snprintf(filename, sizeof(filename), STORAGEDIR "/%s/%s/info",
-					adapter_dir(adapter), device_addr);
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+			btd_adapter_get_storage_dir(adapter), device_addr);
 
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
@@ -8667,7 +8669,7 @@ static void store_irk(struct btd_adapter *adapter, const bdaddr_t *peer,
 	ba2str(peer, device_addr);
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
-					adapter_dir(adapter), device_addr);
+			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 
@@ -8755,7 +8757,7 @@ static void store_conn_param(struct btd_adapter *adapter, const bdaddr_t *peer,
 	DBG("");
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
-					adapter_dir(adapter), device_addr);
+			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 
@@ -9333,7 +9335,7 @@ static void remove_keys(struct btd_adapter *adapter,
 	ba2str(device_get_address(device), device_addr);
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
-					adapter_dir(adapter), device_addr);
+			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 
