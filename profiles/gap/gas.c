@@ -310,6 +310,7 @@ static int gap_disconnect(struct btd_service *service)
 static struct btd_profile gap_profile = {
 	.name		= "gap-profile",
 	.remote_uuid	= GAP_UUID,
+	.external	= true,
 	.device_probe	= gap_probe,
 	.device_remove	= gap_remove,
 	.accept		= gap_accept,
