@@ -225,11 +225,7 @@ test_scripts =
 unit_tests =
 
 include Makefile.tools
-
-if OBEX
 include Makefile.obexd
-endif
-
 include android/Makefile.am
 
 unit_tests += unit/metrics_unittests
