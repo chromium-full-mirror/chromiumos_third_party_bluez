@@ -3021,6 +3021,7 @@ static void property_set_powered(const GDBusPropertyTable *property,
 	dbus_message_iter_get_basic(iter, &enabled);
 	adapter->desired_powered = enabled;
 
+	info("adapter %s set power to %d", adapter->path, enabled);
 	property_set_mode(adapter, MGMT_SETTING_POWERED, iter, id);
 }
 
