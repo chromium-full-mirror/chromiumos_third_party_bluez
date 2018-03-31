@@ -97,24 +97,51 @@ GKeyFile *btd_get_main_conf(void)
 	return main_conf;
 }
 
-static GKeyFile *load_config(const char *file)
+static gchar *config_get_contents(const char *filename)
 {
+	gchar *content = NULL;
 	GError *err = NULL;
-	GKeyFile *keyfile;
 
-	keyfile = g_key_file_new();
+	if (filename) {
+		g_file_get_contents(filename, &content, NULL, &err);
+		if (err) {
+			error("Reading %s failed: %s", filename, err->message);
+			g_error_free(err);
+		}
+	}
+	return content;
+}
 
-	g_key_file_set_list_separator(keyfile, ',');
+static GKeyFile *load_configs(const char *filename1, const char *filename2)
+{
+	GKeyFile *conf = NULL;
+	gchar *content = NULL;
+	gchar *content1 = NULL;
+	gchar *content2 = NULL;
+	GError *err = NULL;
 
-	if (!g_key_file_load_from_file(keyfile, file, 0, &err)) {
-		if (!g_error_matches(err, G_FILE_ERROR, G_FILE_ERROR_NOENT))
-			error("Parsing %s failed: %s", file, err->message);
+	content1 = config_get_contents(filename1);
+	content2 = config_get_contents(filename2);
+
+	if (content1)
+		content = g_strjoin(NULL, content1, content2, NULL);
+	else
+		content = g_strjoin(NULL, content2, NULL);
+	g_free(content1);
+	g_free(content2);
+	DBG("merged contents: %s", content);
+
+	conf = g_key_file_new();
+	g_key_file_set_list_separator(conf, ',');
+	g_key_file_load_from_data(conf, content, strlen(content), 0, &err);
+	g_free(content);
+	if (err) {
+		error("Failed to load config from data: %s", err->message);
 		g_error_free(err);
-		g_key_file_free(keyfile);
+		g_key_file_free(conf);
 		return NULL;
 	}
-
-	return keyfile;
+	return conf;
 }
 
 static void parse_did(const char *did)
@@ -374,9 +401,12 @@ static void parse_config(GKeyFile *config)
 
 	str = g_key_file_get_string(config, "GATT", "Cache", &err);
 	if (err) {
+		DBG("%s", err->message);
 		g_clear_error(&err);
 		main_opts.gatt_cache = BT_GATT_CACHE_ALWAYS;
 		return;
+	} else {
+		DBG("GATT.Cache=%s", str);
 	}
 
 	main_opts.gatt_cache = parse_gatt_cache(str);
@@ -667,11 +697,34 @@ int main(int argc, char *argv[])
 
 	sd_notify(0, "STATUS=Starting up");
 
-	if (option_configfile) {
-		main_conf = load_config(option_configfile);
-	} else {
-		main_conf = load_config(CONFIGDIR "/main.conf");
-	}
+	/* Load two config files.
+	 * (1) The first one is a common config file, i.e.,
+	 *     /etc/bluetooth/main_common.conf
+	 * (2) The second one is a board specific config file
+	 *     specified by option_configfile.
+	 *     Depending on if baseboards exist, there are two
+	 *     types of board specific config files.
+	 *     a. A reef config file, as an example, is named as
+	 *        /etc/bluetooth/models/reef.conf
+	 *     b. A caroline config file, on the other hand, is named as
+	 *        /etc/bluetooth/main.conf
+	 * Either main_common.conf or option_configfile is allowed to be NULL.
+	 * When the option_configfile is not NULL, its keys would overwrite
+	 * those in main_common.conf if keys in both files are the same.
+	 * In practice, both config files do exist in Chrome OS.
+	 *
+	 * Refer to GLib Reference Manual: Key-value file parser
+	 * https://www.freedesktop.org/software/gstreamer-sdk/data/docs/latest/glib/glib-Key-value-file-parser.html
+	 * Description:
+	 * Groups in key files may contain the same key multiple times;
+	 * the last entry wins. Key files may also contain multiple groups with
+	 * the same name; they are merged together.
+	 *
+	 * Hence, be sure to place the board specific config file, i.e.,
+	 * option_configfile, as the 2nd parameter below.
+	 */
+	main_conf = load_configs(CONFIGDIR "/main_common.conf",
+					option_configfile);
 
 	parse_config(main_conf);
 
