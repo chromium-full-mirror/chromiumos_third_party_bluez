@@ -269,6 +269,11 @@ struct avrcp_data {
 	GSList *players;
 };
 
+struct set_volume_command {
+	uint8_t volume;
+	bool notify;
+};
+
 struct avrcp {
 	struct avrcp_server *server;
 	struct avctp *conn;
@@ -288,6 +293,12 @@ struct avrcp {
 	uint8_t transaction;
 	uint8_t transaction_events[AVRCP_EVENT_LAST + 1];
 	struct pending_pdu *pending_pdu;
+	// Whether there is a SetAbsoluteVolume command that is still waiting
+	// for response.
+	bool is_set_volume_in_progress;
+	// If this is non-null, then we need to issue SetAbsoluteVolume
+	// after the current in-progress SetAbsoluteVolume receives response.
+	struct set_volume_command *queued_set_volume;
 };
 
 struct passthrough_handler {
@@ -4259,6 +4270,24 @@ static void target_destroy(struct avrcp *session)
 	g_free(target);
 }
 
+void update_queued_set_volume(struct avrcp *session, uint8_t volume,
+				bool notify)
+{
+	if (!session->queued_set_volume)
+		session->queued_set_volume = g_new0(struct set_volume_command,
+							1);
+	session->queued_set_volume->volume = volume;
+	session->queued_set_volume->notify = notify;
+}
+
+void clear_queued_set_volume(struct avrcp *session)
+{
+	if (!session->queued_set_volume)
+		return;
+	g_free(session->queued_set_volume);
+	session->queued_set_volume = NULL;
+}
+
 static void session_destroy(struct avrcp *session, int err)
 {
 	struct avrcp_server *server = session->server;
@@ -4301,6 +4330,8 @@ static void session_destroy(struct avrcp *session, int err)
 
 	if (session->browsing_id > 0)
 		avctp_unregister_browsing_pdu_handler(session->browsing_id);
+
+	clear_queued_set_volume(session);
 
 	g_free(session);
 }
@@ -4494,6 +4525,8 @@ static gboolean avrcp_handle_set_volume(struct avctp *conn, uint8_t code,
 	int8_t volume;
 
 	DBG("");
+	session->is_set_volume_in_progress = false;
+
 	if (code == AVC_CTYPE_REJECTED || code == AVC_CTYPE_NOT_IMPLEMENTED ||
 								pdu == NULL)
 		return FALSE;
@@ -4502,6 +4535,14 @@ static gboolean avrcp_handle_set_volume(struct avctp *conn, uint8_t code,
 
 	/* Always attempt to update the transport volume */
 	media_transport_update_device_volume(session->dev, volume);
+
+	if (session->queued_set_volume) {
+		avrcp_set_volume(session->dev,
+					session->queued_set_volume->volume,
+					session->queued_set_volume->notify);
+		clear_queued_set_volume(session);
+		return FALSE;
+	}
 
 	if (player != NULL)
 		player->cb->set_volume(volume, session->dev, player->user_data);
@@ -4579,6 +4620,14 @@ int avrcp_set_volume(struct btd_device *dev, int8_t volume, bool notify)
 	if (session == NULL)
 		return -ENOTCONN;
 
+	// If there is an in-progress SetAbsoluteVolume, just update the
+	// queued_set_volume. Once the in-progress SetAbsoluteVolume receives
+	// response, it will send the queued SetAbsoluteVolume command.
+	if (session->is_set_volume_in_progress) {
+		update_queued_set_volume(session, volume, notify);
+		return 0;
+	}
+
 	if (notify) {
 		if (!session->target)
 			return -ENOTSUP;
@@ -4599,6 +4648,7 @@ int avrcp_set_volume(struct btd_device *dev, int8_t volume, bool notify)
 	pdu->params_len = htons(1);
 
 	DBG("Send absolute volume to peer: %d", volume);
+	session->is_set_volume_in_progress = TRUE;
 	return avctp_send_vendordep_req(session->conn,
 					AVC_CTYPE_CONTROL, AVC_SUBUNIT_PANEL,
 					buf, sizeof(buf),
