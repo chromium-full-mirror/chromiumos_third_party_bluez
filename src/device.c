@@ -4001,7 +4001,15 @@ static gint prim_attr_cmp(gconstpointer a, gconstpointer b)
 	const struct gatt_db_attribute *attr = b;
 	uint16_t start, end;
 
-	gatt_db_attribute_get_service_handles(attr, &start, &end);
+	if (!prim) {
+		warn("prim_attr_cmp: null gatt_primary");
+		return -EINVAL;
+	}
+
+	if (!gatt_db_attribute_get_service_handles(attr, &start, &end)) {
+		warn("prim_attr_cmp: null gatt_db_attribute");
+		return -EINVAL;
+	}
 
 	return !(prim->range.start == start && prim->range.end == end);
 }
