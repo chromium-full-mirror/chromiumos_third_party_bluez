@@ -100,6 +100,9 @@
 #define DISTANCE_VAL_INVALID	0x7FFF
 #define PATHLOSS_MAX		137
 
+#define SYNC_METHOD_RETRY_MAX	5	/* Max number of sync method retries */
+#define SYNC_METHOD_RETRY_INTERVAL	200	/* In milliseconds */
+
 static DBusConnection *dbus_conn = NULL;
 
 static bool kernel_conn_control = false;
@@ -287,6 +290,14 @@ struct btd_adapter {
 	unsigned int db_id;		/* Service event handler for GATT db */
 
 	bool is_default;		/* true if adapter is default one */
+};
+
+struct sync_method_try {
+	int try_number;
+	GDBusMethodFunction method;
+	DBusConnection *conn;
+	DBusMessage *msg;
+	void *user_data;
 };
 
 static struct btd_adapter *btd_adapter_lookup(uint16_t index)
@@ -2534,6 +2545,79 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+static struct sync_method_try *new_sync_method_try(GDBusMethodFunction method,
+							DBusConnection *conn,
+							DBusMessage *msg,
+							void *user_data) {
+	struct sync_method_try *call_try = g_new0(struct sync_method_try, 1);
+	call_try->method = method;
+	call_try->try_number = 0;
+	call_try->conn = conn;
+	call_try->msg = dbus_message_ref(msg);
+	call_try->user_data = user_data;
+	return call_try;
+}
+
+static void free_sync_method_try(struct sync_method_try *call_try) {
+	dbus_message_unref(call_try->msg);
+	g_free(call_try);
+}
+
+static gboolean try_sync_method(gpointer data) {
+	struct sync_method_try *call_try = (struct sync_method_try *) data;
+
+	DBG("Try %d of method %s", call_try->try_number,
+			dbus_message_get_member(call_try->msg));
+
+	DBusMessage *result = call_try->method(call_try->conn,
+						call_try->msg,
+						call_try->user_data);
+
+	if (dbus_message_is_error(result, ERROR_INTERFACE ".InProgress") &&
+			call_try->try_number < SYNC_METHOD_RETRY_MAX) {
+		// The retry interval is exponentially increasing:
+		// 200ms, 400ms, 800ms, 1600ms.
+		int retry_interval = SYNC_METHOD_RETRY_INTERVAL *
+					(1 << call_try->try_number);
+
+		call_try->try_number++;
+		g_timeout_add(retry_interval, try_sync_method, call_try);
+		return FALSE;
+	}
+
+	g_dbus_send_message(btd_get_dbus_connection(), result);
+	free_sync_method_try(call_try);
+	return FALSE;
+}
+
+static DBusMessage *call_sync_method_with_retry(GDBusMethodFunction method,
+						DBusConnection *conn,
+						DBusMessage *msg,
+						void *user_data) {
+	struct sync_method_try *initial_try = new_sync_method_try(
+			method, conn, msg, user_data);
+	try_sync_method(initial_try);
+	return NULL;
+}
+
+// Async wrapper of start_discovery() that also does retries on busy errors.
+static DBusMessage *start_discovery_with_retry(DBusConnection *conn,
+						DBusMessage *msg,
+						void *user_data)
+{
+	return call_sync_method_with_retry(
+			start_discovery, conn, msg, user_data);
+}
+
+// Async wrapper of stop_discovery() that also does retries on busy errors.
+static DBusMessage *stop_discovery_with_retry(DBusConnection *conn,
+						DBusMessage *msg,
+						void *user_data)
+{
+	return call_sync_method_with_retry(
+			stop_discovery, conn, msg, user_data);
+}
+
 static DBusMessage *pause_discovery(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
@@ -3523,11 +3607,13 @@ static DBusMessage *remove_service_record(DBusConnection *conn,
 }
 
 static const GDBusMethodTable adapter_methods[] = {
-	{ GDBUS_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
+	{ GDBUS_ASYNC_METHOD("StartDiscovery", NULL, NULL,
+			start_discovery_with_retry) },
 	{ GDBUS_METHOD("SetDiscoveryFilter",
 				GDBUS_ARGS({ "properties", "a{sv}" }), NULL,
 				set_discovery_filter) },
-	{ GDBUS_METHOD("StopDiscovery", NULL, NULL, stop_discovery) },
+	{ GDBUS_ASYNC_METHOD("StopDiscovery", NULL, NULL,
+			stop_discovery_with_retry) },
 	{ GDBUS_METHOD("PauseDiscovery", NULL, NULL, pause_discovery) },
 	{ GDBUS_METHOD("UnpauseDiscovery", NULL, NULL, unpause_discovery) },
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
