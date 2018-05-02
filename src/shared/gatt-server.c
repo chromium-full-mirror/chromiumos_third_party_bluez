@@ -109,6 +109,9 @@ struct bt_gatt_server {
 	struct async_read_op *pending_read_op;
 	struct async_write_op *pending_write_op;
 
+	bt_gatt_server_mtu_notify_func_t mtu_notify_callback;
+	void *mtu_notify_data;
+
 	bt_gatt_server_debug_func_t debug_callback;
 	bt_gatt_server_destroy_func_t debug_destroy;
 	void *debug_data;
@@ -1382,6 +1385,9 @@ static void exchange_mtu_cb(uint8_t opcode, const void *pdu,
 
 	util_debug(server->debug_callback, server->debug_data,
 			"MTU exchange complete, with MTU: %u", final_mtu);
+
+	if (server->mtu_notify_callback)
+		server->mtu_notify_callback(final_mtu, server->mtu_notify_data);
 }
 
 static bool gatt_server_register_att_handlers(struct bt_gatt_server *server)
@@ -1495,6 +1501,8 @@ struct bt_gatt_server *bt_gatt_server_new(struct gatt_db *db,
 	server->mtu = MAX(mtu, BT_ATT_DEFAULT_LE_MTU);
 	server->max_prep_queue_len = DEFAULT_MAX_PREP_QUEUE_LEN;
 	server->prep_queue = queue_new();
+	server->mtu_notify_callback = NULL;
+	server->mtu_notify_data = NULL;
 
 	if (!gatt_server_register_att_handlers(server)) {
 		bt_gatt_server_free(server);
@@ -1523,6 +1531,17 @@ void bt_gatt_server_unref(struct bt_gatt_server *server)
 		return;
 
 	bt_gatt_server_free(server);
+}
+
+bool bt_gatt_server_set_mtu_notify(struct bt_gatt_server *server,
+	bt_gatt_server_mtu_notify_func_t callback, void* user_data)
+{
+	if (!server || !callback)
+		return false;
+
+	server->mtu_notify_callback = callback;
+	server->mtu_notify_data = user_data;
+	return true;
 }
 
 bool bt_gatt_server_set_debug(struct bt_gatt_server *server,

@@ -276,3 +276,8 @@ Properties	string Address [readonly]
 		array{byte} AdvertisingFlags [readonly, experimental]
 
 			The Advertising Data Flags of the remote device.
+
+		uint16 MTU [readonly, optional]
+
+			The MTU used in ATT communication with the remote
+			device.

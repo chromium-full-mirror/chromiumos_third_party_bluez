@@ -31,9 +31,13 @@ struct bt_gatt_server *bt_gatt_server_new(struct gatt_db *db,
 struct bt_gatt_server *bt_gatt_server_ref(struct bt_gatt_server *server);
 void bt_gatt_server_unref(struct bt_gatt_server *server);
 
+typedef void (*bt_gatt_server_mtu_notify_func_t)(uint16_t mtu, void *user_data);
 typedef void (*bt_gatt_server_destroy_func_t)(void *user_data);
 typedef void (*bt_gatt_server_debug_func_t)(const char *str, void *user_data);
 typedef void (*bt_gatt_server_conf_func_t)(void *user_data);
+
+bool bt_gatt_server_set_mtu_notify(struct bt_gatt_server *server,
+	bt_gatt_server_mtu_notify_func_t callback, void* user_data);
 
 bool bt_gatt_server_set_debug(struct bt_gatt_server *server,
 					bt_gatt_server_debug_func_t callback,
