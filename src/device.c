@@ -1330,6 +1330,22 @@ dev_property_get_service_data(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean dev_property_get_mtu(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *dev = data;
+	dbus_uint16_t val = dev->att_mtu;
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_UINT16, &val);
+	return TRUE;
+}
+
+static gboolean dev_property_mtu_exist(const GDBusPropertyTable *property,
+					void *data)
+{
+	struct btd_device *dev = data;
+	return dev->att_mtu == 0 ? FALSE : TRUE;
+}
+
 static gboolean
 dev_property_service_data_exist(const GDBusPropertyTable *property,
 								void *data)
@@ -3261,6 +3277,8 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "AdvertisingData", "a{yv}", dev_property_get_advertising_data,
 				NULL, dev_property_advertising_data_exist,
 				G_DBUS_PROPERTY_FLAG_EXPERIMENTAL },
+	{ "MTU", "q", dev_property_get_mtu, NULL, dev_property_mtu_exist },
+
 	{ }
 };
 
@@ -5396,6 +5414,16 @@ static void gatt_client_service_changed(uint16_t start_handle,
 	DBG("start 0x%04x, end: 0x%04x", start_handle, end_handle);
 }
 
+static void mtu_received(uint16_t mtu, void *user_data)
+{
+	struct btd_device *dev = user_data;
+        if (dev == NULL)
+                return;
+
+	dev->att_mtu = mtu;
+	g_dbus_emit_property_changed(dbus_conn, dev->path, DEVICE_INTERFACE, "MTU");
+}
+
 static void gatt_debug(const char *str, void *user_data)
 {
 	DBG("%s", str);
@@ -5465,6 +5493,8 @@ static void gatt_server_init(struct btd_device *device,
 	}
 
 	bt_att_set_enc_key_size(device->att, device->ltk_enc_size);
+
+	bt_gatt_server_set_mtu_notify(device->server, mtu_received, (void*)device);
 	bt_gatt_server_set_debug(device->server, gatt_debug, NULL, NULL);
 
 	btd_gatt_database_server_connected(database, device->server);

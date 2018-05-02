@@ -309,3 +309,8 @@ Properties	string Address [readonly]
 			Example:
 				<Transport Discovery> <Organization Flags...>
 				0x26                   0x01         0x01...
+
+		uint16 MTU [readonly, optional]
+
+			The MTU used in ATT communication with the remote
+			device.
