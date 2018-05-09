@@ -170,6 +170,14 @@ Properties	string UUID [read-only]
 				"encrypt-authenticated-write"
 				"secure-read" (Server only)
 				"secure-write" (Server only)
+				"permission-read"
+				"permission-write"
+				"permission-encrypt-read"
+				"permission-encrypt-write"
+				"permission-authenticated-read"
+				"permission-authenticated-write"
+				"permission-secure-read"
+				"permission-secure-write"
 
 Characteristic Descriptors hierarchy
 ====================================

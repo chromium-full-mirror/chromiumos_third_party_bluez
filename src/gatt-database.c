@@ -1126,49 +1126,54 @@ static bool parse_chrc_flags(DBusMessageIter *array, uint8_t *props,
 			*props |= BT_GATT_CHRC_PROP_BROADCAST;
 		else if (!strcmp("read", flag)) {
 			*props |= BT_GATT_CHRC_PROP_READ;
-			*perm |= BT_ATT_PERM_READ;
 		} else if (!strcmp("write-without-response", flag)) {
 			*props |= BT_GATT_CHRC_PROP_WRITE_WITHOUT_RESP;
-			*perm |= BT_ATT_PERM_WRITE;
 		} else if (!strcmp("write", flag)) {
 			*props |= BT_GATT_CHRC_PROP_WRITE;
-			*perm |= BT_ATT_PERM_WRITE;
 		} else if (!strcmp("notify", flag)) {
 			*props |= BT_GATT_CHRC_PROP_NOTIFY;
 		} else if (!strcmp("indicate", flag)) {
 			*props |= BT_GATT_CHRC_PROP_INDICATE;
 		} else if (!strcmp("authenticated-signed-writes", flag)) {
 			*props |= BT_GATT_CHRC_PROP_AUTH;
-			*perm |= BT_ATT_PERM_WRITE;
 		} else if (!strcmp("reliable-write", flag)) {
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_RELIABLE_WRITE;
-			*perm |= BT_ATT_PERM_WRITE;
 		} else if (!strcmp("writable-auxiliaries", flag)) {
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_WRITABLE_AUX;
 		} else if (!strcmp("encrypt-read", flag)) {
 			*props |= BT_GATT_CHRC_PROP_READ;
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_ENC_READ;
-			*perm |= BT_ATT_PERM_READ | BT_ATT_PERM_READ_ENCRYPT;
 		} else if (!strcmp("encrypt-write", flag)) {
 			*props |= BT_GATT_CHRC_PROP_WRITE;
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_ENC_WRITE;
-			*perm |= BT_ATT_PERM_WRITE | BT_ATT_PERM_WRITE_ENCRYPT;
 		} else if (!strcmp("encrypt-authenticated-read", flag)) {
 			*props |= BT_GATT_CHRC_PROP_READ;
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_AUTH_READ;
-			*perm |= BT_ATT_PERM_READ | BT_ATT_PERM_READ_AUTHEN;
 		} else if (!strcmp("encrypt-authenticated-write", flag)) {
 			*props |= BT_GATT_CHRC_PROP_WRITE;
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_AUTH_WRITE;
-			*perm |= BT_ATT_PERM_WRITE | BT_ATT_PERM_WRITE_AUTHEN;
 		} else if (!strcmp("secure-read", flag)) {
 			*props |= BT_GATT_CHRC_PROP_READ;
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_AUTH_READ;
-			*perm |= BT_ATT_PERM_READ | BT_ATT_PERM_READ_SECURE;
 		} else if (!strcmp("secure-write", flag)) {
 			*props |= BT_GATT_CHRC_PROP_WRITE;
 			*ext_props |= BT_GATT_CHRC_EXT_PROP_AUTH_WRITE;
-			*perm |= BT_ATT_PERM_WRITE | BT_ATT_PERM_WRITE_SECURE;
+		} else if (!strcmp("permission-read", flag)) {
+			*perm |= BT_ATT_PERM_READ;
+		} else if (!strcmp("permission-write", flag)) {
+			*perm |= BT_ATT_PERM_WRITE;
+		} else if (!strcmp("permission-encrypt-read", flag)) {
+			*perm |= BT_ATT_PERM_READ_ENCRYPT;
+		} else if (!strcmp("permission-encrypt-write", flag)) {
+			*perm |= BT_ATT_PERM_WRITE_ENCRYPT;
+		} else if (!strcmp("permission-authenticated-read", flag)) {
+			*perm |= BT_ATT_PERM_READ_AUTHEN;
+		} else if (!strcmp("permission-authenticated-write", flag)) {
+			*perm |= BT_ATT_PERM_WRITE_AUTHEN;
+		} else if (!strcmp("permission-secure-read", flag)) {
+			*perm |= BT_ATT_PERM_READ_SECURE;
+		} else if (!strcmp("permission-secure-write", flag)) {
+			*perm |= BT_ATT_PERM_WRITE_SECURE;
 		} else {
 			error("Invalid characteristic flag: %s", flag);
 			return false;
