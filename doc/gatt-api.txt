@@ -289,6 +289,14 @@ Properties	string UUID [read-only]
 				"secure-read" (Server only)
 				"secure-write" (Server only)
 				"authorize"
+				"permission-read"
+				"permission-write"
+				"permission-encrypt-read"
+				"permission-encrypt-write"
+				"permission-authenticated-read"
+				"permission-authenticated-write"
+				"permission-secure-read"
+				"permission-secure-write"
 
 		uint16 Handle [read-write, optional] (Server Only)
 
