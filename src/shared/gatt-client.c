@@ -2283,6 +2283,7 @@ static struct bt_gatt_client *gatt_client_new(struct gatt_db *db,
 	client->att = bt_att_ref(att);
 	client->db = gatt_db_ref(db);
 	client->features = features;
+	client->reliable_write_session_id = 0;
 
 	return client;
 
@@ -3631,6 +3632,12 @@ unsigned int bt_gatt_client_write_execute(struct bt_gatt_client *client,
 	}
 
 	return id;
+}
+
+unsigned int bt_gatt_client_reliable_write_session_id(
+					struct bt_gatt_client *client)
+{
+	return client == NULL ? 0 : client->reliable_write_session_id;
 }
 
 unsigned int bt_gatt_client_register_notify(struct bt_gatt_client *client,
