@@ -91,6 +91,23 @@ Methods		array{byte} ReadValue(dict options)
 					 org.bluez.Error.NotAuthorized
 					 org.bluez.Error.NotSupported
 
+		void PrepareWriteValue(array{byte} value, dict options)
+
+			Issues a request to prepare write the value of the
+			characteristic. A prepare write is part of a reliable
+			write and only committed when ExecuteWrite() is called
+			from a device.
+
+			Possible options: "offset": Start offset
+
+			Possible Errors: org.bluez.Error.Failed
+					 org.bluez.Error.InProgress
+					 org.bluez.Error.InvalidValueLength
+					 org.bluez.Error.NotAuthorized
+					 org.bluez.Error.NotConnected
+					 org.bluez.Error.NotPermitted
+					 org.bluez.Error.NotSupported
+
 		void StartNotify()
 
 			Starts a notification session from this characteristic

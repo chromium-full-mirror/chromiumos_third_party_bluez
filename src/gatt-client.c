@@ -212,6 +212,7 @@ static int parse_value_arg(DBusMessageIter *iter, uint8_t **value, int *len)
 
 	dbus_message_iter_recurse(iter, &array);
 	dbus_message_iter_get_fixed_array(&array, value, len);
+	dbus_message_iter_next(iter);
 
 	return 0;
 }
@@ -254,7 +255,7 @@ static void message_append_byte_array(DBusMessage *msg, const uint8_t *bytes,
 	dbus_message_iter_close_container(&iter, &array);
 }
 
-static DBusMessage *create_gatt_dbus_error(DBusMessage *msg, uint8_t att_ecode)
+DBusMessage *btd_create_gatt_dbus_error(DBusMessage *msg, uint8_t att_ecode)
 {
 	switch (att_ecode) {
 	case BT_ATT_ERROR_READ_NOT_PERMITTED:
@@ -308,7 +309,7 @@ static void async_dbus_op_reply(struct async_dbus_op *op, int err,
 		DBusMessage *msg = entry->data;
 
 		if (err) {
-			reply = err > 0 ? create_gatt_dbus_error(msg, err) :
+			reply = err > 0 ? btd_create_gatt_dbus_error(msg, err) :
 				btd_error_failed(msg, strerror(-err));
 			goto send_reply;
 		}
@@ -402,6 +403,7 @@ static int parse_options(DBusMessageIter *iter, uint16_t *offset)
 		dbus_message_iter_next(&dict);
 	}
 
+	dbus_message_iter_next(iter);
 	return 0;
 }
 
@@ -543,6 +545,28 @@ static struct async_dbus_op *start_write_request(DBusMessage *msg,
 		return NULL;
 	}
 
+	return op;
+}
+
+static struct async_dbus_op *start_prepare_write(DBusMessage *msg,
+					uint16_t handle,
+					struct bt_gatt_client *gatt,
+					const uint8_t *value,
+					size_t value_len, uint16_t offset,
+					void *data,
+					async_dbus_op_complete_t complete)
+{
+	unsigned int id = bt_gatt_client_reliable_write_session_id(gatt);
+	struct async_dbus_op *op = async_dbus_op_new(msg, data);
+	op->complete = complete;
+	op->offset = offset;
+	op->id = bt_gatt_client_prepare_write(gatt, id, handle, offset, value,
+						value_len, write_result_cb, op,
+						async_dbus_op_free);
+	if (!op->id) {
+		async_dbus_op_free(op);
+		return NULL;
+	}
 	return op;
 }
 
@@ -989,6 +1013,40 @@ fail:
 	return btd_error_not_supported(msg);
 }
 
+static DBusMessage *characteristic_prepare_write_value(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	struct characteristic *chrc = user_data;
+	struct bt_gatt_client *gatt = chrc->service->client->gatt;
+	DBusMessageIter iter;
+	uint8_t *value = NULL;
+	int value_len = 0;
+	uint16_t offset = 0;
+	if (!gatt)
+		return btd_error_not_connected(msg);
+
+	if (chrc->write_op)
+		return btd_error_in_progress(msg);
+
+	dbus_message_iter_init(msg, &iter);
+	if (parse_value_arg(&iter, &value, &value_len))
+		return btd_error_invalid_args(msg);
+
+	if (parse_options(&iter, &offset))
+		return btd_error_invalid_args(msg);
+
+	if (!(chrc->props & BT_GATT_CHRC_PROP_WRITE))
+		return btd_error_not_supported(msg);
+
+	chrc->write_op = start_prepare_write(msg, chrc->value_handle,
+						gatt, value, value_len, offset,
+						chrc, chrc_write_complete);
+	if (!chrc->write_op)
+		return btd_error_failed(msg, "Failed to initiate write");
+
+	return NULL;
+}
+
 struct notify_client {
 	struct characteristic *chrc;
 	int ref_count;
@@ -1270,6 +1328,10 @@ static const GDBusMethodTable characteristic_methods[] = {
 						{ "options", "a{sv}" }),
 					NULL,
 					characteristic_write_value) },
+	{ GDBUS_ASYNC_METHOD("PrepareWriteValue", GDBUS_ARGS({ "value", "ay" },
+						{ "options", "a{sv}" }),
+					NULL,
+					characteristic_prepare_write_value) },
 	{ GDBUS_ASYNC_METHOD("StartNotify", NULL, NULL,
 					characteristic_start_notify) },
 	{ GDBUS_METHOD("StopNotify", NULL, NULL,
@@ -1774,4 +1836,10 @@ void btd_gatt_client_foreach_service(struct btd_gatt_client *client,
 	data.user_data = user_data;
 
 	queue_foreach(client->services, client_service_foreach, &data);
+}
+
+struct bt_gatt_client *btd_gatt_client_get_gatt_client(
+					struct btd_gatt_client *client)
+{
+	return client ? client->gatt : NULL;
 }

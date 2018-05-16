@@ -122,6 +122,8 @@ unsigned int bt_gatt_client_write_execute(struct bt_gatt_client *client,
 					bt_gatt_client_callback_t callback,
 					void *user_data,
 					bt_gatt_client_destroy_func_t destroy);
+unsigned int bt_gatt_client_reliable_write_session_id(
+					struct bt_gatt_client *client);
 
 unsigned int bt_gatt_client_register_notify(struct bt_gatt_client *client,
 				uint16_t chrc_value_handle,
