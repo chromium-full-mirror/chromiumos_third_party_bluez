@@ -127,6 +127,7 @@ unsigned int bt_gatt_client_reliable_write_session_id(
 
 unsigned int bt_gatt_client_register_notify(struct bt_gatt_client *client,
 				uint16_t chrc_value_handle,
+				uint8_t cccd_value,
 				bt_gatt_client_register_callback_t callback,
 				bt_gatt_client_notify_callback_t notify,
 				void *user_data,

@@ -154,3 +154,8 @@ struct bt_att_pdu_error_rsp {
 #define BT_GATT_CHRC_EXT_PROP_AUTH_WRITE		0x20
 #define BT_GATT_CHRC_EXT_PROP_AUTH	(BT_GATT_CHRC_EXT_PROP_AUTH_READ | \
 					BT_GATT_CHRC_EXT_PROP_AUTH_WRITE)
+
+/* GATT CCC Descriptor values */
+#define BT_GATT_CCCD_DEFAULT				0x00
+#define BT_GATT_CCCD_NOTIFY				0x01
+#define BT_GATT_CCCD_INDICATE				0x02

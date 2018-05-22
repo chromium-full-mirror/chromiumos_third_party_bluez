@@ -183,6 +183,7 @@ struct notify_data {
 	unsigned int id;
 	unsigned int att_id;
 	int ref_count;
+	uint8_t cccd_value;
 	struct notify_chrc *chrc;
 	bt_gatt_client_register_callback_t callback;
 	bt_gatt_client_notify_callback_t notify;
@@ -1238,15 +1239,29 @@ static bool notify_data_write_ccc(struct notify_data *notify_data, bool enable,
 	put_le16(notify_data->chrc->ccc_handle, pdu);
 
 	if (enable) {
-		/* Try to enable notifications and/or indications based on
-		 * whatever the characteristic supports.
-		 */
-		if (notify_data->chrc->properties & BT_GATT_CHRC_PROP_NOTIFY)
-			pdu[2] = 0x01;
-
-		if (notify_data->chrc->properties & BT_GATT_CHRC_PROP_INDICATE)
-			pdu[2] |= 0x02;
-
+		switch (notify_data->cccd_value) {
+			case BT_GATT_CCCD_INDICATE:
+				if (notify_data->chrc->properties &
+						BT_GATT_CHRC_PROP_INDICATE)
+					pdu[2] = BT_GATT_CCCD_INDICATE;
+				break;
+			case BT_GATT_CCCD_NOTIFY:
+				if (notify_data->chrc->properties &
+						BT_GATT_CHRC_PROP_NOTIFY)
+					pdu[2] = BT_GATT_CCCD_NOTIFY;
+				break;
+			case BT_GATT_CCCD_DEFAULT:
+				/* Infer the CCCD value from characteristic
+				 * properties.
+				 */
+				if (notify_data->chrc->properties &
+						BT_GATT_CHRC_PROP_NOTIFY)
+		                        pdu[2] = BT_GATT_CCCD_NOTIFY;
+				if (notify_data->chrc->properties &
+						BT_GATT_CHRC_PROP_INDICATE)
+					pdu[2] |= BT_GATT_CCCD_INDICATE;
+				break;
+		}
 		if (!pdu[2])
 			return false;
 	}
@@ -1323,6 +1338,7 @@ static bool match_notify_chrc_value_handle(const void *a, const void *b)
 
 static unsigned int register_notify(struct bt_gatt_client *client,
 				uint16_t handle,
+				uint8_t cccd_value,
 				bt_gatt_client_register_callback_t callback,
 				bt_gatt_client_notify_callback_t notify,
 				void *user_data,
@@ -1352,6 +1368,7 @@ static unsigned int register_notify(struct bt_gatt_client *client,
 	notify_data = new0(struct notify_data, 1);
 	notify_data->client = client;
 	notify_data->ref_count = 1;
+	notify_data->cccd_value = cccd_value;
 	notify_data->chrc = chrc;
 	notify_data->callback = callback;
 	notify_data->notify = notify;
@@ -1453,6 +1470,7 @@ static bool register_service_changed(struct bt_gatt_client *client)
 	 */
 	client->svc_chngd_ind_id = register_notify(client,
 					gatt_db_attribute_get_handle(attr),
+					BT_GATT_CCCD_INDICATE,
 					service_changed_register_cb,
 					service_changed_cb,
 					client, NULL);
@@ -1687,7 +1705,7 @@ static void disable_ccc_callback(uint8_t opcode, const void *pdu,
 	 */
 	while (1) {
 		next_data = queue_pop_head(notify_data->chrc->reg_notify_queue);
-		if (!next_data || notify_data_write_ccc(notify_data, true,
+		if (!next_data || notify_data_write_ccc(next_data, true,
 							enable_ccc_callback))
 			return;
 	}
@@ -3130,6 +3148,7 @@ unsigned int bt_gatt_client_reliable_write_session_id(
 
 unsigned int bt_gatt_client_register_notify(struct bt_gatt_client *client,
 				uint16_t chrc_value_handle,
+				uint8_t cccd_value,
 				bt_gatt_client_register_callback_t callback,
 				bt_gatt_client_notify_callback_t notify,
 				void *user_data,
@@ -3141,8 +3160,8 @@ unsigned int bt_gatt_client_register_notify(struct bt_gatt_client *client,
 	if (client->in_svc_chngd)
 		return 0;
 
-	return register_notify(client, chrc_value_handle, callback, notify,
-							user_data, destroy);
+	return register_notify(client, chrc_value_handle, cccd_value, callback,
+						notify, user_data, destroy);
 }
 
 bool bt_gatt_client_unregister_notify(struct bt_gatt_client *client,

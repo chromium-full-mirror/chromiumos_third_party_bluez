@@ -1142,6 +1142,7 @@ static void cmd_register_notify(struct client *cli, char *cmd_str)
 	}
 
 	id = bt_gatt_client_register_notify(cli->gatt, value_handle,
+							BT_GATT_CCCD_DEFAULT,
 							register_notify_cb,
 							notify_cb, NULL, NULL);
 	if (!id) {

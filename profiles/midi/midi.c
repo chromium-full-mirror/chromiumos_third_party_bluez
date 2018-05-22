@@ -173,6 +173,7 @@ static void midi_io_initial_read_cb(bool success, uint8_t att_ecode,
 	midi->io_cb_id =
 		bt_gatt_client_register_notify(midi->client,
 		                               midi->midi_io_handle,
+		                               BT_GATT_CCCD_NOTIFY,
 		                               midi_io_ccc_written_cb,
 		                               midi_io_value_cb,
 		                               midi,

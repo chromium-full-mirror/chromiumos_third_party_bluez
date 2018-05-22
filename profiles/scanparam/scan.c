@@ -109,8 +109,9 @@ static void handle_refresh(struct scan *scan, uint16_t value_handle)
 	DBG("Scan Refresh handle: 0x%04x", value_handle);
 
 	scan->refresh_cb_id = bt_gatt_client_register_notify(scan->client,
-					value_handle, refresh_ccc_written_cb,
-						refresh_value_cb, scan,	NULL);
+					value_handle, BT_GATT_CCCD_DEFAULT,
+					refresh_ccc_written_cb,
+					refresh_value_cb, scan,	NULL);
 }
 
 static void handle_iwin(struct scan *scan, uint16_t value_handle)
