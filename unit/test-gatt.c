@@ -2262,6 +2262,7 @@ static void test_notification(struct context *context)
 	const struct test_step *step = context->data->step;
 
 	g_assert(bt_gatt_client_register_notify(context->client, step->handle,
+						BT_GATT_CCCD_NOTIFY,
 						notification_register_cb,
 						notification_cb, context,
 						NULL));
@@ -2323,6 +2324,7 @@ static void test_indication(struct context *context)
 	const struct test_step *step = context->data->step;
 
 	g_assert(bt_gatt_client_register_notify(context->client, step->handle,
+						BT_GATT_CCCD_INDICATE,
 						notification_register_cb,
 						indication_cb, context,
 						NULL));
@@ -3262,7 +3264,7 @@ int main(int argc, char *argv[])
 			&test_notification_1,
 			CLIENT_INIT_PDUS,
 			SMALL_DB_DISCOVERY_PDUS,
-			raw_pdu(0x12, 0x04, 0x00, 0x03, 0x00),
+			raw_pdu(0x12, 0x04, 0x00, 0x01, 0x00),
 			raw_pdu(0x13),
 			raw_pdu(),
 			raw_pdu(0x1B, 0x03, 0x00, 0x01, 0x02, 0x03));
@@ -3288,7 +3290,7 @@ int main(int argc, char *argv[])
 			&test_indication_1,
 			CLIENT_INIT_PDUS,
 			SMALL_DB_DISCOVERY_PDUS,
-			raw_pdu(0x12, 0x04, 0x00, 0x03, 0x00),
+			raw_pdu(0x12, 0x04, 0x00, 0x02, 0x00),
 			raw_pdu(0x13),
 			raw_pdu(),
 			raw_pdu(0x1D, 0x03, 0x00, 0x01, 0x02, 0x03),

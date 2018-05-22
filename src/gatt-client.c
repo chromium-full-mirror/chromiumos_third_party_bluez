@@ -1336,6 +1336,7 @@ struct notify_client {
 	char *owner;
 	guint watch;
 	unsigned int notify_id;
+	uint8_t cccd_value;
 };
 
 static void notify_client_free(struct notify_client *client)
@@ -1408,13 +1409,15 @@ static void notify_client_disconnect(DBusConnection *conn, void *user_data)
 }
 
 static struct notify_client *notify_client_create(struct characteristic *chrc,
-							const char *owner)
+							const char *owner,
+							uint8_t cccd_value)
 {
 	struct notify_client *client;
 
 	client = new0(struct notify_client, 1);
 	client->chrc = chrc;
 	client->owner = strdup(owner);
+	client->cccd_value = cccd_value;
 	if (!client->owner) {
 		free(client);
 		return NULL;
@@ -1573,12 +1576,13 @@ static DBusMessage *characteristic_acquire_notify(DBusConnection *conn,
 	if (!(chrc->props & BT_GATT_CHRC_PROP_NOTIFY))
 		return btd_error_not_supported(msg);
 
-	client = notify_client_create(chrc, sender);
+	client = notify_client_create(chrc, sender, BT_GATT_CCCD_DEFAULT);
 	if (!client)
 		return btd_error_failed(msg, "Failed allocate notify session");
 
 	client->notify_id = bt_gatt_client_register_notify(gatt,
 						chrc->value_handle,
+						client->cccd_value,
 						register_notify_io_cb,
 						notify_io_cb,
 						client, NULL);
@@ -1606,6 +1610,12 @@ static DBusMessage *characteristic_start_notify(DBusConnection *conn,
 	struct async_dbus_op *op;
 	struct notify_client *client;
 	struct btd_device *device = chrc->service->client->device;
+	uint8_t cccd_value;
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BYTE, &cccd_value,
+			DBUS_TYPE_INVALID) ||
+			cccd_value > BT_GATT_CCCD_INDICATE)
+		return btd_error_invalid_args(msg);
 
 	if (device_is_disconnecting(device)) {
 		error("Device is disconnecting. StartNotify is not allowed.");
@@ -1626,7 +1636,7 @@ static DBusMessage *characteristic_start_notify(DBusConnection *conn,
 				g_dbus_create_reply(msg, DBUS_TYPE_INVALID) :
 				btd_error_in_progress(msg);
 
-	client = notify_client_create(chrc, sender);
+	client = notify_client_create(chrc, sender, cccd_value);
 	if (!client)
 		return btd_error_failed(msg, "Failed allocate notify session");
 
@@ -1657,6 +1667,7 @@ static DBusMessage *characteristic_start_notify(DBusConnection *conn,
 
 	client->notify_id = bt_gatt_client_register_notify(gatt,
 						chrc->value_handle,
+						client->cccd_value,
 						register_notify_cb, notify_cb,
 						op, async_dbus_op_free);
 	if (client->notify_id)
@@ -1738,8 +1749,8 @@ static const GDBusMethodTable characteristic_methods[] = {
 						{ "options", "a{sv}" }),
 					NULL,
 					characteristic_prepare_write_value) },
-	{ GDBUS_ASYNC_METHOD("StartNotify", NULL, NULL,
-					characteristic_start_notify) },
+	{ GDBUS_ASYNC_METHOD("StartNotify", GDBUS_ARGS({ "cccd_value", "y" }),
+					NULL, characteristic_start_notify) },
 	{ GDBUS_METHOD("StopNotify", NULL, NULL,
 					characteristic_stop_notify) },
 	{ }
@@ -2212,6 +2223,7 @@ static void register_notify(void *data, void *user_data)
 
 	notify_client->notify_id = bt_gatt_client_register_notify(client->gatt,
 					notify_client->chrc->value_handle,
+					notify_client->cccd_value,
 					register_notify_cb, notify_cb,
 					op, async_dbus_op_free);
 	if (notify_client->notify_id)
