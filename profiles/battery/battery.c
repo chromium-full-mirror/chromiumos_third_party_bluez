@@ -189,6 +189,7 @@ static void read_initial_battery_level_cb(bool success,
 	/* request notify */
 	batt->batt_level_cb_id =
 		bt_gatt_client_register_notify(batt->client,
+		                               BT_GATT_CCCD_DEFAULT,
 		                               batt->batt_level_io_handle,
 		                               batt_io_ccc_written_cb,
 		                               batt_io_value_cb,

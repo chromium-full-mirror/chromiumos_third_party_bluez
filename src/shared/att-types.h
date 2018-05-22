@@ -172,3 +172,8 @@ struct bt_att_pdu_error_rsp {
 
 /* GATT Characteristic Server Features Bitfield values */
 #define BT_GATT_CHRC_SERVER_FEAT_EATT			0x01
+
+/* GATT CCC Descriptor values */
+#define BT_GATT_CCCD_DEFAULT				0x00
+#define BT_GATT_CCCD_NOTIFY				0x01
+#define BT_GATT_CCCD_INDICATE				0x02

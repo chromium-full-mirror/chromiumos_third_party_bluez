@@ -195,10 +195,15 @@ Methods		array{byte} ReadValue(dict options)
 					 org.bluez.Error.NotPermitted
 					 org.bluez.Error.NotSupported
 
-		void StartNotify()
+		void StartNotify(byte cccd_value)
 
 			Starts a notification session from this characteristic
 			if it supports value notifications or indications.
+			Possible CCCD values include
+			0x00 - inferred from the remote characteristic's
+			       properties
+			0x01 - notification
+			0x02 - indication
 
 			Possible Errors: org.bluez.Error.Failed
 					 org.bluez.Error.NotPermitted
