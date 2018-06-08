@@ -423,7 +423,7 @@ static void populate_gap_service(struct server *server)
 					BT_GATT_CHRC_PROP_READ |
 					BT_GATT_CHRC_PROP_EXT_PROP,
 					gap_device_name_read_cb,
-					gap_device_name_write_cb,
+					gap_device_name_write_cb, NULL,
 					server);
 
 	bt_uuid16_create(&uuid, GATT_CHARAC_EXT_PROPER_UUID);
@@ -439,7 +439,8 @@ static void populate_gap_service(struct server *server)
 	tmp = gatt_db_service_add_characteristic(service, &uuid,
 							BT_ATT_PERM_READ,
 							BT_GATT_CHRC_PROP_READ,
-							NULL, NULL, server);
+							NULL, NULL, NULL,
+							server);
 
 	/*
 	 * Write the appearance value to the database, since we're not using a
@@ -449,8 +450,8 @@ static void populate_gap_service(struct server *server)
 	gatt_db_attribute_write(tmp, 0, (void *) &appearance,
 							sizeof(appearance),
 							BT_ATT_OP_WRITE_REQ,
-							NULL, confirm_write,
-							NULL);
+							false, NULL,
+							confirm_write, NULL);
 
 	gatt_db_service_set_active(service, true);
 }
@@ -468,8 +469,7 @@ static void populate_gatt_service(struct server *server)
 	svc_chngd = gatt_db_service_add_characteristic(service, &uuid,
 			BT_ATT_PERM_READ,
 			BT_GATT_CHRC_PROP_READ | BT_GATT_CHRC_PROP_INDICATE,
-			gatt_service_changed_cb,
-			NULL, server);
+			gatt_service_changed_cb, NULL, NULL, server);
 	server->gatt_svc_chngd_handle = gatt_db_attribute_get_handle(svc_chngd);
 
 	bt_uuid16_create(&uuid, GATT_CLIENT_CHARAC_CFG_UUID);
@@ -497,7 +497,7 @@ static void populate_hr_service(struct server *server)
 	hr_msrmt = gatt_db_service_add_characteristic(service, &uuid,
 						BT_ATT_PERM_NONE,
 						BT_GATT_CHRC_PROP_NOTIFY,
-						NULL, NULL, NULL);
+						NULL, NULL, NULL, NULL);
 	server->hr_msrmt_handle = gatt_db_attribute_get_handle(hr_msrmt);
 
 	bt_uuid16_create(&uuid, GATT_CLIENT_CHARAC_CFG_UUID);
@@ -514,11 +514,11 @@ static void populate_hr_service(struct server *server)
 	body = gatt_db_service_add_characteristic(service, &uuid,
 						BT_ATT_PERM_READ,
 						BT_GATT_CHRC_PROP_READ,
-						NULL, NULL, server);
+						NULL, NULL, NULL, server);
 	gatt_db_attribute_write(body, 0, (void *) &body_loc, sizeof(body_loc),
 							BT_ATT_OP_WRITE_REQ,
-							NULL, confirm_write,
-							NULL);
+							false, NULL,
+							confirm_write, NULL);
 
 	/* HR Control Point Characteristic */
 	bt_uuid16_create(&uuid, UUID_HEART_RATE_CTRL);
@@ -526,7 +526,7 @@ static void populate_hr_service(struct server *server)
 						BT_ATT_PERM_WRITE,
 						BT_GATT_CHRC_PROP_WRITE,
 						NULL, hr_control_point_write_cb,
-						server);
+						NULL, server);
 
 	if (server->hr_visible)
 		gatt_db_service_set_active(service, true);

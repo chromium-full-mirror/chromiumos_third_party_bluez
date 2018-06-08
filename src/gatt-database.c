@@ -153,6 +153,8 @@ struct pending_op {
 	uint16_t offset;
 	uint8_t link_type;
 	uint8_t cccd_value;
+	bool prepare_write;
+	bool has_subsequent_write;
 	struct gatt_db_attribute *attrib;
 	struct queue *owner_queue;
 	struct iovec data;
@@ -842,7 +844,7 @@ static void populate_gap_service(struct btd_gatt_database *database)
 	gatt_db_service_add_characteristic(service, &uuid, BT_ATT_PERM_READ,
 							BT_GATT_CHRC_PROP_READ,
 							gap_device_name_read_cb,
-							NULL, database);
+							NULL, NULL, database);
 
 	/*
 	 * Device Appearance characteristic.
@@ -851,7 +853,7 @@ static void populate_gap_service(struct btd_gatt_database *database)
 	gatt_db_service_add_characteristic(service, &uuid, BT_ATT_PERM_READ,
 							BT_GATT_CHRC_PROP_READ,
 							gap_appearance_read_cb,
-							NULL, database);
+							NULL, NULL, database);
 
 	gatt_db_service_set_active(service, true);
 
@@ -1205,7 +1207,7 @@ static void populate_gatt_service(struct btd_gatt_database *database)
 	bt_uuid16_create(&uuid, GATT_CHARAC_SERVICE_CHANGED);
 	database->svc_chngd = gatt_db_service_add_characteristic(service, &uuid,
 				BT_ATT_PERM_READ, BT_GATT_CHRC_PROP_INDICATE,
-				NULL, NULL, database);
+				NULL, NULL, NULL, database);
 
 	database->svc_chngd_ccc = service_add_ccc(service, database, NULL, NULL,
 									NULL);
@@ -1216,19 +1218,19 @@ static void populate_gatt_service(struct btd_gatt_database *database)
 				BT_GATT_CHRC_PROP_READ |
 				BT_GATT_CHRC_PROP_WRITE,
 				cli_feat_read_cb, cli_feat_write_cb,
-				database);
+				NULL, database);
 
 	bt_uuid16_create(&uuid, GATT_CHARAC_DB_HASH);
 	database->db_hash = gatt_db_service_add_characteristic(service,
 				&uuid, BT_ATT_PERM_READ, BT_GATT_CHRC_PROP_READ,
-				db_hash_read_cb, NULL, database);
+				db_hash_read_cb, NULL, NULL, database);
 
 	/* Only enable EATT if there is a socket listening */
 	if (database->eatt_io) {
 		bt_uuid16_create(&uuid, GATT_CHARAC_SERVER_FEAT);
 		database->eatt = gatt_db_service_add_characteristic(service,
 				&uuid, BT_ATT_PERM_READ, BT_GATT_CHRC_PROP_READ,
-				server_feat_read_cb, NULL, database);
+				server_feat_read_cb, NULL, NULL, database);
 	}
 
 	gatt_db_service_set_active(service, true);
@@ -2158,11 +2160,17 @@ static void append_options(DBusMessageIter *iter, void *user_data)
 		link = NULL;
 		break;
 	}
+	dbus_bool_t has_subsequent_write =
+		op->has_subsequent_write ? TRUE : FALSE;
 
 	dict_append_entry(iter, "device", DBUS_TYPE_OBJECT_PATH, &path);
 	if (op->offset)
 		dict_append_entry(iter, "offset", DBUS_TYPE_UINT16,
 							&op->offset);
+	if (op->prepare_write)
+		dict_append_entry(iter, "has-subsequent-write",
+							DBUS_TYPE_BOOLEAN,
+							&has_subsequent_write);
 	if (link)
 		dict_append_entry(iter, "link", DBUS_TYPE_STRING, &link);
 	if (op->prep_authorize)
@@ -2296,7 +2304,9 @@ static struct pending_op *pending_write_new(struct btd_device *device,
 					const uint8_t *value, size_t len,
 					uint16_t offset, uint8_t link_type,
 					bool is_characteristic,
-					bool prep_authorize)
+					bool prep_authorize,
+					bool prepare_write,
+					bool has_subsequent_write)
 {
 	struct pending_op *op;
 
@@ -2313,6 +2323,8 @@ static struct pending_op *pending_write_new(struct btd_device *device,
 	op->link_type = link_type;
 	op->is_characteristic = is_characteristic;
 	op->prep_authorize = prep_authorize;
+	op->prepare_write = prepare_write;
+	op->has_subsequent_write = has_subsequent_write;
 	queue_push_tail(owner_queue, op);
 
 	return op;
@@ -2326,17 +2338,20 @@ static struct pending_op *send_write(struct btd_device *device,
 					const uint8_t *value, size_t len,
 					uint16_t offset, uint8_t link_type,
 					bool is_characteristic,
-					bool prep_authorize)
+					bool prep_authorize, bool prepare_write,
+					bool has_subsequent_write)
 {
 	struct pending_op *op;
 
 	op = pending_write_new(device, owner_queue, attrib, id, value, len,
 					offset, link_type, is_characteristic,
-					prep_authorize);
+					prep_authorize, prepare_write,
+					has_subsequent_write);
 
-	if (g_dbus_proxy_method_call(proxy, "WriteValue", write_setup_cb,
-					owner_queue ? write_reply_cb : NULL,
-					op, pending_op_free) == TRUE)
+	if (g_dbus_proxy_method_call(proxy,
+			prepare_write ? "PrepareWriteValue" : "WriteValue",
+			write_setup_cb, owner_queue ? write_reply_cb : NULL, op,
+			pending_op_free) == TRUE)
 		return op;
 
 	pending_op_free(op);
@@ -2449,7 +2464,7 @@ static void acquire_write_reply(DBusMessage *message, void *user_data)
 retry:
 	send_write(op->device, op->attrib, chrc->proxy, NULL, op->id,
 				op->data.iov_base, op->data.iov_len, 0,
-				op->link_type, false, false);
+				op->link_type, false, false, false, false);
 }
 
 static void acquire_write_setup(DBusMessageIter *iter, void *user_data)
@@ -2479,7 +2494,8 @@ static struct pending_op *acquire_write(struct external_chrc *chrc,
 	struct pending_op *op;
 
 	op = pending_write_new(device, NULL, attrib, id, value, len, 0,
-						link_type, false, false);
+						link_type, false, false, false,
+						false);
 
 	if (g_dbus_proxy_method_call(chrc->proxy, "AcquireWrite",
 					acquire_write_setup,
@@ -2748,8 +2764,8 @@ static bool database_add_cep(struct external_service *service,
 	memset(value, 0, sizeof(value));
 	value[0] = chrc->ext_props;
 
-	if (!gatt_db_attribute_write(cep, 0, value, sizeof(value), 0, NULL,
-							cep_write_cb, NULL)) {
+	if (!gatt_db_attribute_write(cep, 0, value, sizeof(value), 0, false,
+						NULL, cep_write_cb, NULL)) {
 		DBG("Failed to store CEP value in the database");
 		return false;
 	}
@@ -2813,7 +2829,7 @@ static void desc_write_cb(struct gatt_db_attribute *attrib,
 			send_write(device, attrib, desc->proxy,
 					desc->pending_writes, id, value, len,
 					offset, bt_att_get_link_type(att),
-					false, true);
+					false, true, false, false);
 		else
 			gatt_db_attribute_write_result(attrib, id, 0);
 
@@ -2825,7 +2841,7 @@ static void desc_write_cb(struct gatt_db_attribute *attrib,
 
 	if (send_write(device, attrib, desc->proxy, desc->pending_writes, id,
 			value, len, offset, bt_att_get_link_type(att), false,
-			false))
+			false, false, false))
 		return;
 
 fail:
@@ -2945,7 +2961,8 @@ static void chrc_write_cb(struct gatt_db_attribute *attrib,
 						chrc->req_prep_authorization)
 			send_write(device, attrib, chrc->proxy, queue,
 					id, value, len, offset,
-					bt_att_get_link_type(att), true, true);
+					bt_att_get_link_type(att), true, true,
+					false, false);
 		else
 			gatt_db_attribute_write_result(attrib, id, 0);
 
@@ -2972,7 +2989,39 @@ static void chrc_write_cb(struct gatt_db_attribute *attrib,
 	}
 
 	if (send_write(device, attrib, chrc->proxy, queue, id, value, len,
-			offset, bt_att_get_link_type(att), false, false))
+			offset, bt_att_get_link_type(att), false, false, false,
+			false))
+		return;
+
+fail:
+	gatt_db_attribute_write_result(attrib, id, BT_ATT_ERROR_UNLIKELY);
+}
+
+static void chrc_prepare_write_cb(struct gatt_db_attribute *attrib,
+					unsigned int id, uint16_t offset,
+					const uint8_t *value, size_t len,
+					uint8_t opcode,
+					bool has_subsequent_write,
+					struct bt_att *att,
+					void *user_data)
+{
+	struct external_chrc *chrc = user_data;
+	struct btd_device *device = att_get_device(att);
+	struct queue *queue = chrc->pending_writes;
+
+	if (chrc->attrib != attrib) {
+		error("Prepare write callback called with incorrect attribute");
+		goto fail;
+	}
+
+	if (!device) {
+		error("Unable to find device object");
+		goto fail;
+	}
+
+	if (send_write(device, attrib, chrc->proxy, queue, id, value, len,
+			offset, bt_att_get_link_type(att), false, false, true,
+			has_subsequent_write))
 		return;
 
 fail:
@@ -3036,7 +3085,9 @@ static bool database_add_chrc(struct external_service *service,
 	chrc->attrib = gatt_db_service_insert_characteristic(service->attrib,
 						handle, &uuid, chrc->perm,
 						chrc->props, chrc_read_cb,
-						chrc_write_cb, chrc);
+						chrc_write_cb,
+						chrc_prepare_write_cb,
+						chrc);
 	if (!chrc->attrib) {
 		error("Failed to create characteristic entry in database");
 		return false;

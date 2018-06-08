@@ -109,6 +109,7 @@ struct gatt_db_attribute {
 
 	gatt_db_read_t read_func;
 	gatt_db_write_t write_func;
+	gatt_db_prepare_write_t prepare_write_func;  // NULL for descriptors.
 	void *user_data;
 
 	unsigned int read_id;
@@ -127,14 +128,16 @@ struct gatt_db_service {
 };
 
 static void set_attribute_data(struct gatt_db_attribute *attribute,
-						gatt_db_read_t read_func,
-						gatt_db_write_t write_func,
-						uint32_t permissions,
-						void *user_data)
+				gatt_db_read_t read_func,
+				gatt_db_write_t write_func,
+				gatt_db_prepare_write_t prepare_write_func,
+				uint32_t permissions,
+				void *user_data)
 {
 	attribute->permissions = permissions;
 	attribute->read_func = read_func;
 	attribute->write_func = write_func;
+	attribute->prepare_write_func = prepare_write_func;
 	attribute->user_data = user_data;
 }
 
@@ -513,7 +516,8 @@ static struct gatt_db_service *gatt_db_service_create(const bt_uuid_t *uuid,
 		return NULL;
 	}
 
-	set_attribute_data(service->attributes[0], NULL, NULL, BT_ATT_PERM_READ, NULL);
+	set_attribute_data(service->attributes[0], NULL, NULL, NULL,
+				BT_ATT_PERM_READ, NULL);
 
 	return service;
 }
@@ -806,13 +810,14 @@ static uint16_t get_handle_at_index(struct gatt_db_service *service,
 
 static struct gatt_db_attribute *
 service_insert_characteristic(struct gatt_db_service *service,
-					uint16_t handle,
-					const bt_uuid_t *uuid,
-					uint32_t permissions,
-					uint8_t properties,
-					gatt_db_read_t read_func,
-					gatt_db_write_t write_func,
-					void *user_data)
+				uint16_t handle,
+				const bt_uuid_t *uuid,
+				uint32_t permissions,
+				uint8_t properties,
+				gatt_db_read_t read_func,
+				gatt_db_write_t write_func,
+				gatt_db_prepare_write_t prepare_write_func,
+				void *user_data)
 {
 	uint8_t value[MAX_CHAR_DECL_VALUE_LEN];
 	uint16_t len = 0;
@@ -860,7 +865,8 @@ service_insert_characteristic(struct gatt_db_service *service,
 	if (!service->attributes[i])
 		return NULL;
 
-	set_attribute_data(service->attributes[i], NULL, NULL, BT_ATT_PERM_READ, NULL);
+	set_attribute_data(service->attributes[i], NULL, NULL, NULL,
+				BT_ATT_PERM_READ, NULL);
 
 	i++;
 
@@ -871,6 +877,7 @@ service_insert_characteristic(struct gatt_db_service *service,
 	}
 
 	set_attribute_data(service->attributes[i], read_func, write_func,
+							prepare_write_func,
 							permissions, user_data);
 
 	return service->attributes[i];
@@ -895,18 +902,19 @@ gatt_db_insert_characteristic(struct gatt_db *db,
 	return service_insert_characteristic(attrib->service, handle, uuid,
 						permissions, properties,
 						read_func, write_func,
-						user_data);
+						NULL, user_data);
 }
 
 struct gatt_db_attribute *
 gatt_db_service_insert_characteristic(struct gatt_db_attribute *attrib,
-					uint16_t handle,
-					const bt_uuid_t *uuid,
-					uint32_t permissions,
-					uint8_t properties,
-					gatt_db_read_t read_func,
-					gatt_db_write_t write_func,
-					void *user_data)
+				uint16_t handle,
+				const bt_uuid_t *uuid,
+				uint32_t permissions,
+				uint8_t properties,
+				gatt_db_read_t read_func,
+				gatt_db_write_t write_func,
+				gatt_db_prepare_write_t prepare_write_func,
+				void *user_data)
 {
 	if (!attrib)
 		return NULL;
@@ -914,17 +922,19 @@ gatt_db_service_insert_characteristic(struct gatt_db_attribute *attrib,
 	return service_insert_characteristic(attrib->service, handle, uuid,
 						permissions, properties,
 						read_func, write_func,
+						prepare_write_func,
 						user_data);
 }
 
 struct gatt_db_attribute *
 gatt_db_service_add_characteristic(struct gatt_db_attribute *attrib,
-					const bt_uuid_t *uuid,
-					uint32_t permissions,
-					uint8_t properties,
-					gatt_db_read_t read_func,
-					gatt_db_write_t write_func,
-					void *user_data)
+				const bt_uuid_t *uuid,
+				uint32_t permissions,
+				uint8_t properties,
+				gatt_db_read_t read_func,
+				gatt_db_write_t write_func,
+				gatt_db_prepare_write_t prepare_write_func,
+				void *user_data)
 {
 	if (!attrib)
 		return NULL;
@@ -932,6 +942,7 @@ gatt_db_service_add_characteristic(struct gatt_db_attribute *attrib,
 	return service_insert_characteristic(attrib->service, 0, uuid,
 						permissions, properties,
 						read_func, write_func,
+						prepare_write_func,
 						user_data);
 }
 
@@ -961,7 +972,7 @@ service_insert_descriptor(struct gatt_db_service *service,
 	if (!service->attributes[i])
 		return NULL;
 
-	set_attribute_data(service->attributes[i], read_func, write_func,
+	set_attribute_data(service->attributes[i], read_func, write_func, NULL,
 							permissions, user_data);
 
 	return service->attributes[i];
@@ -1073,7 +1084,7 @@ service_insert_included(struct gatt_db_service *service, uint16_t handle,
 	 *
 	 * TODO handle permissions
 	 */
-	set_attribute_data(service->attributes[index], NULL, NULL,
+	set_attribute_data(service->attributes[index], NULL, NULL, NULL,
 					BT_ATT_PERM_READ, NULL);
 
 	return service->attributes[index];
@@ -1908,7 +1919,9 @@ static bool write_timeout(void *user_data)
 
 bool gatt_db_attribute_write(struct gatt_db_attribute *attrib, uint16_t offset,
 					const uint8_t *value, size_t len,
-					uint8_t opcode, struct bt_att *att,
+					uint8_t opcode,
+					bool has_subsequent_write,
+					struct bt_att *att,
 					gatt_db_attribute_write_t func,
 					void *user_data)
 {
@@ -1932,11 +1945,18 @@ bool gatt_db_attribute_write(struct gatt_db_attribute *attrib, uint16_t offset,
 								p, NULL);
 		p->func = func;
 		p->user_data = user_data;
-
 		queue_push_tail(attrib->pending_writes, p);
-
-		attrib->write_func(attrib, p->id, offset, value, len, opcode,
+		if (opcode == BT_ATT_OP_EXEC_WRITE_REQ &&
+			attrib->prepare_write_func) {
+			attrib->prepare_write_func(attrib, p->id, offset, value,
+							len, opcode,
+							has_subsequent_write,
 							att, attrib->user_data);
+		} else {
+			attrib->write_func(attrib, p->id, offset, value, len,
+							opcode, att,
+							attrib->user_data);
+		}
 		return true;
 	}
 

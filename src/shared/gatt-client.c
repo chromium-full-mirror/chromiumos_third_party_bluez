@@ -770,8 +770,8 @@ static void ext_prop_read_cb(bool success, uint8_t att_ecode,
 	if (!desc_attr)
 		goto failed;
 
-	if (!gatt_db_attribute_write(desc_attr, 0, value, length, 0, NULL,
-						ext_prop_write_cb, client))
+	if (!gatt_db_attribute_write(desc_attr, 0, value, length, 0, false,
+					NULL, ext_prop_write_cb, client))
 		goto failed;
 
 	/* Any other descriptor to read? */
@@ -1393,7 +1393,7 @@ static void db_hash_read_cb(bool success, uint8_t att_ecode,
 						client->debug_data);
 
 	/* Store ithe new hash in the db */
-	gatt_db_attribute_write(op->hash, 0, value, len, 0, NULL,
+	gatt_db_attribute_write(op->hash, 0, value, len, 0, false, NULL,
 					db_hash_write_value_cb, client);
 
 discover:
@@ -1953,7 +1953,7 @@ static void write_server_features(struct bt_gatt_client *client, uint8_t feat)
 
 	/* Store value in the DB */
 	if (!gatt_db_attribute_write(attr, 0, &feat, sizeof(feat),
-					0, NULL, server_feat_write_value,
+					0, false, NULL, server_feat_write_value,
 					client))
 		util_debug(client->debug_callback, client->debug_data,
 					"Unable to store Server Features");

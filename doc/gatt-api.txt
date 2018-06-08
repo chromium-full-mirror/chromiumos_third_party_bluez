@@ -186,6 +186,11 @@ Methods		array{byte} ReadValue(dict options)
 			from a device.
 
 			Possible options: "offset": Start offset
+					  "has_subsequent_write": Whether there
+                                          are subsequent writes following in the
+                                          current reliable write session
+					  (Server only)
+					  "device": Device path (Server only)
 
 			Possible Errors: org.bluez.Error.Failed
 					 org.bluez.Error.InProgress
