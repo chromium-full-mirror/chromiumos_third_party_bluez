@@ -802,7 +802,7 @@ static void write_cb(uint8_t opcode, const void *pdu,
 	op->opcode = opcode;
 	server->pending_write_op = op;
 
-	if (gatt_db_attribute_write(attr, 0, pdu + 2, length - 2, opcode,
+	if (gatt_db_attribute_write(attr, 0, pdu + 2, length - 2, opcode, false,
 							server->att,
 							write_complete_cb, op))
 		return;
@@ -1124,17 +1124,24 @@ static bool is_reliable_write_supported(const struct bt_gatt_server  *server,
 							uint16_t handle)
 {
 	struct gatt_db_attribute *attr;
+	uint8_t properties;
 	uint16_t ext_prop;
 
 	attr = gatt_db_get_attribute(server->db, handle);
 	if (!attr)
 		return false;
 
-	if (!gatt_db_attribute_get_char_data(attr, NULL, NULL, NULL, &ext_prop,
-									NULL))
+	if (!gatt_db_attribute_get_char_data(attr, NULL, NULL, &properties,
+							&ext_prop, NULL))
 		return false;
 
-	return (ext_prop & BT_GATT_CHRC_EXT_PROP_RELIABLE_WRITE);
+	// For devices supporting extended properties, check
+	// BT_GATT_CHRC_EXT_PROP_RELIABLE_WRITE. Otherwise, simply check
+	// BT_GATT_CHRC_PROP_WRITE as reliable write can still be supported even
+	// if extended properties are not.
+	return (properties & BT_GATT_CHRC_PROP_EXT_PROP) ?
+		(ext_prop & BT_GATT_CHRC_EXT_PROP_RELIABLE_WRITE) :
+		(properties & BT_GATT_CHRC_PROP_WRITE);
 }
 
 static bool prep_data_new(struct bt_gatt_server *server,
@@ -1271,10 +1278,10 @@ static void exec_next_prep_write(struct bt_gatt_server *server,
 	}
 
 	status = gatt_db_attribute_write(attr, next->offset,
-						next->value, next->length,
-						BT_ATT_OP_EXEC_WRITE_REQ,
-						server->att,
-						exec_write_complete_cb, server);
+				next->value, next->length,
+				BT_ATT_OP_EXEC_WRITE_REQ,
+				queue_peek_head(server->prep_queue) != NULL,
+				server->att, exec_write_complete_cb, server);
 
 	prep_write_data_destroy(next);
 

@@ -554,7 +554,7 @@ static bool discover_descs(struct discovery_op *op, bool *discovering)
 							chrc_data->value_handle,
 							&chrc_data->uuid, 0,
 							chrc_data->properties,
-							NULL, NULL, NULL);
+							NULL, NULL, NULL, NULL);
 
 		if (!attr) {
 			util_debug(client->debug_callback, client->debug_data,
@@ -656,8 +656,8 @@ static void ext_prop_read_cb(bool success, uint8_t att_ecode,
 	if (!desc_attr)
 		goto failed;
 
-	if (!gatt_db_attribute_write(desc_attr, 0, value, length, 0, NULL,
-						ext_prop_write_cb, client))
+	if (!gatt_db_attribute_write(desc_attr, 0, value, length, 0, false,
+					NULL, ext_prop_write_cb, client))
 		goto failed;
 
 	/* Any other descriptor to read? */

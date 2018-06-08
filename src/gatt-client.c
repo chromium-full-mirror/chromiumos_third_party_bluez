@@ -350,8 +350,9 @@ static void desc_read_cb(bool success, uint8_t att_ecode,
 	if (!op->offset)
 		gatt_db_attribute_reset(desc->attr);
 
-	if (!gatt_db_attribute_write(desc->attr, op->offset, value, length, 0,
-					NULL, write_descriptor_cb, desc)) {
+	if (!gatt_db_attribute_write(desc->attr, op->offset, value, length,
+					false, 0, NULL, write_descriptor_cb,
+					desc)) {
 		error("Failed to store attribute");
 		att_ecode = BT_ATT_ERROR_UNLIKELY;
 		goto fail;
@@ -861,7 +862,8 @@ static void chrc_read_cb(bool success, uint8_t att_ecode, const uint8_t *value,
 		gatt_db_attribute_reset(chrc->attr);
 
 	if (!gatt_db_attribute_write(chrc->attr, op->offset, value, length, 0,
-					NULL, write_characteristic_cb, chrc)) {
+					false, NULL, write_characteristic_cb,
+					chrc)) {
 		error("Failed to store attribute");
 		att_ecode = BT_ATT_ERROR_UNLIKELY;
 		goto fail;
@@ -1173,7 +1175,7 @@ static void notify_cb(uint16_t value_handle, const uint8_t *value,
 	 * applications.
 	 */
 	gatt_db_attribute_reset(chrc->attr);
-	gatt_db_attribute_write(chrc->attr, 0, value, length, 0, NULL,
+	gatt_db_attribute_write(chrc->attr, 0, value, length, 0, false, NULL,
 						write_characteristic_cb, chrc);
 }
 

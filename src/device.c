@@ -3627,7 +3627,7 @@ static int load_desc(char *handle, char *value,
 
 	if (val) {
 		if (!gatt_db_attribute_write(att, 0, (uint8_t *)&val,
-						sizeof(val), 0, NULL,
+						sizeof(val), 0, false, NULL,
 						load_desc_value, NULL))
 			return -EIO;
 	}
@@ -3659,7 +3659,7 @@ static int load_chrc(char *handle, char *value,
 
 	att = gatt_db_service_insert_characteristic(service, value_handle,
 							&uuid, 0, properties,
-							NULL, NULL, NULL);
+							NULL, NULL, NULL, NULL);
 	if (!att || gatt_db_attribute_get_handle(att) != value_handle) {
 		warn("loading characteristic to db failed");
 		return -EIO;
