@@ -6441,7 +6441,7 @@ static void update_found_devices(struct btd_adapter *adapter,
 							eir_data.did_product,
 							eir_data.did_version);
 
-	device_add_eir_uuids(dev, eir_data.services);
+	btd_device_add_uuids(dev, eir_data.services);
 
 	if (eir_data.msd_list) {
 		device_set_manufacturer_data(dev, eir_data.msd_list);
