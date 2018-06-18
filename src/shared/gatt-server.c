@@ -101,6 +101,7 @@ struct bt_gatt_server {
 	struct bt_att *att;
 	int ref_count;
 	uint16_t mtu;
+	uint16_t max_mtu;
 
 	unsigned int mtu_id;
 	unsigned int read_by_grp_type_id;
@@ -1541,10 +1542,11 @@ static void exchange_mtu_cb(struct bt_att_chan *chan, uint8_t opcode,
 	}
 
 	client_rx_mtu = get_le16(pdu);
-	final_mtu = MAX(MIN(client_rx_mtu, server->mtu), BT_ATT_DEFAULT_LE_MTU);
+	final_mtu = MAX(MIN(client_rx_mtu, server->max_mtu),
+							BT_ATT_DEFAULT_LE_MTU);
 
 	/* Respond with the server MTU */
-	put_le16(server->mtu, rsp_pdu);
+	put_le16(server->max_mtu, rsp_pdu);
 	bt_att_chan_send_rsp(chan, BT_ATT_OP_MTU_RSP, rsp_pdu, 2);
 
 	/* Set MTU to be the minimum */
@@ -1677,6 +1679,7 @@ struct bt_gatt_server *bt_gatt_server_new(struct gatt_db *db,
 	server->db = gatt_db_ref(db);
 	server->att = bt_att_ref(att);
 	server->mtu = MAX(mtu, BT_ATT_DEFAULT_LE_MTU);
+	server->max_mtu = mtu;  // By default, we initialize mtu to maximum.
 	server->max_prep_queue_len = DEFAULT_MAX_PREP_QUEUE_LEN;
 	server->prep_queue = queue_new();
 	server->min_enc_size = min_enc_size;
