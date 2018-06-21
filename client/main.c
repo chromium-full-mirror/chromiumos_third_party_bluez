@@ -2352,6 +2352,8 @@ static guint setup_signalfd(void)
 
 static gboolean option_version = FALSE;
 
+static char *option_service = NULL;
+
 static gboolean parse_agent(const char *key, const char *value,
 					gpointer user_data, GError **error)
 {
@@ -2369,6 +2371,9 @@ static GOptionEntry options[] = {
 	{ "agent", 'a', G_OPTION_FLAG_OPTIONAL_ARG,
 				G_OPTION_ARG_CALLBACK, parse_agent,
 				"Register agent handler", "CAPABILITY" },
+	{ "service", 0, 0, G_OPTION_ARG_STRING, &option_service,
+				"Specifies the D-Bus service name "
+				"(default \"org.bluez\")", "SERVICE" },
 	{ NULL },
 };
 
@@ -2417,7 +2422,10 @@ int main(int argc, char *argv[])
 	rl_redisplay();
 
 	signal = setup_signalfd();
-	client = g_dbus_client_new(dbus_conn, "org.bluez", "/org/bluez");
+	client = g_dbus_client_new(
+				dbus_conn,
+				option_service ? option_service : "org.bluez",
+				"/org/bluez");
 
 	g_dbus_client_set_connect_watch(client, connect_handler, NULL);
 	g_dbus_client_set_disconnect_watch(client, disconnect_handler, NULL);
