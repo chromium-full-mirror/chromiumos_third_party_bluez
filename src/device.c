@@ -1857,6 +1857,10 @@ static uint8_t select_conn_bearer(struct btd_device *dev)
 	time_t bredr_last = NVAL_TIME, le_last = NVAL_TIME;
 	time_t current = time(NULL);
 
+	/* Prefer bonded bearer mathcing bdaddr_type in case both are bonded */
+	if (dev->bredr_state.bonded && dev->le_state.bonded)
+		return dev->bdaddr_type;
+
 	/* Prefer bonded bearer in case only one is bonded */
 	if (dev->bredr_state.bonded && !dev->le_state.bonded )
 		return BDADDR_BREDR;

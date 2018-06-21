@@ -7698,6 +7698,9 @@ static void new_link_key_callback(uint16_t index, uint16_t length,
 		device_set_bonded(device, BDADDR_BREDR);
 	}
 
+	if (btd_device_get_bdaddr_type(device) != BDADDR_BREDR)
+		return;
+
 	bonding_complete(adapter, &addr->bdaddr, addr->type, 0);
 }
 
@@ -7810,6 +7813,9 @@ static void new_long_term_key_callback(uint16_t index, uint16_t length,
 
 		device_set_bonded(device, addr->type);
 	}
+
+	if (btd_device_get_bdaddr_type(device) == BDADDR_BREDR)
+		return;
 
 	bonding_complete(adapter, &addr->bdaddr, addr->type, 0);
 }
