@@ -1613,17 +1613,17 @@ static bool parse_chrc_flags(DBusMessageIter *array, uint8_t *props,
 		} else if (!strcmp("permission-write", flag)) {
 			*perm |= BT_ATT_PERM_WRITE;
 		} else if (!strcmp("permission-encrypt-read", flag)) {
-			*perm |= BT_ATT_PERM_READ_ENCRYPT;
+			*perm |= BT_ATT_PERM_READ | BT_ATT_PERM_READ_ENCRYPT;
 		} else if (!strcmp("permission-encrypt-write", flag)) {
-			*perm |= BT_ATT_PERM_WRITE_ENCRYPT;
+			*perm |= BT_ATT_PERM_WRITE | BT_ATT_PERM_WRITE_ENCRYPT;
 		} else if (!strcmp("permission-authenticated-read", flag)) {
-			*perm |= BT_ATT_PERM_READ_AUTHEN;
+			*perm |= BT_ATT_PERM_READ | BT_ATT_PERM_READ_AUTHEN;
 		} else if (!strcmp("permission-authenticated-write", flag)) {
-			*perm |= BT_ATT_PERM_WRITE_AUTHEN;
+			*perm |= BT_ATT_PERM_WRITE | BT_ATT_PERM_WRITE_AUTHEN;
 		} else if (!strcmp("permission-secure-read", flag)) {
-			*perm |= BT_ATT_PERM_READ_SECURE;
+			*perm |= BT_ATT_PERM_READ | BT_ATT_PERM_READ_SECURE;
 		} else if (!strcmp("permission-secure-write", flag)) {
-			*perm |= BT_ATT_PERM_WRITE_SECURE;
+			*perm |= BT_ATT_PERM_WRITE | BT_ATT_PERM_WRITE_SECURE;
 		} else {
 			error("Invalid characteristic flag: %s", flag);
 			return false;
