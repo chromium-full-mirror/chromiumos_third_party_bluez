@@ -139,6 +139,7 @@ struct pending_op {
 	struct btd_device *device;
 	unsigned int id;
 	uint16_t offset;
+	uint8_t cccd_value;
 	struct gatt_db_attribute *attrib;
 	struct queue *owner_queue;
 	struct iovec data;
@@ -150,7 +151,8 @@ struct device_state {
 	struct queue *ccc_states;
 };
 
-typedef uint8_t (*btd_gatt_database_ccc_write_t) (uint16_t value,
+typedef uint8_t (*btd_gatt_database_ccc_write_t) (struct btd_device* device,
+							uint16_t value,
 							void *user_data);
 typedef void (*btd_gatt_database_destroy_t) (void *data);
 
@@ -704,6 +706,40 @@ static bool get_dst_info(struct bt_att *att, bdaddr_t *dst, uint8_t *dst_type)
 	return true;
 }
 
+static struct btd_device *att_get_device(struct bt_att *att)
+{
+	GIOChannel *io = NULL;
+	GError *gerr = NULL;
+	bdaddr_t src, dst;
+	uint8_t dst_type;
+	struct btd_adapter *adapter;
+
+	io = g_io_channel_unix_new(bt_att_get_fd(att));
+	if (!io)
+		return NULL;
+
+	bt_io_get(io, &gerr, BT_IO_OPT_SOURCE_BDADDR, &src,
+					BT_IO_OPT_DEST_BDADDR, &dst,
+					BT_IO_OPT_DEST_TYPE, &dst_type,
+					BT_IO_OPT_INVALID);
+	if (gerr) {
+		error("bt_io_get: %s", gerr->message);
+		g_error_free(gerr);
+		g_io_channel_unref(io);
+		return NULL;
+	}
+
+	g_io_channel_unref(io);
+
+	adapter = adapter_find(&src);
+	if (!adapter) {
+		error("Unable to find adapter object");
+		return NULL;
+	}
+
+	return btd_adapter_find_device(adapter, &dst, dst_type);
+}
+
 static void gatt_ccc_read_cb(struct gatt_db_attribute *attrib,
 					unsigned int id, uint16_t offset,
 					uint8_t opcode, struct bt_att *att,
@@ -748,6 +784,7 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 					void *user_data)
 {
 	struct btd_gatt_database *database = user_data;
+	struct btd_device *device = att_get_device(att);
 	struct ccc_state *ccc;
 	struct ccc_cb_data *ccc_cb;
 	uint16_t handle;
@@ -769,7 +806,7 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 		goto done;
 	}
 
-	if (!get_dst_info(att, &bdaddr, &bdaddr_type)) {
+	if (!get_dst_info(att, &bdaddr, &bdaddr_type) || device == NULL) {
 		ecode = BT_ATT_ERROR_UNLIKELY;
 		goto done;
 	}
@@ -788,7 +825,8 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 		goto done;
 
 	if (ccc_cb->callback)
-		ecode = ccc_cb->callback(get_le16(value), ccc_cb->user_data);
+		ecode = ccc_cb->callback(device, get_le16(value),
+							ccc_cb->user_data);
 
 	if (!ecode) {
 		ccc->value[0] = value[0];
@@ -1786,7 +1824,37 @@ static struct pending_op *send_write(struct btd_device *device,
 	return NULL;
 }
 
-static uint8_t ccc_write_cb(uint16_t value, void *user_data)
+static struct pending_op *pending_notify_new(struct btd_device *device,
+							uint8_t cccd_value)
+{
+	struct pending_op *op = new0(struct pending_op, 1);
+	op->device = device;
+	op->cccd_value = cccd_value;
+	return op;
+}
+
+static void notify_setup_cb(DBusMessageIter *iter, void *user_data)
+{
+	struct pending_op *op = user_data;
+	DBusMessageIter dict;
+	// If cccd_value == 0, "StopNotify" is called, which does not take the
+	// cccd_value as an argument. Otherwise, "StartNotify" is called, and it
+	// takes cccd_value as an argument.
+	if (op->cccd_value > 0)
+		dbus_message_iter_append_basic(iter, DBUS_TYPE_BYTE,
+							&op->cccd_value);
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+					DBUS_TYPE_STRING_AS_STRING
+					DBUS_TYPE_VARIANT_AS_STRING
+					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
+					&dict);
+	append_options(&dict, op);
+	dbus_message_iter_close_container(iter, &dict);
+}
+
+static uint8_t ccc_write_cb(struct btd_device* device, uint16_t value,
+							void *user_data)
 {
 	struct external_chrc *chrc = user_data;
 
@@ -1804,8 +1872,10 @@ static uint8_t ccc_write_cb(uint16_t value, void *user_data)
 		 * Send request to stop notifying. This is best-effort
 		 * operation, so simply ignore the return the value.
 		 */
-		g_dbus_proxy_method_call(chrc->proxy, "StopNotify", NULL,
-							NULL, NULL, NULL);
+		g_dbus_proxy_method_call(chrc->proxy, "StopNotify",
+					notify_setup_cb, NULL,
+					pending_notify_new(device, value),
+					pending_op_free);
 		return 0;
 	}
 
@@ -1824,9 +1894,10 @@ static uint8_t ccc_write_cb(uint16_t value, void *user_data)
 	 * Always call StartNotify for an incoming enable and ignore the return
 	 * value for now.
 	 */
-	if (g_dbus_proxy_method_call(chrc->proxy,
-						"StartNotify", NULL, NULL,
-						NULL, NULL) == FALSE)
+	if (g_dbus_proxy_method_call(chrc->proxy, "StartNotify",
+					notify_setup_cb, NULL,
+					pending_notify_new(device, value),
+					pending_op_free) == FALSE)
 		return BT_ATT_ERROR_UNLIKELY;
 
 	__sync_fetch_and_add(&chrc->ntfy_cnt, 1);
@@ -1934,40 +2005,6 @@ static bool database_add_cep(struct external_service *service,
 	DBG("Created CEP entry for characteristic");
 
 	return true;
-}
-
-static struct btd_device *att_get_device(struct bt_att *att)
-{
-	GIOChannel *io = NULL;
-	GError *gerr = NULL;
-	bdaddr_t src, dst;
-	uint8_t dst_type;
-	struct btd_adapter *adapter;
-
-	io = g_io_channel_unix_new(bt_att_get_fd(att));
-	if (!io)
-		return NULL;
-
-	bt_io_get(io, &gerr, BT_IO_OPT_SOURCE_BDADDR, &src,
-					BT_IO_OPT_DEST_BDADDR, &dst,
-					BT_IO_OPT_DEST_TYPE, &dst_type,
-					BT_IO_OPT_INVALID);
-	if (gerr) {
-		error("bt_io_get: %s", gerr->message);
-		g_error_free(gerr);
-		g_io_channel_unref(io);
-		return NULL;
-	}
-
-	g_io_channel_unref(io);
-
-	adapter = adapter_find(&src);
-	if (!adapter) {
-		error("Unable to find adapter object");
-		return NULL;
-	}
-
-	return btd_adapter_find_device(adapter, &dst, dst_type);
 }
 
 static void desc_read_cb(struct gatt_db_attribute *attrib,
