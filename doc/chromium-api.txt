@@ -64,3 +64,26 @@ Properties	boolean SupportsLEServices [readonly]
 			Whether or not the GetConnInfo() API is supported in this version of BlueZ
 			and kernel. Should now be true for all supported kernel versions.
 
+
+Experimental hierarchy
+==============================
+
+Service		org.bluez
+Interface	org.chromium.BluetoothExperimental
+Object path	/org/bluez
+
+		SetNewblueEnabled(boolean enable)
+
+			This method configures the use of Newblue stack where
+			the enabling/disabling Newblue stack for the next boot
+			depends on the content of file
+			/var/lib/bluetooth/newblue.
+
+			This method should be used only for experiment on
+			Newblue stack where the file determines whether kernel
+			will hijack the LE packets and sent them to Newblue
+			stack.
+
+			Possible errors:
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed

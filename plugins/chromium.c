@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/file.h>
 
 #include <glib.h>
 #include <dbus/dbus.h>
@@ -31,10 +32,12 @@
 #include "src/profile.h"
 #include "src/service.h"
 #include "src/shared/mgmt.h"
+#include "src/textfile.h"
 
 #define DBUS_PATH "/org/bluez"
 #define DBUS_PLUGIN_INTERFACE "org.chromium.Bluetooth"
 #define DBUS_PLUGIN_DEVICE_INTERFACE "org.chromium.BluetoothDevice"
+#define DBUS_PLUGIN_EXPERIMENTAL_INTERFACE "org.chromium.BluetoothExperimental"
 
 #define DBUS_BLUEZ_SERVICE "org.bluez"
 #define DBUS_OBJECT_MANAGER_INTERFACE "org.freedesktop.DBus.ObjectManager"
@@ -631,6 +634,30 @@ static void read_version_complete(uint8_t status, uint16_t length,
 		DBUS_PATH, DBUS_PLUGIN_INTERFACE, "SupportsConnInfo");
 }
 
+static DBusMessage *set_newblue_enabled(DBusConnection *conn, DBusMessage *msg,
+								void *data)
+{
+	dbus_bool_t enable = FALSE;
+	char filename[PATH_MAX] = STORAGEDIR "/newblue";
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN, &enable,
+					DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	create_file(filename, S_IRUSR | S_IWUSR);
+	if (!g_file_set_contents(filename, (enable == TRUE) ? "1" : "0", 1,
+					NULL))
+		return btd_error_failed(msg, "Failed to configure newblue");
+
+	return dbus_message_new_method_return(msg);
+}
+
+static const GDBusMethodTable experimental_methods[] = {
+	{ GDBUS_METHOD("SetNewblueEnabled", GDBUS_ARGS({ "enable", "b" }), NULL,
+							set_newblue_enabled) },
+	{}
+};
+
 static int chromium_init(void)
 {
 	DBG("");
@@ -646,6 +673,10 @@ static int chromium_init(void)
 	g_dbus_register_interface(btd_get_dbus_connection(),
 		DBUS_PATH, DBUS_PLUGIN_INTERFACE,
 		NULL, NULL, chromium_properties, NULL, NULL);
+
+	g_dbus_register_interface(btd_get_dbus_connection(), DBUS_PATH,
+			DBUS_PLUGIN_EXPERIMENTAL_INTERFACE,
+			experimental_methods, NULL, NULL, NULL, NULL);
 
 	service_id = btd_service_add_state_cb(service_cb, NULL);
 
