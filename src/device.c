@@ -184,6 +184,7 @@ struct btd_device {
 	bool		pending_paired;		/* "Paired" waiting for SDP */
 	bool		svc_refreshed;
 	GSList		*svc_callbacks;
+	GSList		*eir_uuids;
 	struct bt_ad	*ad;
 	uint8_t         ad_flags[1];
 	char		name[MAX_NAME_LENGTH + 1];
@@ -695,6 +696,9 @@ static void device_free(gpointer user_data)
 		g_free(device->authr);
 	}
 
+	if (device->eir_uuids)
+		g_slist_free_full(device->eir_uuids, g_free);
+
 	g_free(device->local_csrk);
 	g_free(device->remote_csrk);
 	g_free(device->path);
@@ -1166,7 +1170,14 @@ static gboolean dev_property_get_uuids(const GDBusPropertyTable *property,
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 				DBUS_TYPE_STRING_AS_STRING, &entry);
 
-	for (l = dev->uuids; l != NULL; l = l->next)
+	if (dev->bredr_state.svc_resolved || dev->le_state.svc_resolved)
+		l = dev->uuids;
+	else if (dev->eir_uuids)
+		l = dev->eir_uuids;
+	else
+		l = dev->uuids;
+
+	for (; l != NULL; l = l->next)
 		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
 							&l->data);
 
@@ -1645,6 +1656,27 @@ done:
 
 	dbus_message_unref(dev->connect);
 	dev->connect = NULL;
+}
+
+void device_add_eir_uuids(struct btd_device *dev, GSList *uuids)
+{
+	GSList *l;
+	bool added = false;
+
+	if (dev->bredr_state.svc_resolved || dev->le_state.svc_resolved)
+		return;
+
+	for (l = uuids; l != NULL; l = l->next) {
+		const char *str = l->data;
+		if (g_slist_find_custom(dev->eir_uuids, str, bt_uuid_strcmp))
+			continue;
+		added = true;
+		dev->eir_uuids = g_slist_append(dev->eir_uuids, g_strdup(str));
+	}
+
+	if (added)
+		g_dbus_emit_property_changed(dbus_conn, dev->path,
+						DEVICE_INTERFACE, "UUIDs");
 }
 
 static void add_manufacturer_data(void *data, void *user_data)
@@ -2349,6 +2381,9 @@ static void device_svc_resolved(struct btd_device *dev, uint8_t bdaddr_type,
 	 */
 	if (state->connected)
 		device_set_svc_refreshed(dev, true);
+
+	g_slist_free_full(dev->eir_uuids, g_free);
+	dev->eir_uuids = NULL;
 
 	if (dev->pending_paired) {
 		g_dbus_emit_property_changed(dbus_conn, dev->path,
@@ -3861,7 +3896,7 @@ static void load_gatt_db(struct btd_device *device, const char *local,
 							&device->primaries);
 }
 
-void btd_device_add_uuids(struct btd_device *device, GSList *uuids)
+static void device_add_uuids(struct btd_device *device, GSList *uuids)
 {
 	GSList *l;
 	bool changed = false;
@@ -4738,7 +4773,7 @@ void device_probe_profiles(struct btd_device *device, GSList *uuids)
 	btd_profile_foreach(dev_probe, &d);
 
 add_uuids:
-	btd_device_add_uuids(device, uuids);
+	device_add_uuids(device, uuids);
 }
 
 static void store_sdp_record(GKeyFile *key_file, sdp_record_t *rec)
