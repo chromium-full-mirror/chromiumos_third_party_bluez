@@ -82,6 +82,8 @@
 
 #define ADAPTER_INTERFACE	"org.bluez.Adapter1"
 
+#define NEWBLUE_SERVICE		"org.chromium.Newblue"
+
 #define MODE_OFF		0x00
 #define MODE_CONNECTABLE	0x01
 #define MODE_DISCOVERABLE	0x02
@@ -133,6 +135,8 @@ static time_t metrics_last_adapter_lost_time;
 static time_t metrics_last_chip_lost_time;
 /* Time of the last system resume from suspend */
 static time_t last_system_resume_time;
+
+static bool newblue_stack_sync_quitting = false;
 
 struct link_key_info {
 	bdaddr_t bdaddr;
@@ -290,6 +294,10 @@ struct btd_adapter {
 	unsigned int db_id;		/* Service event handler for GATT db */
 
 	bool is_default;		/* true if adapter is default one */
+
+	struct GDBusClient *newblue_client;
+	/* True if BlueZ daemon is about to quit due to Newblue down detected */
+	bool stack_sync_quitting;
 };
 
 struct sync_method_try {
@@ -2926,6 +2934,18 @@ static void property_set_powered(const GDBusPropertyTable *property,
 	property_set_mode(adapter, MGMT_SETTING_POWERED, iter, id);
 }
 
+static gboolean property_get_stack_sync_quitting(
+					const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	dbus_bool_t stack_sync_quitting = adapter->stack_sync_quitting ?
+								TRUE : FALSE;
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN,
+							&stack_sync_quitting);
+	return TRUE;
+}
+
 static gboolean property_get_discoverable(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *user_data)
 {
@@ -3644,6 +3664,7 @@ static const GDBusPropertyTable adapter_properties[] = {
 	{ "UUIDs", "as", property_get_uuids },
 	{ "Modalias", "s", property_get_modalias, NULL,
 					property_exists_modalias },
+	{ "StackSyncQuitting", "b", property_get_stack_sync_quitting },
 	{ }
 };
 
@@ -4970,10 +4991,69 @@ void adapter_auto_connect_remove(struct btd_adapter *adapter,
 	adapter->connect_list = g_slist_remove(adapter->connect_list, device);
 }
 
+static void newblue_property_changed(GDBusProxy *proxy, const char *name,
+							DBusMessageIter *iter,
+							void *user_data)
+{
+	DBG("newblue property changed: %s", name);
+	dbus_bool_t val;
+	if (strcmp(name, "StackSyncQuitting"))
+		return;
+
+	dbus_message_iter_get_basic(iter, &val);
+	newblue_stack_sync_quitting = (val == TRUE);
+}
+
+static void newblue_proxy_removed(GDBusProxy *proxy, void *user_data)
+{
+	DBG("newblue proxy removed: object %s on interface %s",
+					g_dbus_proxy_get_path(proxy),
+					g_dbus_proxy_get_interface(proxy));
+	struct btd_adapter *adapter = user_data;
+	if (newblue_stack_sync_quitting) {
+		DBG("newblue proxy removed: Newblue stack sync quitting");
+		return;
+	}
+
+	if (!adapter || !(adapter->current_settings & MGMT_SETTING_POWERED)) {
+		DBG("newblue proxy removed: BlueZ adapter is not up yet");
+		return;
+	}
+
+	btd_info(adapter->dev_id, "Shutting down due to Newblue quitting");
+	adapter->stack_sync_quitting = true;
+	g_dbus_emit_property_changed(dbus_conn, adapter->path,
+							ADAPTER_INTERFACE,
+							"StackSyncQuitting");
+	raise(SIGTERM);
+}
+
+static void newblue_proxy_added(GDBusProxy *proxy, void *user_data)
+{
+	DBG("newblue proxy added: object %s on interface %s",
+					g_dbus_proxy_get_path(proxy),
+					g_dbus_proxy_get_interface(proxy));
+	DBusMessageIter iter;
+	if (strcmp(g_dbus_proxy_get_interface(proxy), ADAPTER_INTERFACE))
+		return;
+
+	g_dbus_proxy_get_property(proxy, "StackSyncQuitting", &iter);
+	newblue_property_changed(proxy, "StackSyncQuitting", &iter, user_data);
+	g_dbus_proxy_set_property_watch(proxy, newblue_property_changed,
+								user_data);
+	g_dbus_proxy_set_removed_watch(proxy, newblue_proxy_removed, user_data);
+}
+
 static void adapter_start(struct btd_adapter *adapter)
 {
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
+	adapter->stack_sync_quitting = false;
+	adapter->newblue_client = g_dbus_client_new(dbus_conn, NEWBLUE_SERVICE,
+								adapter->path);
+	g_dbus_client_set_proxy_handlers(adapter->newblue_client,
+							newblue_proxy_added,
+							NULL, NULL, adapter);
 
 	info("adapter %s has been enabled", adapter->path);
 
@@ -6604,6 +6684,9 @@ static void adapter_stop(struct btd_adapter *adapter)
 	adapter->current_discovery_filter = NULL;
 
 	adapter->discovering = false;
+
+	g_dbus_client_unref(adapter->newblue_client);
+	adapter->newblue_client = NULL;
 
 	while (adapter->connections) {
 		struct btd_device *device = adapter->connections->data;

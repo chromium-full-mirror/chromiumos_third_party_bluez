@@ -281,3 +281,8 @@ Properties	string Address [readonly]
 
 			Local Device ID information in modalias format
 			used by the kernel and udev.
+
+		bool StackSyncQuitting [readonly]
+
+			True if BlueZ daemon is about to quit due to Newblue
+			down detected.
