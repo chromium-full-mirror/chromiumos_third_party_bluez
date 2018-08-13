@@ -60,6 +60,7 @@ static void usage(void)
 		"Usage:\n");
 	printf("\tbtmon [options]\n");
 	printf("options:\n"
+		"\t-0, --zero             Zero out privacy data\n"
 		"\t-r, --read <file>      Read traces in btsnoop format\n"
 		"\t-w, --write <file>     Save traces in btsnoop format\n"
 		"\t-a, --analyze <file>   Analyze traces in btsnoop format\n"
@@ -83,6 +84,7 @@ static void usage(void)
 }
 
 static const struct option main_options[] = {
+	{ "zero",      no_argument,       NULL, '0' },
 	{ "read",      required_argument, NULL, 'r' },
 	{ "write",     required_argument, NULL, 'w' },
 	{ "analyze",   required_argument, NULL, 'a' },
@@ -130,12 +132,15 @@ int main(int argc, char *argv[])
 		int opt;
 		struct sockaddr_un addr;
 
-		opt = getopt_long(argc, argv, "r:w:a:s:p:i:d:B:V:tTSAE:PJ:R:vh",
+		opt = getopt_long(argc, argv, "r:w:a:s:p:i:d:B:V:tTSAE:PJ:R:vh0",
 							main_options, NULL);
 		if (opt < 0)
 			break;
 
 		switch (opt) {
+		case '0':
+			filter_mask |= PACKET_FILTER_ZERO_DATA;
+			break;
 		case 'r':
 			reader_path = optarg;
 			break;

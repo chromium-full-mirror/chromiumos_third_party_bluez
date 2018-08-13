@@ -228,6 +228,11 @@ bool packet_has_filter(unsigned long filter)
 	return filter_mask & filter;
 }
 
+bool packet_get_zero_data_filter()
+{
+	return filter_mask & PACKET_FILTER_ZERO_DATA;
+}
+
 void packet_set_filter(unsigned long filter)
 {
 	filter_mask = filter;
@@ -3875,7 +3880,7 @@ static int addr2str(const uint8_t *addr, char *str)
 
 void packet_monitor(struct timeval *tv, struct ucred *cred,
 					uint16_t index, uint16_t opcode,
-					const void *data, uint16_t size)
+					void *data, uint16_t size)
 {
 	const struct btsnoop_opcode_new_index *ni;
 	const struct btsnoop_opcode_index_info *ii;
@@ -3930,10 +3935,13 @@ void packet_monitor(struct timeval *tv, struct ucred *cred,
 		packet_hci_acldata(tv, cred, index, true, data, size);
 		break;
 	case BTSNOOP_OPCODE_SCO_TX_PKT:
-		packet_hci_scodata(tv, cred, index, false, data, size);
-		break;
 	case BTSNOOP_OPCODE_SCO_RX_PKT:
-		packet_hci_scodata(tv, cred, index, true, data, size);
+		if (packet_get_zero_data_filter())
+			memset(data + HCI_SCO_HDR_SIZE, 0,
+						size - HCI_SCO_HDR_SIZE);
+		packet_hci_scodata(tv, cred, index,
+					opcode == BTSNOOP_OPCODE_SCO_RX_PKT,
+					data, size);
 		break;
 	case BTSNOOP_OPCODE_ISO_TX_PKT:
 		packet_hci_isodata(tv, cred, index, false, data, size);
@@ -11247,7 +11255,7 @@ void packet_hci_event(struct timeval *tv, struct ucred *cred, uint16_t index,
 }
 
 void packet_hci_acldata(struct timeval *tv, struct ucred *cred, uint16_t index,
-				bool in, const void *data, uint16_t size)
+				bool in, void *data, uint16_t size)
 {
 	const struct bt_hci_acl_hdr *hdr = data;
 	uint16_t handle = le16_to_cpu(hdr->handle);
