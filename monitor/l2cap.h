@@ -171,6 +171,6 @@ static inline bool l2cap_frame_get_be128(struct l2cap_frame *frame,
 }
 
 void l2cap_packet(uint16_t index, bool in, uint16_t handle, uint8_t flags,
-					const void *data, uint16_t size);
+					void *data, uint16_t size);
 
 void rfcomm_packet(const struct l2cap_frame *frame);

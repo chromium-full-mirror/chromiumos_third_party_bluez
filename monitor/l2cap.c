@@ -3025,7 +3025,7 @@ static void smp_packet(uint16_t index, bool in, uint16_t handle,
 }
 
 static void l2cap_frame(uint16_t index, bool in, uint16_t handle,
-			uint16_t cid, const void *data, uint16_t size)
+			uint16_t cid, void *data, uint16_t size)
 {
 	struct l2cap_frame frame;
 	uint32_t ctrl32 = 0;
@@ -3110,6 +3110,8 @@ static void l2cap_frame(uint16_t index, bool in, uint16_t handle,
 			avctp_packet(&frame);
 			break;
 		case 0x0019:
+			if (packet_get_zero_data_filter() && frame.seq_num > 1)
+				memset(data, 0, size);
 			avdtp_packet(&frame);
 			break;
 		default:
@@ -3121,7 +3123,7 @@ static void l2cap_frame(uint16_t index, bool in, uint16_t handle,
 }
 
 void l2cap_packet(uint16_t index, bool in, uint16_t handle, uint8_t flags,
-					const void *data, uint16_t size)
+					void *data, uint16_t size)
 {
 	const struct bt_l2cap_hdr *hdr = data;
 	uint16_t len, cid;

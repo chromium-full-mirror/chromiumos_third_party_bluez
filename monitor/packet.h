@@ -33,7 +33,9 @@
 #define PACKET_FILTER_SHOW_TIME_OFFSET	(1 << 3)
 #define PACKET_FILTER_SHOW_ACL_DATA	(1 << 4)
 #define PACKET_FILTER_SHOW_SCO_DATA	(1 << 5)
+#define PACKET_FILTER_ZERO_DATA		(1 << 6)
 
+bool packet_get_zero_data_filter();
 void packet_set_filter(unsigned long filter);
 void packet_add_filter(unsigned long filter);
 void packet_del_filter(unsigned long filter);
@@ -60,7 +62,7 @@ void packet_control(struct timeval *tv, struct ucred *cred,
 					const void *data, uint16_t size);
 void packet_monitor(struct timeval *tv, struct ucred *cred,
 					uint16_t index, uint16_t opcode,
-					const void *data, uint16_t size);
+					void *data, uint16_t size);
 void packet_simulator(struct timeval *tv, uint16_t frequency,
 					const void *data, uint16_t size);
 
@@ -85,7 +87,7 @@ void packet_hci_command(struct timeval *tv, struct ucred *cred, uint16_t index,
 void packet_hci_event(struct timeval *tv, struct ucred *cred, uint16_t index,
 					const void *data, uint16_t size);
 void packet_hci_acldata(struct timeval *tv, struct ucred *cred, uint16_t index,
-				bool in, const void *data, uint16_t size);
+				bool in, void *data, uint16_t size);
 void packet_hci_scodata(struct timeval *tv, struct ucred *cred, uint16_t index,
 				bool in, const void *data, uint16_t size);
 
