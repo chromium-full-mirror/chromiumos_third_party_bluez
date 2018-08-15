@@ -30,7 +30,7 @@
 
 struct metrics_timer {
 	metrics_timer_type type;
-	time_t start;
+	struct timespec start;
 	struct metrics_timer_data data;
 };
 
@@ -76,7 +76,7 @@ static struct metrics_timer *metrics_timer_create(metrics_timer_type type,
 		timer = g_new0(struct metrics_timer, 1);
 		if (!timer)
 			break;
-		time(&timer->start);
+		clock_gettime(CLOCK_MONOTONIC, &timer->start);
 		timer->type = type;
 		timer->data = data;
 		break;
@@ -372,7 +372,7 @@ bool metrics_stop_timer(metrics_timer_type type,
 	struct metrics_timer *t = NULL;
 	struct metrics_timer *timer = NULL;
 	GSList *match = NULL;
-	time_t cur_time;
+	struct timespec cur_time;
 	const char *name;
 	double time_len = 0;
 	int sample;
@@ -381,7 +381,7 @@ bool metrics_stop_timer(metrics_timer_type type,
 	if (!lib)
 		return emitted;
 
-	time(&cur_time);
+	clock_gettime(CLOCK_MONOTONIC, &cur_time);
 
 	t = metrics_timer_create(type, data);
 	match = g_slist_find_custom(timers, t, metrics_timer_match);
@@ -392,7 +392,7 @@ bool metrics_stop_timer(metrics_timer_type type,
 	if (!timer)
 		goto failed;
 
-	time_len = difftime(cur_time, timer->start);
+	time_len = cur_time.tv_sec - timer->start.tv_sec;
 	if (time_len < TIME_LENGTH_MIN)
 		goto failed;
 
