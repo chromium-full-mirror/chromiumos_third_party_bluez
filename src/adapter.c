@@ -253,6 +253,11 @@ struct btd_adapter {
 	bool filtered_discovery;	/* we are doing filtered discovery */
 	bool no_scan_restart_delay;	/* when this flag is set, restart scan
 					 * without delay */
+	/* TODO(chromium:874611): The value of this should be managed by
+         * directly listening to powerd signal instead of relying on
+         * Pause/UnpauseDiscovery.
+         * indicates whether the system is going to suspend */
+	bool system_suspended;
 	uint8_t discovery_type;		/* current active discovery type */
 	uint8_t discovery_enable;	/* discovery enabled/disabled */
 	bool discovery_suspended;	/* discovery has been suspended */
@@ -5427,7 +5432,7 @@ static gboolean record_chip_lost()
 	struct metrics_timer_data timer_data = { NULL, NULL, NULL };
 
 	DBG("sending chip lost metrics");
-	metrics_stop_timer(TIMER_CHIP_LOST, timer_data);
+	metrics_stop_timer(TIMER_CHIP_LOST2, timer_data);
 	chip_lost_metrics_timer_id = 0;
 
 	return FALSE;
@@ -9525,7 +9530,7 @@ failed:
 gboolean suspend_resume_just_happened(struct btd_adapter *adapter) {
 	time_t cur_time;
 	time(&cur_time);
-	return (adapter->discovery_suspended_by_system ||
+	return (adapter->system_suspended ||
 		difftime(cur_time, last_system_resume_time) <= 1);
 }
 
@@ -9607,7 +9612,7 @@ static void index_removed(uint16_t index, uint16_t length, const void *param,
 			return;
 		}
 		metrics_last_chip_lost_time = cur_time;
-		metrics_start_timer(TIMER_CHIP_LOST, timer_data);
+		metrics_start_timer(TIMER_CHIP_LOST2, timer_data);
 		chip_lost_metrics_timer_id = g_timeout_add_seconds(
 							TIME_LENGTH_LAST_LOST,
 							record_chip_lost, NULL);

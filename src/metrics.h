@@ -24,6 +24,7 @@
 #define H_NAME_CONN_RESULT	"BlueZ.ResultOfConnection"
 #define H_NAME_ADAPTER_LOST	"BlueZ.AdapterLost"
 #define H_NAME_CHIP_LOST	"BlueZ.ChipLost"
+#define H_NAME_CHIP_LOST2	"BlueZ.ChipLost2"
 #define H_NAME_NUM_EXISTING_ADV	"BlueZ.NumberOfExistingAdvertisements"
 
 /* The lower and upper bounds of number of registered advertisements. */
@@ -54,6 +55,7 @@ typedef enum {
 	TIMER_CONNECT,
 	TIMER_ADAPTER_LOST,
 	TIMER_CHIP_LOST,
+	TIMER_CHIP_LOST2,
 } metrics_timer_type;
 
 typedef enum {
