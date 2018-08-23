@@ -1406,6 +1406,38 @@ static void cmd_pair(const char *arg)
 	rl_printf("Attempting to pair with %s\n", arg);
 }
 
+static void cancel_pairing_reply(DBusMessage *message, void *user_data)
+{
+	DBusError error;
+
+	dbus_error_init(&error);
+
+	if (dbus_set_error_from_message(&error, message) == TRUE) {
+		rl_printf("Failed to cancel pairing: %s\n", error.name);
+		dbus_error_free(&error);
+		return;
+	}
+
+	rl_printf("Cancel pairing successful\n");
+}
+
+static void cmd_cancel_pairing(const char *arg)
+{
+	GDBusProxy *proxy;
+
+	proxy = find_device(arg);
+	if (!proxy)
+		return;
+
+	if (g_dbus_proxy_method_call(proxy, "CancelPairing", NULL,
+				cancel_pairing_reply, NULL, NULL) == FALSE) {
+		rl_printf("Failed to cancel pairing\n");
+		return;
+	}
+
+	rl_printf("Attempting to cancel pairing with %s\n", arg);
+}
+
 static void cmd_trust(const char *arg)
 {
 	GDBusProxy *proxy;
@@ -2113,6 +2145,8 @@ static const struct {
 							dev_generator },
 	{ "pair",         "[dev]",    cmd_pair, "Pair with device",
 							dev_generator },
+	{ "cancel-pairing",  "[dev]",    cmd_cancel_pairing,
+	  "Cancel pairing with device", dev_generator },
 	{ "trust",        "[dev]",    cmd_trust, "Trust device",
 							dev_generator },
 	{ "untrust",      "[dev]",    cmd_untrust, "Untrust device",
