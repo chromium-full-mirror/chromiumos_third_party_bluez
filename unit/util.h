@@ -32,8 +32,8 @@ struct test_buf {
 struct test_data {
 	guint count;
 	GError *err;
-	struct test_buf recv[4];
-	struct test_buf send[4];
+	struct test_buf recv[5];
+	struct test_buf send[5];
 	guint provide_delay;
 	GObex *obex;
 	guint id;
