@@ -61,6 +61,7 @@ static void usage(void)
 		"\t-0, --zero             Zero out privacy data\n"
 		"\t-r, --read <file>      Read traces in btsnoop format\n"
 		"\t-w, --write <file>     Save traces in btsnoop format\n"
+		"\t-c, --compress         Compress the saved btsnoop\n"
 		"\t-a, --analyze <file>   Analyze traces in btsnoop format\n"
 		"\t-s, --server <socket>  Start monitor server socket\n"
 		"\t-p, --priority <level> Show only priority or lower\n"
@@ -76,6 +77,7 @@ static void usage(void)
 
 static const struct option main_options[] = {
 	{ "zero",    no_argument,       NULL, '0' },
+	{ "compress",no_argument,       NULL, 'c' },
 	{ "tty",     required_argument, NULL, 'd' },
 	{ "tty-speed", required_argument, NULL, 'B' },
 	{ "read",    required_argument, NULL, 'r' },
@@ -97,6 +99,7 @@ static const struct option main_options[] = {
 int main(int argc, char *argv[])
 {
 	unsigned long filter_mask = 0;
+	bool compress = false;
 	const char *reader_path = NULL;
 	const char *writer_path = NULL;
 	const char *analyze_path = NULL;
@@ -115,7 +118,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSE:vh0",
+		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSE:vhc0",
 						main_options, NULL);
 		if (opt < 0)
 			break;
@@ -123,6 +126,9 @@ int main(int argc, char *argv[])
 		switch (opt) {
 		case '0':
 			filter_mask |= PACKET_FILTER_ZERO_DATA;
+			break;
+		case 'c':
+			compress = true;
 			break;
 		case 'd':
 			tty= optarg;
@@ -226,7 +232,7 @@ int main(int argc, char *argv[])
 		return EXIT_SUCCESS;
 	}
 
-	if (writer_path && !control_writer(writer_path)) {
+	if (writer_path && !control_writer(writer_path, compress)) {
 		printf("Failed to open '%s'\n", writer_path);
 		return EXIT_FAILURE;
 	}

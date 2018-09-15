@@ -41,7 +41,7 @@ monitor_btmon_SOURCES = monitor/main.c monitor/bt.h \
 				monitor/broadcom.h monitor/broadcom.c \
 				monitor/tty.h
 monitor_btmon_LDADD = lib/libbluetooth-internal.la \
-				src/libshared-mainloop.la @UDEV_LIBS@
+				src/libshared-mainloop.la @UDEV_LIBS@ -lbz2
 endif
 
 if TESTING
