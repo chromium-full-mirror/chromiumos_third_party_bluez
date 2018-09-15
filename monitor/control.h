@@ -24,7 +24,7 @@
 
 #include <stdint.h>
 
-bool control_writer(const char *path);
+bool control_writer(const char *path, bool compress);
 void control_reader(const char *path, bool pager);
 void control_server(const char *path);
 int control_tty(const char *path, unsigned int speed);

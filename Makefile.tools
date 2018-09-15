@@ -45,7 +45,8 @@ monitor_btmon_SOURCES = monitor/main.c monitor/bt.h \
 				monitor/jlink.h monitor/jlink.c \
 				monitor/tty.h
 monitor_btmon_LDADD = lib/libbluetooth-internal.la \
-				src/libshared-mainloop.la $(UDEV_LIBS) -ldl
+				src/libshared-mainloop.la $(UDEV_LIBS) -ldl \
+				-lbz2
 endif
 
 if LOGGER

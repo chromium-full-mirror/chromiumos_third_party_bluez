@@ -63,6 +63,7 @@ static void usage(void)
 		"\t-0, --zero             Zero out privacy data\n"
 		"\t-r, --read <file>      Read traces in btsnoop format\n"
 		"\t-w, --write <file>     Save traces in btsnoop format\n"
+		"\t-c, --compress         Compress the saved btsnoop\n"
 		"\t-a, --analyze <file>   Analyze traces in btsnoop format\n"
 		"\t-s, --server <socket>  Start monitor server socket\n"
 		"\t-p, --priority <level> Show only priority or lower\n"
@@ -87,6 +88,7 @@ static const struct option main_options[] = {
 	{ "zero",      no_argument,       NULL, '0' },
 	{ "read",      required_argument, NULL, 'r' },
 	{ "write",     required_argument, NULL, 'w' },
+	{ "compress",  no_argument,       NULL, 'c' },
 	{ "analyze",   required_argument, NULL, 'a' },
 	{ "server",    required_argument, NULL, 's' },
 	{ "priority",  required_argument, NULL, 'p' },
@@ -112,6 +114,7 @@ int main(int argc, char *argv[])
 {
 	unsigned long filter_mask = 0;
 	bool use_pager = true;
+	bool compress = false;
 	const char *reader_path = NULL;
 	const char *writer_path = NULL;
 	const char *analyze_path = NULL;
@@ -132,7 +135,7 @@ int main(int argc, char *argv[])
 		int opt;
 		struct sockaddr_un addr;
 
-		opt = getopt_long(argc, argv, "r:w:a:s:p:i:d:B:V:tTSAE:PJ:R:vh0",
+		opt = getopt_long(argc, argv, "r:w:a:s:p:i:d:B:V:tTSAE:PJ:R:vhc0",
 							main_options, NULL);
 		if (opt < 0)
 			break;
@@ -146,6 +149,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'w':
 			writer_path = optarg;
+			break;
+		case 'c':
+			compress = true;
 			break;
 		case 'a':
 			analyze_path = optarg;
@@ -257,7 +263,7 @@ int main(int argc, char *argv[])
 		return EXIT_SUCCESS;
 	}
 
-	if (writer_path && !control_writer(writer_path)) {
+	if (writer_path && !control_writer(writer_path, compress)) {
 		printf("Failed to open '%s'\n", writer_path);
 		return EXIT_FAILURE;
 	}

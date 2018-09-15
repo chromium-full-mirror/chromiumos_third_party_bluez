@@ -1466,10 +1466,10 @@ int control_rtt(char *jlink, char *rtt)
 	return 0;
 }
 
-bool control_writer(const char *path)
+bool control_writer(const char *path, bool compress)
 {
-	btsnoop_file = btsnoop_create(path, 0, 0, BTSNOOP_FORMAT_MONITOR);
-
+	btsnoop_file = btsnoop_create(path, 0, 0, BTSNOOP_FORMAT_MONITOR,
+								compress);
 	return !!btsnoop_file;
 }
 

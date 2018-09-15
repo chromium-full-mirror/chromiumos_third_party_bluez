@@ -26,6 +26,8 @@
 #endif
 
 #define _GNU_SOURCE
+
+#include <bzlib.h>
 #include <endian.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -81,7 +83,32 @@ struct btsnoop {
 	size_t cur_size;
 	unsigned int max_count;
 	unsigned int cur_count;
+	bool compress;
 };
+
+/*
+ * To guarantee that the compressed data will fit, COMPRESS_DST_MAX is 1% larger
+ * than the COMPRESS_SRC_MAX, plus 600 bytes.
+ */
+#define COMPRESS_SRC_MAX 100000
+#define COMPRESS_DST_MAX 101600
+static size_t compress_src_size = 0;
+static char compress_src[COMPRESS_SRC_MAX];
+static char compress_dst[COMPRESS_DST_MAX];
+ssize_t btsnoop_compress(int fd, const void *data, size_t size)
+{
+	ssize_t written = 0;
+	if (compress_src_size + size > COMPRESS_SRC_MAX) {
+		unsigned int compress_dst_size = COMPRESS_DST_MAX;
+		BZ2_bzBuffToBuffCompress(compress_dst, &compress_dst_size,
+				compress_src, compress_src_size, 1, 0, 0);
+		compress_src_size = 0;
+		written = write(fd, compress_dst, compress_dst_size);
+	}
+	memcpy(compress_src + compress_src_size, data, size);
+	compress_src_size += size;
+	return written;
+}
 
 struct btsnoop *btsnoop_open(const char *path, unsigned long flags)
 {
@@ -140,7 +167,8 @@ failed:
 }
 
 struct btsnoop *btsnoop_create(const char *path, size_t max_size,
-					unsigned int max_count, uint32_t format)
+				unsigned int max_count, uint32_t format,
+				bool compress)
 {
 	struct btsnoop *btsnoop;
 	struct btsnoop_hdr hdr;
@@ -175,12 +203,15 @@ struct btsnoop *btsnoop_create(const char *path, size_t max_size,
 	btsnoop->path = path;
 	btsnoop->max_count = max_count;
 	btsnoop->max_size = max_size;
+	btsnoop->compress = compress;
 
 	memcpy(hdr.id, btsnoop_id, sizeof(btsnoop_id));
 	hdr.version = htobe32(btsnoop_version);
 	hdr.type = htobe32(btsnoop->format);
 
-	written = write(btsnoop->fd, &hdr, BTSNOOP_HDR_SIZE);
+	written = btsnoop->compress ?
+			btsnoop_compress(btsnoop->fd, &hdr, BTSNOOP_HDR_SIZE) :
+			write(btsnoop->fd, &hdr, BTSNOOP_HDR_SIZE);
 	if (written < 0) {
 		close(btsnoop->fd);
 		free(btsnoop);
@@ -284,14 +315,18 @@ bool btsnoop_write(struct btsnoop *btsnoop, struct timeval *tv,
 	pkt.drops = htobe32(drops);
 	pkt.ts    = htobe64(ts + 0x00E03AB44A676000ll);
 
-	written = write(btsnoop->fd, &pkt, BTSNOOP_PKT_SIZE);
+	written = btsnoop->compress ?
+			btsnoop_compress(btsnoop->fd, &pkt, BTSNOOP_PKT_SIZE) :
+			write(btsnoop->fd, &pkt, BTSNOOP_PKT_SIZE);
 	if (written < 0)
 		return false;
 
 	btsnoop->cur_size += BTSNOOP_PKT_SIZE;
 
 	if (data && size > 0) {
-		written = write(btsnoop->fd, data, size);
+		written = btsnoop->compress ?
+			btsnoop_compress(btsnoop->fd, data, size) :
+			write(btsnoop->fd, data, size);
 		if (written < 0)
 			return false;
 	}
