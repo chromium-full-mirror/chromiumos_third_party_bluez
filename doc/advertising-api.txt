@@ -61,11 +61,28 @@ Properties	string Type
 			Service Data elements to include. The keys are the
 			UUID to associate with the data.
 
-		bool IncludeTxPower
+		array{string} Includes
 
-			Includes the Tx Power in the advertising packet.
-			If missing, the Tx Power is not included.
+			List of features to be included in the advertising
+			packet.
 
+			Possible values: as found on
+					LEAdvertisingManager.SupportedIncludes
+
+		string LocalName
+
+			Local name to be used in the advertising report. If the
+			string is too big to fit into the packet it will be
+			truncated.
+
+			If this property is available 'local-name' cannot be
+			present in the Includes.
+
+		uint16 Appearance
+
+			Appearance to be used in the advertising report.
+
+			Possible values: as found on GAP Service.
 
 LE Advertising Manager hierarchy
 ================================
@@ -105,7 +122,6 @@ Methods		RegisterAdvertisement(object advertisement, dict options)
 			Possible errors: org.bluez.Error.InvalidArguments
 					 org.bluez.Error.DoesNotExist
 
-
 		void SetAdvertisingIntervals(uint16 min_interval_ms,
 					     uint16 max_interval_ms)
 
@@ -132,3 +148,19 @@ Properties	bool IsTXPowerSupported [readonly]
 
 			Whether setting TX power for individual advertisements
 			is supported.
+
+Properties	byte ActiveInstances
+
+			Number of active advertising instances.
+
+Properties	byte SupportedInstances
+
+			Number of available advertising instances.
+
+		array{string} SupportedIncludes
+
+			List of supported system includes.
+
+			Possible values: "tx-power"
+					 "appearance"
+					 "local-name"
