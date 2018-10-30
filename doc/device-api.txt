@@ -292,3 +292,7 @@ Properties	string Address [readonly]
 
 			The MTU used in ATT communication with the remote
 			device.
+
+		array{byte} EIR [readonly, optional]
+
+			The extended inquiry response data from advertisement.

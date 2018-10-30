@@ -185,6 +185,8 @@ struct btd_device {
 	bool		svc_refreshed;
 	GSList		*svc_callbacks;
 	GSList		*eir_uuids;
+	uint8_t		eir[255];
+	uint8_t		eir_len;
 	struct bt_ad	*ad;
 	uint8_t         ad_flags[1];
 	char		name[MAX_NAME_LENGTH + 1];
@@ -1309,6 +1311,27 @@ static gboolean dev_property_mtu_exist(const GDBusPropertyTable *property,
 	return dev->att_mtu == 0 ? FALSE : TRUE;
 }
 
+static gboolean dev_property_get_eir(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *dev = data;
+	uint8_t *eir = dev->eir;
+	DBusMessageIter array;
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_BYTE_AS_STRING, &array);
+	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &eir,
+								dev->eir_len);
+	dbus_message_iter_close_container(iter, &array);
+	return TRUE;
+}
+
+static gboolean dev_property_eir_exist(const GDBusPropertyTable *property,
+					void *data)
+{
+	struct btd_device *dev = data;
+	return dev->eir_len > 0 ? TRUE : FALSE;
+}
+
 static gboolean
 dev_property_service_data_exist(const GDBusPropertyTable *property,
 								void *data)
@@ -1658,6 +1681,17 @@ done:
 
 	dbus_message_unref(dev->connect);
 	dev->connect = NULL;
+}
+
+void device_set_eir(struct btd_device *dev, const uint8_t *data, uint8_t len)
+{
+	if (dev->eir_len == len && memcmp(dev->eir, data, len) == 0)
+		return;
+
+	memcpy(dev->eir, data, len);
+	dev->eir_len = len;
+	g_dbus_emit_property_changed(dbus_conn, dev->path, DEVICE_INTERFACE,
+									"EIR");
 }
 
 void device_add_eir_uuids(struct btd_device *dev, GSList *uuids)
@@ -3130,6 +3164,7 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "AdvertisingFlags", "ay", dev_property_get_flags, NULL,
 						dev_property_flags_exist },
 	{ "MTU", "q", dev_property_get_mtu, NULL, dev_property_mtu_exist },
+	{ "EIR", "ay", dev_property_get_eir, NULL, dev_property_eir_exist },
 
 	{ }
 };
@@ -4163,6 +4198,7 @@ static struct btd_device *device_new(struct btd_adapter *adapter,
 		return NULL;
 
 	device->tx_power = 127;
+	device->eir_len = 0;
 
 	device->db = gatt_db_new();
 	if (!device->db) {
