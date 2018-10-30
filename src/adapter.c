@@ -6880,6 +6880,7 @@ static void update_found_devices(struct btd_adapter *adapter,
 							eir_data.did_product,
 							eir_data.did_version);
 
+	device_set_eir(dev, data, data_len);
 	device_add_eir_uuids(dev, eir_data.services);
 
 	if (adapter->discovery_list)
@@ -8945,6 +8946,7 @@ static void connected_callback(uint16_t index, uint16_t length,
 		return;
 	}
 
+	device_set_eir(device, ev->eir, eir_len);
 	memset(&eir_data, 0, sizeof(eir_data));
 	if (eir_len > 0)
 		eir_parse(&eir_data, ev->eir, eir_len);
