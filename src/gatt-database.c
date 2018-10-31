@@ -1932,7 +1932,9 @@ static void notify_setup_cb(DBusMessageIter *iter, void *user_data)
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
 					&dict);
 
-	append_options(&dict, op);
+	if (op->device != NULL)
+		append_options(&dict, op);
+
 	dbus_message_iter_close_container(iter, &dict);
 }
 
