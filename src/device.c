@@ -591,6 +591,9 @@ static void gatt_server_cleanup(struct btd_device *device)
 	if (!device->server)
 		return;
 
+	btd_gatt_database_att_disconnected(
+			btd_adapter_get_database(device->adapter), device);
+
 	bt_gatt_server_unref(device->server);
 	device->server = NULL;
 }

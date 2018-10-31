@@ -1522,6 +1522,14 @@ struct bt_gatt_server *bt_gatt_server_new(struct gatt_db *db,
 	return bt_gatt_server_ref(server);
 }
 
+struct bt_att *bt_gatt_server_get_att(struct bt_gatt_server *server)
+{
+	if (!server)
+		return NULL;
+
+	return server->att;
+}
+
 struct bt_gatt_server *bt_gatt_server_ref(struct bt_gatt_server *server)
 {
 	if (!server)
