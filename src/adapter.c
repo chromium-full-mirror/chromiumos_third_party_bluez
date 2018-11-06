@@ -9234,13 +9234,13 @@ static void index_removed(uint16_t index, uint16_t length, const void *param,
 		if (difftime(cur_time, metrics_last_chip_lost_time) <
 			TIME_LENGTH_LAST_LOST) {
 			metrics_last_chip_lost_time = cur_time;
-			return;
+		} else {
+			metrics_last_chip_lost_time = cur_time;
+			metrics_start_timer(TIMER_CHIP_LOST2, timer_data);
+			chip_lost_metrics_timer_id = g_timeout_add_seconds(
+				TIME_LENGTH_LAST_LOST,
+				record_chip_lost, NULL);
 		}
-		metrics_last_chip_lost_time = cur_time;
-		metrics_start_timer(TIMER_CHIP_LOST2, timer_data);
-		chip_lost_metrics_timer_id = g_timeout_add_seconds(
-							TIME_LENGTH_LAST_LOST,
-							record_chip_lost, NULL);
 	}
 
 	adapter_unregister(adapter);
