@@ -949,7 +949,7 @@ static DBusMessage *register_agent(DBusConnection *conn,
 
 	agent = g_hash_table_lookup(agent_list, sender);
 	if (agent)
-		return btd_error_already_exists(msg);
+		return dbus_message_new_method_return(msg);
 
 	if (dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &path,
 						DBUS_TYPE_STRING, &capability,
@@ -981,7 +981,7 @@ static DBusMessage *unregister_agent(DBusConnection *conn,
 
 	agent = g_hash_table_lookup(agent_list, sender);
 	if (!agent)
-		return btd_error_does_not_exist(msg);
+		return dbus_message_new_method_return(msg);
 
 	DBG("agent %s", agent->owner);
 
