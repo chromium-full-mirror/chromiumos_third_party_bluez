@@ -2838,13 +2838,20 @@ static DBusMessage *unpause_discovery(DBusConnection *conn,
 		time(&last_system_resume_time);
 	}
 
-	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
-		return btd_error_not_ready(msg);
-
 	if (!adapter->discovery_suspended_by_system)
 		return btd_error_failed(msg, "Discovery not paused");
 
+	// Unset the flag even if the adpater might be powered off.
+	// Otherwise, the flag would prevent all discovery activities.
+	// Refer to http://crbug.com/904323 for more details.
 	adapter->discovery_suspended_by_system = false;
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED)) {
+		DBG("Discovery unpaused");
+		warn("resume_discovery() was skipped due to adapter off");
+		return dbus_message_new_method_return(msg);
+	}
+
 	resume_discovery(adapter, 0);
 	return dbus_message_new_method_return(msg);
 }
