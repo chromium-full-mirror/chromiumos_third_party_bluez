@@ -1372,6 +1372,7 @@ static void cmd_info(const char *arg)
 	print_property(proxy, "ServiceData");
 	print_property(proxy, "RSSI");
 	print_property(proxy, "TxPower");
+	print_property(proxy, "Type");
 }
 
 static void pair_reply(DBusMessage *message, void *user_data)
