@@ -4371,6 +4371,8 @@ void device_set_bredr_support(struct btd_device *device)
 
 	device->bredr = true;
 	store_device_info(device);
+	g_dbus_emit_property_changed(dbus_conn, device->path,
+					DEVICE_INTERFACE, "Type");
 }
 
 void device_set_le_support(struct btd_device *device, uint8_t bdaddr_type)
@@ -4382,6 +4384,8 @@ void device_set_le_support(struct btd_device *device, uint8_t bdaddr_type)
 	device->bdaddr_type = bdaddr_type;
 
 	store_device_info(device);
+	g_dbus_emit_property_changed(dbus_conn, device->path,
+					DEVICE_INTERFACE, "Type");
 }
 
 void device_update_last_seen(struct btd_device *device, uint8_t bdaddr_type)
