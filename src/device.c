@@ -1516,6 +1516,8 @@ static void dev_disconn_service(gpointer a, gpointer b)
 
 void device_request_disconnect(struct btd_device *device, DBusMessage *msg)
 {
+	set_client_diconnecting(device->client, true);
+
 	if (device->bonding)
 		bonding_request_cancel(device->bonding);
 

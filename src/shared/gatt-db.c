@@ -70,6 +70,8 @@ struct gatt_db {
 
 	gatt_db_authorize_cb_t authorize;
 	void *authorize_data;
+
+	bool disconnecting;
 };
 
 struct notify {
@@ -134,6 +136,11 @@ static void set_attribute_data(struct gatt_db_attribute *attribute,
 	attribute->read_func = read_func;
 	attribute->write_func = write_func;
 	attribute->user_data = user_data;
+}
+
+void set_db_diconnecting(struct gatt_db *db, bool flag) {
+	if (db)
+		db->disconnecting = flag;
 }
 
 static void pending_read_result(struct pending_read *p, int err,
@@ -358,6 +365,14 @@ static void notify_service_changed(struct gatt_db *db,
 {
 	struct notify_data data;
 
+	/* Perform some sanity check.
+	 * The flag service->db->disconnecting is not checked here since
+	 * notify_service_changed() is normally invoked when disconnecting.
+	 */
+	if (!service || !service->db) {
+		return;
+	}
+
 	if (queue_isempty(db->notify_list))
 		return;
 
@@ -530,6 +545,11 @@ static void gatt_db_service_get_handles(const struct gatt_db_service *service,
 							uint16_t *start_handle,
 							uint16_t *end_handle)
 {
+	/* Check if the device is disconnecting. */
+	if (!service || !service->db || service->db->disconnecting) {
+		return;
+	}
+
 	if (start_handle)
 		*start_handle = service->attributes[0]->handle;
 
@@ -797,6 +817,11 @@ service_insert_characteristic(struct gatt_db_service *service,
 	uint8_t value[MAX_CHAR_DECL_VALUE_LEN];
 	uint16_t len = 0;
 	int i;
+
+	/* Check if the device is disconnecting. */
+	if (!service || !service->db || service->db->disconnecting) {
+		return NULL;
+	}
 
 	/* Check if handle is in within service range */
 	if (handle && handle <= service->attributes[0]->handle)
