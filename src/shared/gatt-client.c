@@ -126,6 +126,11 @@ struct request {
 	void (*destroy)(void *);
 };
 
+void set_client_diconnecting(struct bt_gatt_client *client, bool flag) {
+	if (client)
+		set_db_diconnecting(client->db, flag);
+}
+
 static struct request *request_ref(struct request *req)
 {
 	__sync_fetch_and_add(&req->ref_count, 1);
