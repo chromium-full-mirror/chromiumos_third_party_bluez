@@ -249,3 +249,5 @@ bool gatt_db_attribute_write_result(struct gatt_db_attribute *attrib,
 						unsigned int id, int err);
 
 bool gatt_db_attribute_reset(struct gatt_db_attribute *attrib);
+
+void set_db_diconnecting(struct gatt_db *db, bool flag);
