@@ -78,7 +78,11 @@
 
 #define IO_CAPABILITY_NOINPUTNOOUTPUT	0x03
 
-#define DISCONNECT_TIMER	2
+/* Timer units are in seconds */
+#define DISCONNECT_TIMER		2
+#define DELAY_DISCONNECT_TIMER		1
+#define DELAY_DISCONNECT_TIMEOUT_COUNT	10
+
 #define DISCOVERY_TIMER		1
 #define INVALID_FLAGS		0xff
 
@@ -206,6 +210,8 @@ struct btd_device {
 	GSList		*watches;		/* List of disconnect_data */
 	bool		temporary;
 	guint		disconn_timer;
+	guint		delay_disconn_timer;
+	guint		delay_disconn_count;
 	guint		discov_timer;
 	struct browse_req *browse;		/* service discover request */
 	struct bonding_req *bonding;
@@ -1560,6 +1566,42 @@ static void device_set_auto_connect(struct btd_device *device, gboolean enable)
 	adapter_connect_list_add(device->adapter, device);
 }
 
+struct device_msg {
+	struct btd_device *device;
+	DBusMessage *msg;
+};
+
+static gboolean delay_device_request_disconnect(gpointer user_data)
+{
+	/*
+	 * Let the service discovery proceed for up to
+	 * DELAY_DISCONNECT_TIMER * DELAY_DISCONNECT_TIMEOUT_COUNT seconds
+	 * before starting to handle the disconnection request. This is to
+	 * avoid race conditions between the service discovery and
+	 * disconnection operations.
+	 */
+	struct device_msg *dev_msg = user_data;
+	struct btd_device *device = dev_msg->device;
+	if (device->browse && ++(device->delay_disconn_count) <
+						DELAY_DISCONNECT_TIMEOUT_COUNT) {
+		DBG("delay_disconn_count: %d", device->delay_disconn_count);
+		/*
+		 * return TRUE would trigger the timer to fire again in
+		 * DELAY_DISCONNECT_TIMER seconds later.
+		 */
+		return TRUE;
+	} else {
+		DBG("delay_disconn_count: %d (disconnection was started)",
+			device->delay_disconn_count);
+		device_request_disconnect(device, dev_msg->msg);
+		dbus_message_unref(dev_msg->msg);
+		device->delay_disconn_timer = 0;
+		device->delay_disconn_count = 0;
+		g_free(dev_msg);
+		return FALSE;
+	}
+}
+
 static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -1574,7 +1616,39 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 		device_set_auto_connect(device, FALSE);
 	}
 
-	device_request_disconnect(device, msg);
+	DBG("");
+
+	/*
+	 * If the host is still browsing, let the disconnect request
+	 * delay for a while to avoid race conditions.
+	 */
+	if (device->browse) {
+		if (device->delay_disconn_timer) {
+			DBG("Ignore repeated disconnect requests.");
+			return NULL;
+		} else {
+			struct device_msg *dev_msg = g_new0(
+							struct device_msg, 1);
+			dev_msg->device = device;
+			dev_msg->msg = dbus_message_ref(msg);
+
+			DBG("disconnection was delayed.");
+			device->delay_disconn_timer = g_timeout_add_seconds(
+						DELAY_DISCONNECT_TIMER,
+						delay_device_request_disconnect,
+						dev_msg);
+		}
+	} else {
+		/*
+		 * Note: This device_request_disconnect() is invoked by a few
+		 * other functions. Theoretically, it is likely that the
+		 * invocation has to be protected in a similar way as above.
+		 * If this is the case, wrap the "if" logic above with
+		 * device_request_disconnect() into a new function like
+		 * try_device_request_disconnect() to avoid redundancy.
+		 */
+		device_request_disconnect(device, msg);
+	}
 
 	return NULL;
 }
