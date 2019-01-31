@@ -683,7 +683,7 @@ static void property_changed(GDBusProxy *proxy, const char *name,
 					set_default_device(NULL, NULL);
 			}
 
-			print_iter(str, name, iter);
+			if (strcmp(name, "EIR")) print_iter(str, name, iter);
 			g_free(str);
 		}
 	} else if (!strcmp(interface, "org.bluez.Adapter1")) {
