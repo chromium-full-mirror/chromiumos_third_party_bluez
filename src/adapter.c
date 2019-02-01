@@ -202,6 +202,27 @@ struct btd_adapter_pin_cb_iter {
 	/* When the iterator reaches the end, it is NULL and attempt is 0 */
 };
 
+/* Lists the tasks that need to be done upon suspend and resume */
+enum suspend_res_tasks {
+	SUS_RES_TASK_NONE       =  (0),
+	SUS_RES_TASK_DISCOVERY  =  (1 << 0),
+	SUS_RES_TASK_SET_EVENTS =  (1 << 1)  /* place holder */
+};
+
+typedef enum {
+	/* Normal running */
+	SUS_RES_STATE_RUNNING,
+
+	/* Preparing for suspend imminent (notified by powerd) */
+	SUS_RES_STATE_SUS_IMMINT,
+
+	/* Ack on suspend preparations sent to powerd */
+	SUS_RES_STATE_SUS_IMMINT_ACKED,
+
+	/* Resuming from suspend (notified by powerd) */
+	SUS_RES_STATE_SUS_DONE
+} suspend_res_state_t;
+
 struct btd_adapter {
 	int ref_count;
 
@@ -244,11 +265,14 @@ struct btd_adapter {
 	 * and on system resume with unpause_discovery().
 	 */
 	bool discovery_suspended_by_system;
-	/* TODO(chromium:874611): The value of this should be managed by
-         * directly listening to powerd signal instead of relying on
-         * Pause/UnpauseDiscovery.
-         * indicates whether the system is going to suspend */
-	bool system_suspended;
+
+        /* Current system suspend resume (sleep/wakeup) state in Bluez  */
+	suspend_res_state_t suspend_res_state;
+        /* a bit mask containing the tasks to be performed upon
+         * suspend/resume */
+        uint32_t suspend_res_tasks;
+        DBusMessage *suspend_res_msg;
+
 	uint8_t discovery_type;		/* current active discovery type */
 	uint8_t discovery_enable;	/* discovery enabled/disabled */
 	bool discovery_suspended;	/* discovery has been suspended */
@@ -365,6 +389,8 @@ uint16_t btd_adapter_get_index(struct btd_adapter *adapter)
 }
 
 static gboolean process_auth_queue(gpointer user_data);
+static void update_suspend_res_tasks(struct btd_adapter *adapter,
+					uint32_t task, bool is_added);
 
 static void dev_class_changed_callback(uint16_t index, uint16_t length,
 					const void *param, void *user_data)
@@ -1669,16 +1695,19 @@ static void suspend_discovery_complete(uint8_t status, uint16_t length,
 		adapter->discovery_type = 0x00;
 		adapter->discovery_enable = 0x00;
 	}
+
+	/* Update suspend discovery task in suspend resume task tracking */
+	update_suspend_res_tasks(adapter, SUS_RES_TASK_DISCOVERY, false);
 }
 
-static void suspend_discovery(struct btd_adapter *adapter)
+static bool suspend_discovery(struct btd_adapter *adapter)
 {
 	struct mgmt_cp_stop_discovery cp;
 
 	DBG("");
 
 	if (adapter->discovery_suspended)
-		return;
+		return false;
 	adapter->discovery_suspended = true;
 
 	/*
@@ -1686,7 +1715,7 @@ static void suspend_discovery(struct btd_adapter *adapter)
 	 * also nothing to suspend.
 	 */
 	if (!adapter->discovery_list)
-		return;
+		return false;
 
 	/*
 	 * In case of being inside the idle phase, make sure to remove
@@ -1700,13 +1729,16 @@ static void suspend_discovery(struct btd_adapter *adapter)
 	}
 
 	if (adapter->discovery_enable == 0x00)
-		return;
+		return false;
 
 	cp.type = adapter->discovery_type;
 
 	mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY,
 				adapter->dev_id, sizeof(cp), &cp,
 				suspend_discovery_complete, adapter, NULL);
+
+	/* Return true only if suspend is still pending */
+	return true;
 }
 
 static void resume_discovery(struct btd_adapter *adapter, guint delay)
@@ -2634,18 +2666,15 @@ static DBusMessage *stop_discovery_with_retry(DBusConnection *conn,
 static DBusMessage *pause_discovery(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
-	DBusMessageIter iter;
-	dbus_bool_t system_suspend_resume;
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
 
-	dbus_message_iter_init(msg, &iter);
-	dbus_message_iter_get_basic(&iter, &system_suspend_resume);
-	// Update the |system_suspended| flag only if this request is related to
-	// system suspend/resume.
-	if (system_suspend_resume == TRUE)
-		adapter->system_suspended = true;
+        /*
+	 * system_suspend_resume parameter is ignored since this call never
+         * happends in the context of system suspension. Refer to
+         * handle_suspend_imminent for system suspension case
+         */
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
@@ -2661,20 +2690,14 @@ static DBusMessage *pause_discovery(DBusConnection *conn,
 static DBusMessage *unpause_discovery(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
-	DBusMessageIter iter;
-	dbus_bool_t system_suspend_resume;
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
 
-	dbus_message_iter_init(msg, &iter);
-	dbus_message_iter_get_basic(&iter, &system_suspend_resume);
-	// Update the |system_suspended| flag only if this request is related to
-	// system suspend/resume.
-	if (system_suspend_resume == TRUE) {
-		adapter->system_suspended = false;
-		time(&last_system_resume_time);
-	}
+        /* system_suspend_resume parameter is ignored since this call never
+         * happends in the context of system resume. Refer to
+         * handle_suspend_done for system resume case
+         */
 
 	if (!adapter->discovery_suspended_by_system)
 		return btd_error_failed(msg, "Discovery not paused");
@@ -2692,6 +2715,158 @@ static DBusMessage *unpause_discovery(DBusConnection *conn,
 
 	resume_discovery(adapter, 0);
 	return dbus_message_new_method_return(msg);
+}
+
+/*
+ * This method tracks the tasks needed to be done in Bluez as part of the
+ * suspend or resume system sequences. When all suspend or resume tasks are
+ * done, the function will generate a dbus message back to BT dispatcher,
+ * which is pending for completion.
+ * Assumption - either suspend or resume operation can be ongoig in a
+ * certain time, this is guarenteed by BT dispatcher
+ */
+static void update_suspend_res_tasks(struct btd_adapter *adapter,
+					uint32_t task, bool is_added)
+{
+	bool send_dbus_msg = false;
+
+	DBG("task 0x%x, all tasks 0x%x is_added  %d suspend state %d",
+			task,
+			adapter->suspend_res_tasks,
+			is_added,
+			adapter->suspend_res_state);
+
+        /* Set or unset the task of the bit in suspend_res_tasks */
+        if (is_added)
+                adapter->suspend_res_tasks |= task;
+	else
+		adapter->suspend_res_tasks &= ~task;
+
+	if (SUS_RES_TASK_NONE == adapter->suspend_res_tasks) {
+		if (SUS_RES_STATE_SUS_IMMINT == adapter->suspend_res_state) {
+			adapter->suspend_res_state =
+					SUS_RES_STATE_SUS_IMMINT_ACKED;
+			send_dbus_msg = true;
+		}
+		if (SUS_RES_STATE_SUS_DONE == adapter->suspend_res_state) {
+			adapter->suspend_res_state = SUS_RES_STATE_RUNNING;
+			send_dbus_msg = true;
+		}
+	}
+
+	/* Complete the ASYNC request to suspend/resume */
+	if (send_dbus_msg) {
+		if (NULL == adapter->suspend_res_msg) {
+			btd_error(adapter->dev_id,
+					"MSG is NULL! suspend/resume failed!");
+			return;
+		}
+
+		DBG("Sending suspend resume reply to btdispatch");
+
+		DBusMessage *msg;
+		msg = dbus_message_new_method_return(adapter->suspend_res_msg);
+                g_dbus_send_message(btd_get_dbus_connection(),msg);
+		dbus_message_unref(adapter->suspend_res_msg);
+	}
+}
+
+static void pause_discovery_for_system_suspend(struct btd_adapter *adapter)
+{
+	if (adapter->discovery_suspended_by_system) {
+		/* Nothing to do, update suspend resume tasks tracking */
+		update_suspend_res_tasks(adapter, SUS_RES_TASK_NONE, false);
+		return;
+	}
+
+	/* Pause discovery and update system suspend tasks */
+	adapter->discovery_suspended_by_system = true;
+	if (true == suspend_discovery(adapter))
+		update_suspend_res_tasks(adapter, SUS_RES_TASK_DISCOVERY,
+				true);
+	else
+		update_suspend_res_tasks(adapter, SUS_RES_TASK_NONE, false);
+}
+
+static void unpause_discovery_for_system_resume(struct btd_adapter *adapter)
+{
+	if (!adapter->discovery_suspended_by_system) {
+		/* Nothing to do, update suspend resume tasks tracking */
+		update_suspend_res_tasks(adapter, SUS_RES_TASK_NONE, false);
+		return;
+	}
+	adapter->discovery_suspended_by_system = false;
+	resume_discovery(adapter,0);
+
+	/*
+	 * Don't add this task to the list of resume tasks, since its a long
+	 * operation that doesn't need to be async.
+	 * powerd can compelete resume operation right away
+	 */
+	update_suspend_res_tasks(adapter, SUS_RES_TASK_NONE, false);
+}
+
+static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
+                                        DBusMessage *msg, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	DBG("sender %s", sender);
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+            return btd_error_not_ready(msg);
+
+	if (SUS_RES_STATE_RUNNING != adapter->suspend_res_state) {
+		warn("Suspend imminent called in wrong state %d",
+				adapter->suspend_res_state);
+		return btd_error_busy(msg);
+	}
+	time(&last_system_resume_time);
+
+	/* Perform suspend tasks */
+	pause_discovery_for_system_suspend(adapter);
+	/* End of suspend tasks */
+
+	/* Suspend may be async depedning on bluez tasks to be executed */
+	if (SUS_RES_TASK_NONE == adapter->suspend_res_tasks) {
+		adapter->suspend_res_state = SUS_RES_STATE_SUS_IMMINT_ACKED;
+		return dbus_message_new_method_return(msg);
+	} else {
+		adapter->suspend_res_state = SUS_RES_STATE_SUS_IMMINT;
+		adapter->suspend_res_msg = dbus_message_ref(msg);
+		return NULL;
+	}
+}
+
+static DBusMessage *handle_suspend_done(DBusConnection *conn,
+                                        DBusMessage *msg, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	const char *sender = dbus_message_get_sender(msg);
+	DBG("sender %s", sender);
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (SUS_RES_STATE_SUS_IMMINT_ACKED != adapter->suspend_res_state) {
+		warn("Suspend done called in wrong state %d",
+				adapter->suspend_res_state);
+		return btd_error_busy(msg);
+	}
+
+	/* Perform suspend tasks */
+	unpause_discovery_for_system_resume(adapter);
+	/* End of suspend tasks */
+
+	/* Resume may be async depedning on system state */
+	if (SUS_RES_TASK_NONE == adapter->suspend_res_tasks) {
+		adapter->suspend_res_state = SUS_RES_STATE_RUNNING;
+		return dbus_message_new_method_return(msg);
+	} else {
+		adapter->suspend_res_state = SUS_RES_STATE_SUS_DONE;
+		adapter->suspend_res_msg = dbus_message_ref(msg);
+		return NULL;
+	}
 }
 
 static gboolean property_get_address(const GDBusPropertyTable *property,
@@ -3679,7 +3854,11 @@ static const GDBusMethodTable adapter_methods[] = {
 			create_service_record)},
 	{ GDBUS_METHOD("RemoveServiceRecord", GDBUS_ARGS({"handle", "u"}), NULL,
 			remove_service_record)},
-	{ }
+	{ GDBUS_ASYNC_METHOD("HandleSuspendImminent", NULL, NULL,
+			handle_suspend_imminent)},
+	{ GDBUS_ASYNC_METHOD("HandleSuspendDone", NULL , NULL,
+			handle_suspend_done)},
+{ }
 };
 
 static const GDBusPropertyTable adapter_properties[] = {
@@ -5089,6 +5268,9 @@ static void adapter_start(struct btd_adapter *adapter)
 	g_dbus_client_set_proxy_handlers(adapter->newblue_client,
 							newblue_proxy_added,
 							NULL, NULL, adapter);
+	adapter->suspend_res_state = SUS_RES_STATE_RUNNING;
+	adapter->suspend_res_tasks = SUS_RES_TASK_NONE;
+	adapter->suspend_res_msg = NULL;
 
 	info("adapter %s has been enabled", adapter->path);
 
@@ -9165,8 +9347,13 @@ failed:
 gboolean suspend_resume_just_happened(struct btd_adapter *adapter) {
 	time_t cur_time;
 	time(&cur_time);
-	return (adapter->system_suspended ||
-		difftime(cur_time, last_system_resume_time) <= 1);
+
+	bool sus_now;
+
+	sus_now = ((SUS_RES_STATE_SUS_IMMINT == adapter->suspend_res_state) ||
+		(SUS_RES_STATE_SUS_IMMINT_ACKED == adapter->suspend_res_state));
+
+	return (sus_now || difftime(cur_time, last_system_resume_time) <= 1);
 }
 
 static void index_added(uint16_t index, uint16_t length, const void *param,
