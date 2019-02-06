@@ -129,7 +129,9 @@ static GKeyFile *load_configs(const char *filename1, const char *filename2)
 		content = g_strjoin(NULL, content2, NULL);
 	g_free(content1);
 	g_free(content2);
-	DBG("merged contents: %s", content);
+        /* TODO: Uncomment when chromium:928942 is fixed
+         * DBG("merged contents: %s", content);
+         */
 
 	conf = g_key_file_new();
 	g_key_file_set_list_separator(conf, ',');
