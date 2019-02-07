@@ -11049,6 +11049,12 @@ static const struct mgmt_data mgmt_command_table[] = {
 	{ 0x0043, "Set Appearance",
 				mgmt_set_apperance_cmd, 2, true,
 				mgmt_null_rsp, 0, true },
+	{ 0x0044, "Set Advertisment Interval",
+				mgmt_null_cmd, 4, true,
+				mgmt_null_rsp, 0, true },
+	{ 0x0045, "Set Event Mask",
+				mgmt_null_cmd, 16, true,
+				mgmt_null_rsp, 16, true },
 	{ }
 };
 

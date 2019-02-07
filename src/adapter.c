@@ -138,6 +138,12 @@ static time_t last_system_resume_time;
 
 static bool newblue_stack_sync_quitting = false;
 
+/*
+ * TODO: set event mask is disabled until all kernels support new MGMT message
+ * Refer to CL:1464385 for Kernel 4.4 change
+ */
+bool temp_set_event_mask_disable = true;
+
 struct link_key_info {
 	bdaddr_t bdaddr;
 	unsigned char key[16];
@@ -205,20 +211,19 @@ struct btd_adapter_pin_cb_iter {
 /* Lists the tasks that need to be done upon suspend and resume */
 enum suspend_res_tasks {
 	SUS_RES_TASK_NONE       =  (0),
+/* Pause discovery to avoid system wake ups on devices discovery */
 	SUS_RES_TASK_DISCOVERY  =  (1 << 0),
-	SUS_RES_TASK_SET_EVENTS =  (1 << 1)  /* place holder */
+/* MASK BT some controller events to avoid undesired system wakeups */
+	SUS_RES_TASK_SET_EVENTS =  (1 << 1)
 };
 
 typedef enum {
 	/* Normal running */
 	SUS_RES_STATE_RUNNING,
-
 	/* Preparing for suspend imminent (notified by powerd) */
 	SUS_RES_STATE_SUS_IMMINT,
-
 	/* Ack on suspend preparations sent to powerd */
 	SUS_RES_STATE_SUS_IMMINT_ACKED,
-
 	/* Resuming from suspend (notified by powerd) */
 	SUS_RES_STATE_SUS_DONE
 } suspend_res_state_t;
@@ -2788,6 +2793,59 @@ static void pause_discovery_for_system_suspend(struct btd_adapter *adapter)
 		update_suspend_res_tasks(adapter, SUS_RES_TASK_NONE, false);
 }
 
+static void set_event_masks_for_sus_res_complete(uint8_t status,
+							uint16_t length,
+							const void *param,
+							void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+
+	update_suspend_res_tasks(adapter, SUS_RES_TASK_SET_EVENTS, false);
+	if (status != MGMT_STATUS_SUCCESS) {
+		btd_error(adapter->dev_id,
+				"Failed to set event mask %s (0x%02x)",
+				mgmt_errstr(status), status);
+		return;
+	}
+	DBG("Successfuly set event mask for system suspend/resume");
+}
+
+static void set_event_masks_for_system_suspend(struct btd_adapter *adapter)
+{
+	/*
+	 * TODO: disabled until all kernels support new MGMT message
+	 * Refer to CL:1464385 for Kernel 4.4 change
+	 */
+	if (true == temp_set_event_mask_disable)
+		return;
+
+	struct mgmt_cp_set_event_mask cp;
+
+	memset(&cp, 0, sizeof(cp));
+
+	/*
+	 * Masked out events for suspend mode.
+	 * Value[] is already 0, doesn't neeed to change
+	 */
+	cp.mask[2] |= MGMT_EVENT_MASK_MODE_CHANGE;
+	cp.mask[3] |= MGMT_EVENT_MASK_MAX_SLOT_CHANGE;
+	cp.mask[5] |= MGMT_EVENT_MASK_SNIFF_SUBRATING;
+
+	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_EVENT_MASK,
+				adapter->dev_id, sizeof(cp), &cp,
+				set_event_masks_for_sus_res_complete,
+			adapter, NULL) > 0) {
+			update_suspend_res_tasks(adapter, SUS_RES_TASK_SET_EVENTS,
+				true);
+
+		return;
+	}
+
+	btd_error(adapter->dev_id, "Failed to set event mask for index %u",
+							adapter->dev_id);
+
+}
+
 static void unpause_discovery_for_system_resume(struct btd_adapter *adapter)
 {
 	if (!adapter->discovery_suspended_by_system) {
@@ -2804,6 +2862,41 @@ static void unpause_discovery_for_system_resume(struct btd_adapter *adapter)
 	 * powerd can compelete resume operation right away
 	 */
 	update_suspend_res_tasks(adapter, SUS_RES_TASK_NONE, false);
+}
+
+static void restore_event_masks_for_system_resume(struct btd_adapter *adapter)
+{
+	/*
+	 * TODO: disabled until all kernels support new MGMT message
+	 * Refer to CL:1464385 for Kernel 4.4 change
+	 */
+	if (true == temp_set_event_mask_disable)
+		return;
+
+	struct mgmt_cp_set_event_mask cp;
+
+	memset(&cp, 0, sizeof(cp));
+
+	/* Restore event mask upon resume */
+	cp.mask[2] |= MGMT_EVENT_MASK_MODE_CHANGE;
+	cp.mask[3] |= MGMT_EVENT_MASK_MAX_SLOT_CHANGE;
+	cp.mask[5] |= MGMT_EVENT_MASK_SNIFF_SUBRATING;
+	cp.events[2] |= MGMT_EVENT_MASK_MODE_CHANGE;
+	cp.events[3] |= MGMT_EVENT_MASK_MAX_SLOT_CHANGE;
+	cp.events[5] |= MGMT_EVENT_MASK_SNIFF_SUBRATING;
+
+	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_EVENT_MASK,
+				adapter->dev_id, sizeof(cp), &cp,
+				set_event_masks_for_sus_res_complete,
+				adapter, NULL) > 0) {
+		update_suspend_res_tasks(adapter, SUS_RES_TASK_SET_EVENTS,
+				true);
+
+		return;
+	}
+
+	btd_error(adapter->dev_id, "Failed to set event mask for index %u",
+							adapter->dev_id);
 }
 
 static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
@@ -2826,6 +2919,7 @@ static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
 
 	/* Perform suspend tasks */
 	pause_discovery_for_system_suspend(adapter);
+	set_event_masks_for_system_suspend(adapter);
 	/* End of suspend tasks */
 
 	/* Suspend may be async depedning on bluez tasks to be executed */
@@ -2858,6 +2952,7 @@ static DBusMessage *handle_suspend_done(DBusConnection *conn,
 
 	/* Perform suspend tasks */
 	unpause_discovery_for_system_resume(adapter);
+	restore_event_masks_for_system_resume(adapter);
 	/* End of suspend tasks */
 
 	/* Resume may be async depedning on system state */

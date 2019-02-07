@@ -1470,10 +1470,11 @@ typedef struct {
 #define OGF_LE_CTL		0x08
 
 #define OCF_LE_SET_EVENT_MASK			0x0001
+#define HCI_SET_EVENT_MASK_SIZE			8
 typedef struct {
-	uint8_t		mask[8];
+	uint8_t		mask[HCI_SET_EVENT_MASK_SIZE];
 } __attribute__ ((packed)) le_set_event_mask_cp;
-#define LE_SET_EVENT_MASK_CP_SIZE 8
+#define LE_SET_EVENT_MASK_CP_SIZE (HCI_SET_EVENT_MASK_SIZE)
 
 #define OCF_LE_READ_BUFFER_SIZE			0x0002
 typedef struct {
