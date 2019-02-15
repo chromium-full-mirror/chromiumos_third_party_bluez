@@ -5084,6 +5084,7 @@ static void adapter_start(struct btd_adapter *adapter)
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
 	adapter->stack_sync_quitting = false;
+	adapter->discovery_suspended_by_system = false;
 	adapter->newblue_client = g_dbus_client_new(dbus_conn, NEWBLUE_SERVICE,
 								adapter->path);
 	g_dbus_client_set_proxy_handlers(adapter->newblue_client,
