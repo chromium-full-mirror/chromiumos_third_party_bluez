@@ -266,12 +266,12 @@ struct btd_adapter {
 	 */
 	bool discovery_suspended_by_system;
 
-        /* Current system suspend resume (sleep/wakeup) state in Bluez  */
+	/* Current system suspend resume (sleep/wakeup) state in Bluez  */
 	suspend_res_state_t suspend_res_state;
-        /* a bit mask containing the tasks to be performed upon
-         * suspend/resume */
-        uint32_t suspend_res_tasks;
-        DBusMessage *suspend_res_msg;
+	/* a bit mask containing the tasks to be performed upon
+	 * suspend/resume */
+	uint32_t suspend_res_tasks;
+	DBusMessage *suspend_res_msg;
 
 	uint8_t discovery_type;		/* current active discovery type */
 	uint8_t discovery_enable;	/* discovery enabled/disabled */
@@ -589,8 +589,8 @@ static void settings_changed(struct btd_adapter *adapter, uint32_t settings)
 	DBG("Changed settings: 0x%08x", changed_mask);
 
 	if (changed_mask & MGMT_SETTING_POWERED) {
-	        g_dbus_emit_property_changed(dbus_conn, adapter->path,
-					ADAPTER_INTERFACE, "Powered");
+		g_dbus_emit_property_changed(dbus_conn, adapter->path,
+						ADAPTER_INTERFACE, "Powered");
 
 		/*
 		 * Don't store the adapter information during daemon shutdown.
@@ -2670,11 +2670,11 @@ static DBusMessage *pause_discovery(DBusConnection *conn,
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
 
-        /*
+	/*
 	 * system_suspend_resume parameter is ignored since this call never
-         * happends in the context of system suspension. Refer to
-         * handle_suspend_imminent for system suspension case
-         */
+	 * happends in the context of system suspension. Refer to
+	 * handle_suspend_imminent for system suspension case
+	 */
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
@@ -2694,10 +2694,10 @@ static DBusMessage *unpause_discovery(DBusConnection *conn,
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
 
-        /* system_suspend_resume parameter is ignored since this call never
-         * happends in the context of system resume. Refer to
-         * handle_suspend_done for system resume case
-         */
+	/* system_suspend_resume parameter is ignored since this call never
+	 * happends in the context of system resume. Refer to
+	 * handle_suspend_done for system resume case
+	 */
 
 	if (!adapter->discovery_suspended_by_system)
 		return btd_error_failed(msg, "Discovery not paused");
@@ -2736,9 +2736,9 @@ static void update_suspend_res_tasks(struct btd_adapter *adapter,
 			is_added,
 			adapter->suspend_res_state);
 
-        /* Set or unset the task of the bit in suspend_res_tasks */
-        if (is_added)
-                adapter->suspend_res_tasks |= task;
+	/* Set or unset the task of the bit in suspend_res_tasks */
+	if (is_added)
+		adapter->suspend_res_tasks |= task;
 	else
 		adapter->suspend_res_tasks &= ~task;
 
@@ -2766,7 +2766,7 @@ static void update_suspend_res_tasks(struct btd_adapter *adapter,
 
 		DBusMessage *msg;
 		msg = dbus_message_new_method_return(adapter->suspend_res_msg);
-                g_dbus_send_message(btd_get_dbus_connection(),msg);
+		g_dbus_send_message(btd_get_dbus_connection(),msg);
 		dbus_message_unref(adapter->suspend_res_msg);
 	}
 }
@@ -2807,14 +2807,15 @@ static void unpause_discovery_for_system_resume(struct btd_adapter *adapter)
 }
 
 static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
-                                        DBusMessage *msg, void *user_data)
+						DBusMessage *msg,
+						void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
-            return btd_error_not_ready(msg);
+		return btd_error_not_ready(msg);
 
 	if (SUS_RES_STATE_RUNNING != adapter->suspend_res_state) {
 		warn("Suspend imminent called in wrong state %d",
@@ -2839,7 +2840,8 @@ static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
 }
 
 static DBusMessage *handle_suspend_done(DBusConnection *conn,
-                                        DBusMessage *msg, void *user_data)
+					DBusMessage *msg,
+					void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
@@ -5365,7 +5367,7 @@ static gboolean record_adapter_lost()
 	metrics_stop_timer(TIMER_ADAPTER_LOST, timer_data);
 	adapter_lost_metrics_timer_id = 0;
 
-        return FALSE;
+	return FALSE;
 }
 
 static gboolean record_chip_lost()
@@ -5376,7 +5378,7 @@ static gboolean record_chip_lost()
 	metrics_stop_timer(TIMER_CHIP_LOST2, timer_data);
 	chip_lost_metrics_timer_id = 0;
 
-        return FALSE;
+	return FALSE;
 }
 
 static void adapter_free(gpointer user_data)

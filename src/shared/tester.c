@@ -310,7 +310,7 @@ static int tester_summarize(void)
 			failed++;
 			break;
 		}
-        }
+	}
 
 	printf("\nTotal: %d, "
 		COLOR_GREEN "Passed: %d (%.1f%%)" COLOR_OFF ", "

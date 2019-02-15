@@ -1181,7 +1181,7 @@ static gboolean dev_property_get_uuids(const GDBusPropertyTable *property,
 	if (dev->bredr_state.svc_resolved || dev->le_state.svc_resolved) {
 		for (l = dev->uuids; l != NULL; l = l->next)
 			dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
-                                                        &l->data);
+							&l->data);
 	}
 
 	for (l = dev->eir_uuids; l != NULL; l = l->next) {
@@ -5365,8 +5365,8 @@ static void gatt_client_service_changed(uint16_t start_handle,
 static void mtu_received(uint16_t mtu, void *user_data)
 {
 	struct btd_device *dev = user_data;
-        if (dev == NULL)
-                return;
+	if (dev == NULL)
+		return;
 
 	dev->att_mtu = mtu;
 	g_dbus_emit_property_changed(dbus_conn, dev->path, DEVICE_INTERFACE, "MTU");

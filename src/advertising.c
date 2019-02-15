@@ -787,7 +787,7 @@ static int adapter_set_advertising_intervals(struct btd_adv_manager *manager,
 
 	if (cp.min_interval == 0 && cp.max_interval == 0) {
 		btd_info(manager->mgmt_index, "Reset Advertising Intervals.");
-        } else {
+	} else {
 		btd_info(manager->mgmt_index,
 				"Set Advertising Intervals: 0x%04x, 0x%04x",
 				cp.min_interval, cp.max_interval);
@@ -846,8 +846,8 @@ static DBusMessage *reset_advertising(DBusConnection *conn, DBusMessage *msg,
 				manager->mgmt_index);
 	} else {
 		/* Remove advertisements one by one. The advertising would be
-                 * disabled when the last one is removed.
-                 */
+		 * disabled when the last one is removed.
+		 */
 		queue_foreach(manager->clients, remove_advertisement, NULL);
 	}
 
