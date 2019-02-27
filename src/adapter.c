@@ -138,12 +138,6 @@ static time_t last_system_resume_time;
 
 static bool newblue_stack_sync_quitting = false;
 
-/*
- * TODO: set event mask is disabled until all kernels support new MGMT message
- * Refer to CL:1464385 for Kernel 4.4 change
- */
-bool temp_set_event_mask_disable = true;
-
 struct link_key_info {
 	bdaddr_t bdaddr;
 	unsigned char key[16];
@@ -2812,13 +2806,6 @@ static void set_event_masks_for_sus_res_complete(uint8_t status,
 
 static void set_event_masks_for_system_suspend(struct btd_adapter *adapter)
 {
-	/*
-	 * TODO: disabled until all kernels support new MGMT message
-	 * Refer to CL:1464385 for Kernel 4.4 change
-	 */
-	if (true == temp_set_event_mask_disable)
-		return;
-
 	struct mgmt_cp_set_event_mask cp;
 
 	memset(&cp, 0, sizeof(cp));
@@ -2866,13 +2853,6 @@ static void unpause_discovery_for_system_resume(struct btd_adapter *adapter)
 
 static void restore_event_masks_for_system_resume(struct btd_adapter *adapter)
 {
-	/*
-	 * TODO: disabled until all kernels support new MGMT message
-	 * Refer to CL:1464385 for Kernel 4.4 change
-	 */
-	if (true == temp_set_event_mask_disable)
-		return;
-
 	struct mgmt_cp_set_event_mask cp;
 
 	memset(&cp, 0, sizeof(cp));
