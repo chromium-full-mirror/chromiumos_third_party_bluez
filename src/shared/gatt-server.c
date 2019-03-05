@@ -1508,7 +1508,7 @@ struct bt_gatt_server *bt_gatt_server_new(struct gatt_db *db,
 	server->db = gatt_db_ref(db);
 	server->att = bt_att_ref(att);
 	server->mtu = MAX(mtu, BT_ATT_DEFAULT_LE_MTU);
-	server->max_mtu = mtu;  // By default, we initialize mtu to maximum.
+	server->max_mtu = server->mtu;  // By default, we init mtu to maximum.
 	server->max_prep_queue_len = DEFAULT_MAX_PREP_QUEUE_LEN;
 	server->prep_queue = queue_new();
 	server->mtu_notify_callback = NULL;
