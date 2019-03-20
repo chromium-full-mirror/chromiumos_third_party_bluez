@@ -3371,6 +3371,9 @@ void device_remove_connection(struct btd_device *device, uint8_t bdaddr_type)
 							"Paired");
 	}
 
+	if (device)
+		set_client_diconnecting(device->client, false);
+
 	if (device->bredr_state.connected || device->le_state.connected)
 		return;
 
