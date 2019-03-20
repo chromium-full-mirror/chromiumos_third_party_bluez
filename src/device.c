@@ -3324,6 +3324,9 @@ void device_remove_connection(struct btd_device *device, uint8_t bdaddr_type)
 		btd_adapter_remove_bonding(device->adapter, &device->bdaddr,
 								bdaddr_type);
 
+	if (device)
+		set_client_diconnecting(device->client, false);
+
 	if (device->bredr_state.connected || device->le_state.connected)
 		return;
 
