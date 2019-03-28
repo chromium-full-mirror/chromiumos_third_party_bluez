@@ -77,6 +77,8 @@ bool btd_adapter_get_pairable(struct btd_adapter *adapter);
 bool btd_adapter_get_powered(struct btd_adapter *adapter);
 bool btd_adapter_get_connectable(struct btd_adapter *adapter);
 
+bool is_ltk_banned(const uint8_t *key);
+
 struct btd_gatt_database *btd_adapter_get_database(struct btd_adapter *adapter);
 
 uint32_t btd_adapter_get_class(struct btd_adapter *adapter);
