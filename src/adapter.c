@@ -138,6 +138,13 @@ static time_t last_system_resume_time;
 
 static bool newblue_stack_sync_quitting = false;
 
+#define MAX_BANNED_LTKS					64
+#define LTK_LENGTH					16
+
+struct banned_ltk {
+    uint8_t ltk[LTK_LENGTH];
+} static banned_ltks[MAX_BANNED_LTKS] = {{{0,},},};
+
 struct link_key_info {
 	bdaddr_t bdaddr;
 	unsigned char key[16];
@@ -3914,6 +3921,50 @@ static DBusMessage *remove_service_record(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+bool is_ltk_banned(const uint8_t *key)
+{
+	int i;
+
+	for (i = 0; i < MAX_BANNED_LTKS; i++)
+		if (!memcmp(banned_ltks[i].ltk, key, LTK_LENGTH))
+			return true;
+
+	return false;
+}
+
+static DBusMessage *set_long_term_keys(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	const uint8_t *key;
+	int key_len, i;
+	DBusMessageIter iter, subiter, keyiter;
+
+	memset(banned_ltks, 0, sizeof(banned_ltks));
+	dbus_message_iter_init(msg, &iter);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY ||
+		dbus_message_iter_get_element_type(&iter) != DBUS_TYPE_ARRAY) {
+		return btd_error_invalid_args(msg);
+	}
+
+	dbus_message_iter_recurse(&iter, &subiter);
+
+	for (i = 0; i < MAX_BANNED_LTKS &&
+			dbus_message_iter_get_arg_type(&subiter) !=
+			DBUS_TYPE_INVALID; i++) {
+		dbus_message_iter_recurse(&subiter, &keyiter);
+		dbus_message_iter_get_fixed_array(&keyiter, &key, &key_len);
+		if (key_len != LTK_LENGTH) {
+			error("Received wrong LTK size");
+			return btd_error_invalid_args(msg);
+		}
+		memcpy(banned_ltks[i].ltk, key, key_len);
+		dbus_message_iter_next(&subiter);
+	}
+
+	return dbus_message_new_method_return(msg);
+}
+
 static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_ASYNC_METHOD("StartDiscovery", NULL, NULL,
 			start_discovery_with_retry) },
@@ -3940,6 +3991,8 @@ static const GDBusMethodTable adapter_methods[] = {
 			handle_suspend_imminent)},
 	{ GDBUS_ASYNC_METHOD("HandleSuspendDone", NULL , NULL,
 			handle_suspend_done)},
+	{ GDBUS_METHOD("SetLongTermKeys", GDBUS_ARGS({"keys", "aay"}) , NULL,
+			set_long_term_keys)},
 { }
 };
 
