@@ -1827,6 +1827,14 @@ static void invalidate_rssi_and_tx_power(gpointer a)
 	device_set_tx_power(dev, 127);
 }
 
+static void reset_temp_devices_timeout(struct btd_adapter *adapter)
+{
+	if (adapter->temp_devices_timeout > 0) {
+		g_source_remove(adapter->temp_devices_timeout);
+		adapter->temp_devices_timeout = 0;
+	}
+}
+
 static gboolean remove_temp_devices(gpointer user_data)
 {
 	struct btd_adapter *adapter = user_data;
@@ -1834,7 +1842,7 @@ static gboolean remove_temp_devices(gpointer user_data)
 
 	DBG("%s", adapter->path);
 
-	adapter->temp_devices_timeout = 0;
+	reset_temp_devices_timeout(adapter);
 
 	for (l = adapter->devices; l != NULL; l = next) {
 		struct btd_device *dev = l->data;
@@ -1859,10 +1867,7 @@ static void discovery_cleanup(struct btd_adapter *adapter)
 		adapter->discovery_idle_timeout = 0;
 	}
 
-	if (adapter->temp_devices_timeout > 0) {
-		g_source_remove(adapter->temp_devices_timeout);
-		adapter->temp_devices_timeout = 0;
-	}
+	reset_temp_devices_timeout(adapter);
 
 	g_slist_free_full(adapter->discovery_found,
 						invalidate_rssi_and_tx_power);
