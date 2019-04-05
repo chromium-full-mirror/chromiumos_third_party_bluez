@@ -3463,7 +3463,7 @@ static DBusMessage *remove_device(DBusConnection *conn,
 
 	list = g_slist_find_custom(adapter->devices, path, device_path_cmp);
 	if (!list)
-		return btd_error_does_not_exist(msg);
+		return dbus_message_new_method_return(msg);
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
