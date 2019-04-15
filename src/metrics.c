@@ -195,7 +195,6 @@ bool metrics_init(void)
 	if (!timers)
 		return false;
 
-	CMetricsLibraryInit(lib);
 	return true;
 }
 
