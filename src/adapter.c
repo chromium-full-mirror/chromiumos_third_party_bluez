@@ -105,6 +105,8 @@
 #define SYNC_METHOD_RETRY_MAX	5	/* Max number of sync method retries */
 #define SYNC_METHOD_RETRY_INTERVAL	200	/* In milliseconds */
 
+#define DEFAULT_MGMT_TIMEOUT	2	/* Timeout for MGMT commands (secs) */
+
 static DBusConnection *dbus_conn = NULL;
 
 static bool kernel_conn_control = false;
@@ -7347,9 +7349,9 @@ int btd_adapter_remove_bonding(struct btd_adapter *adapter,
 	cp.addr.type = bdaddr_type;
 	cp.disconnect = 1;
 
-	if (mgmt_send(adapter->mgmt, MGMT_OP_UNPAIR_DEVICE,
-				adapter->dev_id, sizeof(cp), &cp,
-				NULL, NULL, NULL) > 0)
+	if (mgmt_send_with_timeout(adapter->mgmt, MGMT_OP_UNPAIR_DEVICE,
+					adapter->dev_id, sizeof(cp), &cp, NULL,
+					NULL, NULL, DEFAULT_MGMT_TIMEOUT) > 0)
 		return 0;
 
 	return -EIO;

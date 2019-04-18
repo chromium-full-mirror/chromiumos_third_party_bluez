@@ -46,6 +46,12 @@ bool mgmt_set_close_on_unref(struct mgmt *mgmt, bool do_close);
 typedef void (*mgmt_request_func_t)(uint8_t status, uint16_t length,
 					const void *param, void *user_data);
 
+unsigned int mgmt_send_with_timeout(
+			struct mgmt *mgmt, uint16_t opcode, uint16_t index,
+			uint16_t length, const void *param,
+			mgmt_request_func_t callback,
+			void *user_data, mgmt_destroy_func_t destroy,
+			int timeout_seconds);
 unsigned int mgmt_send(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 				uint16_t length, const void *param,
 				mgmt_request_func_t callback,
