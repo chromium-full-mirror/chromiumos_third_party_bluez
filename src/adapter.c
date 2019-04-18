@@ -117,6 +117,8 @@ static const struct mgmt_blocked_key_info blocked_keys[] = {
 		 0x22, 0x8e, 0x07, 0x56, 0xb4, 0xe8, 0x5f, 0x01}},
 };
 
+#define DEFAULT_MGMT_TIMEOUT	2	/* Timeout for MGMT commands (secs) */
+
 static DBusConnection *dbus_conn = NULL;
 
 static bool kernel_conn_control = false;
@@ -7382,9 +7384,9 @@ int btd_adapter_remove_bonding(struct btd_adapter *adapter,
 	cp.addr.type = bdaddr_type;
 	cp.disconnect = 1;
 
-	if (mgmt_send(adapter->mgmt, MGMT_OP_UNPAIR_DEVICE,
-				adapter->dev_id, sizeof(cp), &cp,
-				NULL, NULL, NULL) > 0)
+	if (mgmt_send_with_timeout(adapter->mgmt, MGMT_OP_UNPAIR_DEVICE,
+					adapter->dev_id, sizeof(cp), &cp, NULL,
+					NULL, NULL, DEFAULT_MGMT_TIMEOUT) > 0)
 		return 0;
 
 	return -EIO;

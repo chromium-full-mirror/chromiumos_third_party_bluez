@@ -38,6 +38,7 @@
 #include "src/shared/queue.h"
 #include "src/shared/util.h"
 #include "src/shared/mgmt.h"
+#include "src/shared/timeout.h"
 
 struct mgmt {
 	int ref_count;
@@ -60,6 +61,11 @@ struct mgmt {
 	void *debug_data;
 };
 
+struct mgmt_pending_request {
+	unsigned int request_id;
+	struct mgmt *mgmt;
+};
+
 struct mgmt_request {
 	unsigned int id;
 	uint16_t opcode;
@@ -69,6 +75,8 @@ struct mgmt_request {
 	mgmt_request_func_t callback;
 	mgmt_destroy_func_t destroy;
 	void *user_data;
+	/* Timeout for the request if > zero, otherwise timer is not used. */
+	int timeout_seconds;
 };
 
 struct mgmt_notify {
@@ -157,6 +165,8 @@ static void write_watch_destroy(void *user_data)
 	mgmt->writer_active = false;
 }
 
+bool mgmt_pending_timeout(void *user_data);
+
 static bool send_request(struct mgmt *mgmt, struct mgmt_request *request)
 {
 	struct iovec iov;
@@ -184,6 +194,14 @@ static bool send_request(struct mgmt *mgmt, struct mgmt_request *request)
 							mgmt->debug_data);
 
 	queue_push_tail(mgmt->pending_list, request);
+	if (request->timeout_seconds > 0) {
+		struct mgmt_pending_request *pending_request =
+			malloc(sizeof(struct mgmt_pending_request));
+		pending_request->request_id = request->id;
+		pending_request->mgmt = mgmt;
+		timeout_add(request->timeout_seconds * 1000,
+				mgmt_pending_timeout, pending_request, NULL);
+	}
 
 	return true;
 }
@@ -265,6 +283,29 @@ static void request_complete(struct mgmt *mgmt, uint8_t status,
 	}
 
 	wakeup_writer(mgmt);
+}
+
+bool mgmt_pending_timeout(void *user_data)
+{
+	struct mgmt_pending_request *pending_request = user_data;
+	struct mgmt *mgmt = pending_request->mgmt;
+	const struct mgmt_request *request =
+			queue_find(mgmt->pending_list,
+					match_request_id,
+					UINT_TO_PTR(
+						pending_request->request_id));
+
+	free(pending_request);
+
+	if (!request)
+		return false;
+
+	/* Pretend that kernel has replied with TIMEOUT status. */
+	request_complete(mgmt, MGMT_STATUS_TIMEOUT, request->opcode,
+				request->index, /* length */ 0,
+				/* param */ NULL);
+
+	return false;
 }
 
 struct event_index {
@@ -571,10 +612,12 @@ static struct mgmt_request *create_request(uint16_t opcode, uint16_t index,
 	return request;
 }
 
-unsigned int mgmt_send(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
-				uint16_t length, const void *param,
-				mgmt_request_func_t callback,
-				void *user_data, mgmt_destroy_func_t destroy)
+unsigned int mgmt_send_with_timeout(
+			struct mgmt *mgmt, uint16_t opcode, uint16_t index,
+			uint16_t length, const void *param,
+			mgmt_request_func_t callback,
+			void *user_data, mgmt_destroy_func_t destroy,
+			int timeout_seconds)
 {
 	struct mgmt_request *request;
 
@@ -590,6 +633,7 @@ unsigned int mgmt_send(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 		mgmt->next_request_id = 1;
 
 	request->id = mgmt->next_request_id++;
+	request->timeout_seconds = timeout_seconds;
 
 	if (!queue_push_tail(mgmt->request_queue, request)) {
 		free(request->buf);
@@ -600,6 +644,16 @@ unsigned int mgmt_send(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 	wakeup_writer(mgmt);
 
 	return request->id;
+}
+
+unsigned int mgmt_send(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
+				uint16_t length, const void *param,
+				mgmt_request_func_t callback,
+				void *user_data, mgmt_destroy_func_t destroy)
+{
+	return mgmt_send_with_timeout(
+			mgmt, opcode, index, length, param, callback, user_data,
+			destroy, /* timeout_seconds */ 0);
 }
 
 unsigned int mgmt_send_nowait(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
