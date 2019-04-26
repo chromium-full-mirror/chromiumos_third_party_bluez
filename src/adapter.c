@@ -535,27 +535,12 @@ static void store_adapter_info(struct btd_adapter *adapter)
 	char filename[PATH_MAX];
 	char *str;
 	gsize length = 0;
-	gboolean discoverable;
 
 	key_file = g_key_file_new();
 
 	if (adapter->pairable_timeout != main_opts.pairto)
 		g_key_file_set_integer(key_file, "General", "PairableTimeout",
 					adapter->pairable_timeout);
-
-	if ((adapter->current_settings & MGMT_SETTING_DISCOVERABLE) &&
-						!adapter->discoverable_timeout)
-		discoverable = TRUE;
-	else
-		discoverable = FALSE;
-
-	g_key_file_set_boolean(key_file, "General", "Discoverable",
-							discoverable);
-
-	if (adapter->discoverable_timeout != main_opts.discovto)
-		g_key_file_set_integer(key_file, "General",
-					"DiscoverableTimeout",
-					adapter->discoverable_timeout);
 
 	if (adapter->stored_alias)
 		g_key_file_set_string(key_file, "General", "Alias",
@@ -6464,23 +6449,9 @@ static void load_config(struct btd_adapter *adapter)
 		gerr = NULL;
 	}
 
-	/* Get discoverable mode */
-	adapter->stored_discoverable = g_key_file_get_boolean(key_file,
-					"General", "Discoverable", &gerr);
-	if (gerr) {
-		adapter->stored_discoverable = false;
-		g_error_free(gerr);
-		gerr = NULL;
-	}
-
-	/* Get discoverable timeout */
-	adapter->discoverable_timeout = g_key_file_get_integer(key_file,
-				"General", "DiscoverableTimeout", &gerr);
-	if (gerr) {
-		adapter->discoverable_timeout = main_opts.discovto;
-		g_error_free(gerr);
-		gerr = NULL;
-	}
+	/* Always reset discoverable state and discoverable timeout. */
+	adapter->stored_discoverable = false;
+	adapter->discoverable_timeout = main_opts.discovto;
 
 	/* Get power status */
 	powered = g_key_file_get_boolean(key_file, "General", "Powered", &gerr);
