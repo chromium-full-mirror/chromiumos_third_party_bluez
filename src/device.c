@@ -4805,6 +4805,12 @@ static struct btd_service *probe_service(struct btd_device *device,
 	if (!device_match_profile(device, profile, uuids))
 		return NULL;
 
+	/* If device supports HFP, don't bother create service for HSP. */
+	if (g_slist_find_custom(uuids, HFP_HS_UUID, bt_uuid_strcmp) &&
+	    bt_uuid_strcmp(profile->remote_uuid, HSP_HS_UUID) == 0) {
+		return NULL;
+	}
+
 	service = service_create(device, profile);
 
 	if (service_probe(service)) {
