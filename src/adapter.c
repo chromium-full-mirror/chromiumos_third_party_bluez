@@ -140,13 +140,6 @@ static time_t last_system_resume_time;
 
 static bool newblue_stack_sync_quitting = false;
 
-#define MAX_BANNED_LTKS					64
-#define LTK_LENGTH					16
-
-struct banned_ltk {
-    uint8_t ltk[LTK_LENGTH];
-} static banned_ltks[MAX_BANNED_LTKS] = {{{0,},},};
-
 struct link_key_info {
 	bdaddr_t bdaddr;
 	unsigned char key[16];
@@ -3908,15 +3901,19 @@ static DBusMessage *remove_service_record(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
-bool is_ltk_banned(const uint8_t *key)
+static void set_blocked_ltks_complete(uint8_t status, uint16_t length,
+					const void *param, void *user_data)
 {
-	int i;
+	struct btd_adapter *adapter = user_data;
 
-	for (i = 0; i < MAX_BANNED_LTKS; i++)
-		if (!memcmp(banned_ltks[i].ltk, key, LTK_LENGTH))
-			return true;
+	if (status != MGMT_STATUS_SUCCESS) {
+		btd_error(adapter->dev_id,
+				"Failed to set blocked LTKs: %s (0x%02x)",
+				mgmt_errstr(status), status);
+		return;
+	}
 
-	return false;
+	DBG("Successfully set blocked LTKs for index %u", adapter->dev_id);
 }
 
 static DBusMessage *set_long_term_keys(DBusConnection *conn,
@@ -3925,8 +3922,11 @@ static DBusMessage *set_long_term_keys(DBusConnection *conn,
 	const uint8_t *key;
 	int key_len, i;
 	DBusMessageIter iter, subiter, keyiter;
+	struct btd_adapter *adapter = user_data;
+	struct mgmt_cp_set_blocked_ltks cp;
 
-	memset(banned_ltks, 0, sizeof(banned_ltks));
+	memset(&cp, 0, sizeof(cp));
+
 	dbus_message_iter_init(msg, &iter);
 
 	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY ||
@@ -3936,17 +3936,26 @@ static DBusMessage *set_long_term_keys(DBusConnection *conn,
 
 	dbus_message_iter_recurse(&iter, &subiter);
 
-	for (i = 0; i < MAX_BANNED_LTKS &&
+	for (i = 0; i < MGMT_MAX_BLOCKED_LTKS &&
 			dbus_message_iter_get_arg_type(&subiter) !=
 			DBUS_TYPE_INVALID; i++) {
 		dbus_message_iter_recurse(&subiter, &keyiter);
 		dbus_message_iter_get_fixed_array(&keyiter, &key, &key_len);
-		if (key_len != LTK_LENGTH) {
+		if (key_len != MGMT_LTK_LENGTH) {
 			error("Received wrong LTK size");
 			return btd_error_invalid_args(msg);
 		}
-		memcpy(banned_ltks[i].ltk, key, key_len);
+		memcpy(cp.ltks[i], key, key_len);
 		dbus_message_iter_next(&subiter);
+	}
+
+	if (!mgmt_send(adapter->mgmt, MGMT_OP_SET_BLOCKED_LTKS,
+				adapter->dev_id, sizeof(cp), &cp,
+				set_blocked_ltks_complete, adapter, NULL)) {
+		btd_error(adapter->dev_id,
+				"Failed to set blocked LTKs for index %u",
+				adapter->dev_id);
+		return btd_error_failed(msg, "Failed to set blocked LTKs");
 	}
 
 	return dbus_message_new_method_return(msg);
