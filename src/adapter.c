@@ -127,6 +127,8 @@ static GSList *adapter_drivers = NULL;
 static GSList *disconnect_list = NULL;
 static GSList *conn_fail_list = NULL;
 
+static GHashTable *capability_dict = NULL;
+
 /* Timer ID of delay task of metrics */
 static guint adapter_lost_metrics_timer_id = 0;
 /* Timer ID of delay task of metrics (specific to hardware disconnection) */
@@ -336,6 +338,11 @@ struct sync_method_try {
 	DBusConnection *conn;
 	DBusMessage *msg;
 	void *user_data;
+};
+
+struct supported_capability_info {
+	int dbus_type;
+	void *data;
 };
 
 static struct btd_adapter *btd_adapter_lookup(uint16_t index)
@@ -3969,6 +3976,106 @@ static DBusMessage *set_long_term_keys(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+static bool append_supported_capability_info(DBusMessageIter *iter,
+				struct supported_capability_info *info)
+{
+	DBusMessageIter variant_iter;
+	void *data = info->data;
+	char *type_signature = NULL;
+
+	switch(info->dbus_type) {
+	case DBUS_TYPE_BOOLEAN:
+		type_signature = DBUS_TYPE_BOOLEAN_AS_STRING;
+		break;
+	case DBUS_TYPE_INT32:
+		type_signature = DBUS_TYPE_INT32_AS_STRING;
+		break;
+	case DBUS_TYPE_STRING:
+		type_signature = DBUS_TYPE_STRING_AS_STRING;
+		data = &(info->data);
+		break;
+	default:
+		return FALSE;
+	}
+
+	if(!dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
+						type_signature, &variant_iter))
+		return FALSE;
+	if(!dbus_message_iter_append_basic(&variant_iter, info->dbus_type,
+									data)) {
+		dbus_message_iter_abandon_container(iter, &variant_iter);
+		return FALSE;
+	}
+	if(!dbus_message_iter_close_container(iter, &variant_iter))
+		return FALSE;
+
+	return TRUE;
+}
+
+static bool append_supported_capability(gpointer key, gpointer value,
+							DBusMessageIter *iter)
+{
+	DBusMessageIter entry_iter;
+	const char *capability = key;
+	struct supported_capability_info *capability_info = value;
+
+	if(!dbus_message_iter_open_container(iter, DBUS_TYPE_DICT_ENTRY, NULL,
+								&entry_iter))
+		return FALSE;
+	if(!dbus_message_iter_append_basic(&entry_iter, DBUS_TYPE_STRING,
+								&capability)) {
+		dbus_message_iter_abandon_container(iter, &entry_iter);
+		return FALSE;
+	}
+	if(!append_supported_capability_info(&entry_iter, capability_info)) {
+		dbus_message_iter_abandon_container(iter, &entry_iter);
+		return FALSE;
+	}
+	if(!dbus_message_iter_close_container(iter, &entry_iter))
+		return FALSE;
+
+	return TRUE;
+}
+
+static bool append_supported_capabilities(DBusMessageIter *iter)
+{
+	GHashTableIter capability_iter;
+	gpointer key, value;
+
+	g_hash_table_iter_init(&capability_iter, capability_dict);
+	while(g_hash_table_iter_next(&capability_iter, &key, &value)) {
+		if(!append_supported_capability(key, value, iter))
+			return FALSE;
+	}
+
+	return TRUE;
+}
+
+static DBusMessage *get_supported_capabilities(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	DBusMessage *reply;
+	DBusMessageIter iter, array_iter;
+
+	reply = dbus_message_new_method_return(msg);
+	dbus_message_iter_init_append(reply, &iter);
+
+	if(!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}",
+								&array_iter))
+		goto failed;
+	if(!append_supported_capabilities(&array_iter)) {
+		dbus_message_iter_abandon_container(&iter, &array_iter);
+		goto failed;
+	}
+	if(!dbus_message_iter_close_container(&iter, &array_iter))
+		goto failed;
+
+	return reply;
+
+failed:
+	return btd_error_failed(msg, "Failed to get supported capabilities");
+}
+
 static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_ASYNC_METHOD("StartDiscovery", NULL, NULL,
 			start_discovery_with_retry) },
@@ -3997,7 +4104,10 @@ static const GDBusMethodTable adapter_methods[] = {
 			handle_suspend_done)},
 	{ GDBUS_METHOD("SetLongTermKeys", GDBUS_ARGS({"keys", "aay"}) , NULL,
 			set_long_term_keys)},
-{ }
+	{ GDBUS_METHOD("GetSupportedCapabilities", NULL,
+			GDBUS_ARGS({"supported_capabilities", "a{sv}"}),
+			get_supported_capabilities)},
+	{ }
 };
 
 static const GDBusPropertyTable adapter_properties[] = {
