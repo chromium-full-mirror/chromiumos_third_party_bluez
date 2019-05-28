@@ -2655,6 +2655,9 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INVALID)) {
 		metrics_send_enum(ENUM_TYPE_PAIR_RESULT,
 					PAIR_FAIL_INVALID_PARAMS, false);
+
+		// Put the device back to the temporary state.
+		btd_device_set_temporary(device, true);
 		return btd_error_invalid_args(msg);
 	}
 
@@ -2718,6 +2721,8 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	if (err < 0) {
 		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY, false);
 		bonding_request_free(device->bonding);
+		// Put the device back to the temporary state.
+		btd_device_set_temporary(device, true);
 		return btd_error_failed(msg, strerror(-err));
 	}
 
@@ -2797,6 +2802,9 @@ static DBusMessage *cancel_pairing(DBusConnection *conn, DBusMessage *msg,
 		return btd_error_does_not_exist(msg);
 
 	device_cancel_bonding(device, MGMT_STATUS_CANCELLED);
+
+	// Put the device back to the temporary state.
+	btd_device_set_temporary(device, true);
 
 	return dbus_message_new_method_return(msg);
 }
