@@ -643,6 +643,12 @@ struct mgmt_cp_set_blocked_ltks {
 } __packed;
 #define MGMT_SET_BLOCKED_LTKS_CP_SIZE  (MGMT_MAX_BLOCKED_LTKS * MGMT_LTK_LENGTH)
 
+#define MGMT_OP_READ_SUPPORTED_CAPABILITIES		0x0047
+#define MGMT_READ_SUPPORTED_CAPABILITIES_SIZE		0
+struct mgmt_rp_read_supported_capabilities {
+	uint8_t wide_band_speech;
+} __packed;
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
