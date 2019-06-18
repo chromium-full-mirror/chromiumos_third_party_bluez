@@ -2246,6 +2246,12 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 	}
 
 	/*
+	 * Remove the timer set previously, otherwise the timer will remove the
+	 * temp devices during the new discovery process.
+	 */
+	reset_temp_devices_timeout(adapter);
+
+	/*
 	 * If there was pre-set filter, just reconnect it to discovery_list,
 	 * and trigger scan.
 	 */
