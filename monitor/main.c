@@ -61,6 +61,7 @@ static void usage(void)
 		"\t-0, --zero             Zero out privacy data\n"
 		"\t-r, --read <file>      Read traces in btsnoop format\n"
 		"\t-w, --write <file>     Save traces in btsnoop format\n"
+		"\t-l  --limit-size <size> Limit save [-w] to <size> bytes\n"
 		"\t-c, --compress         Compress the saved btsnoop\n"
 		"\t-a, --analyze <file>   Analyze traces in btsnoop format\n"
 		"\t-s, --server <socket>  Start monitor server socket\n"
@@ -78,6 +79,7 @@ static void usage(void)
 
 static const struct option main_options[] = {
 	{ "zero",    no_argument,       NULL, '0' },
+	{ "limit-size", required_argument, NULL, 'l' },
 	{ "compress",no_argument,       NULL, 'c' },
 	{ "tty",     required_argument, NULL, 'd' },
 	{ "tty-speed", required_argument, NULL, 'B' },
@@ -102,6 +104,7 @@ int main(int argc, char *argv[])
 {
 	unsigned long filter_mask = 0;
 	bool compress = false;
+	int size_limit = 0;
 	const char *reader_path = NULL;
 	const char *writer_path = NULL;
 	const char *analyze_path = NULL;
@@ -120,7 +123,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSAE:vhc0",
+		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSAE:vhc0l:",
 						main_options, NULL);
 		if (opt < 0)
 			break;
@@ -128,6 +131,13 @@ int main(int argc, char *argv[])
 		switch (opt) {
 		case '0':
 			filter_mask |= PACKET_FILTER_ZERO_DATA;
+			break;
+		case 'l':
+			size_limit = atoi(optarg);
+			if (size_limit < 0) {
+				fprintf(stderr, "bad limit: %d\n", size_limit);
+				return EXIT_FAILURE;
+			}
 			break;
 		case 'c':
 			compress = true;
@@ -237,7 +247,7 @@ int main(int argc, char *argv[])
 		return EXIT_SUCCESS;
 	}
 
-	if (writer_path && !control_writer(writer_path, compress)) {
+	if (writer_path && !control_writer(writer_path, compress, size_limit)) {
 		printf("Failed to open '%s'\n", writer_path);
 		return EXIT_FAILURE;
 	}
