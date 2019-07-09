@@ -27,6 +27,7 @@
 
 #include <bzlib.h>
 #include <endian.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -75,6 +76,7 @@ struct btsnoop {
 	bool pklg_format;
 	bool pklg_v2;
 	bool compress;
+	uint32_t file_size_limit;
 };
 
 /*
@@ -86,19 +88,47 @@ struct btsnoop {
 static size_t compress_src_size = 0;
 static char compress_src[COMPRESS_SRC_MAX];
 static char compress_dst[COMPRESS_DST_MAX];
-ssize_t btsnoop_compress(int fd, const void *data, size_t size)
+
+size_t btsnoop_compress(int fd, const void *data, size_t size)
 {
-	ssize_t written = 0;
+	size_t written = 0;
 	if (compress_src_size + size > COMPRESS_SRC_MAX) {
 		unsigned int compress_dst_size = COMPRESS_DST_MAX;
 		BZ2_bzBuffToBuffCompress(compress_dst, &compress_dst_size,
 				compress_src, compress_src_size, 1, 0, 0);
 		compress_src_size = 0;
-		written = write(fd, compress_dst, compress_dst_size);
+		written = compress_dst_size;
 	}
 	memcpy(compress_src + compress_src_size, data, size);
 	compress_src_size += size;
 	return written;
+}
+
+ssize_t write_and_possibly_compress(struct btsnoop *btsnoop, const void *data,
+								size_t size)
+{
+	struct stat st;
+	int fd = btsnoop->fd;
+
+	if(btsnoop->compress) {
+		size_t written = btsnoop_compress(fd, data, size);
+		if (written == 0)
+			return 0;
+
+		data = compress_dst;
+		size = written;
+	}
+
+	if (btsnoop->file_size_limit > 0) {
+		if (fstat(fd, &st) < 0) {
+			return -errno;
+		}
+		if ((uint32_t)st.st_size > btsnoop->file_size_limit) {
+			return -ENOSPC;
+		}
+	}
+
+	return write(fd, data, size);
 }
 
 struct btsnoop *btsnoop_open(const char *path, unsigned long flags)
@@ -157,8 +187,8 @@ failed:
 	return NULL;
 }
 
-struct btsnoop *btsnoop_create(const char *path, uint32_t format,
-								bool compress)
+struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
+						unsigned int file_size_limit)
 {
 	struct btsnoop *btsnoop;
 	struct btsnoop_hdr hdr;
@@ -178,14 +208,13 @@ struct btsnoop *btsnoop_create(const char *path, uint32_t format,
 	btsnoop->format = format;
 	btsnoop->index = 0xffff;
 	btsnoop->compress = compress;
+	btsnoop->file_size_limit = file_size_limit;
 
 	memcpy(hdr.id, btsnoop_id, sizeof(btsnoop_id));
 	hdr.version = htobe32(btsnoop_version);
 	hdr.type = htobe32(btsnoop->format);
 
-	written = btsnoop->compress ?
-			btsnoop_compress(btsnoop->fd, &hdr, BTSNOOP_HDR_SIZE) :
-			write(btsnoop->fd, &hdr, BTSNOOP_HDR_SIZE);
+	written = write_and_possibly_compress(btsnoop, &hdr, BTSNOOP_HDR_SIZE);
 	if (written < 0) {
 		close(btsnoop->fd);
 		free(btsnoop);
@@ -246,16 +275,12 @@ bool btsnoop_write(struct btsnoop *btsnoop, struct timeval *tv,
 	pkt.drops = htobe32(drops);
 	pkt.ts    = htobe64(ts + 0x00E03AB44A676000ll);
 
-	written = btsnoop->compress ?
-			btsnoop_compress(btsnoop->fd, &pkt, BTSNOOP_PKT_SIZE) :
-			write(btsnoop->fd, &pkt, BTSNOOP_PKT_SIZE);
+	written = write_and_possibly_compress(btsnoop, &pkt, BTSNOOP_PKT_SIZE);
 	if (written < 0)
 		return false;
 
 	if (data && size > 0) {
-		written = btsnoop->compress ?
-			btsnoop_compress(btsnoop->fd, data, size) :
-			write(btsnoop->fd, data, size);
+		written = write_and_possibly_compress(btsnoop, data, size);
 		if (written < 0)
 			return false;
 	}
