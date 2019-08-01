@@ -30,6 +30,7 @@
 #include <syslog.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -328,4 +329,17 @@ void __btd_log_cleanup(void)
 	logging_close();
 
 	g_strfreev(enabled);
+}
+
+void btd_set_debug_enabled(bool is_enabled)
+{
+	struct btd_debug_desc *desc;
+
+	if (is_enabled) {
+		for (desc = __start___debug; desc < __stop___debug; desc++)
+			desc->flags |= BTD_DEBUG_FLAG_PRINT;
+	} else {
+		for (desc = __start___debug; desc < __stop___debug; desc++)
+			desc->flags &= (~BTD_DEBUG_FLAG_PRINT);
+	}
 }

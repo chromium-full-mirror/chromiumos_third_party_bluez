@@ -22,6 +22,7 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 
 void error(const char *format, ...) __attribute__((format(printf, 1, 2)));
 void warn(const char *format, ...) __attribute__((format(printf, 1, 2)));
@@ -52,6 +53,9 @@ struct btd_debug_desc {
 
 void __btd_enable_debug(struct btd_debug_desc *start,
 					struct btd_debug_desc *stop);
+
+// To be called by D-bus API
+void btd_set_debug_enabled(bool enabled);
 
 /**
  * DBG:
