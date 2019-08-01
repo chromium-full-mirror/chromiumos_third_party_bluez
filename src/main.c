@@ -61,6 +61,7 @@
 #include "dbus-common.h"
 #include "agent.h"
 #include "profile.h"
+#include "log-dbus.h"
 
 #define BLUEZ_NAME "org.bluez"
 
@@ -731,6 +732,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	btd_debug_init();
 	btd_device_init();
 	btd_agent_init();
 	btd_profile_init();
@@ -776,6 +778,7 @@ int main(int argc, char *argv[])
 	btd_profile_cleanup();
 	btd_agent_cleanup();
 	btd_device_cleanup();
+	btd_debug_cleanup();
 
 	adapter_cleanup();
 
