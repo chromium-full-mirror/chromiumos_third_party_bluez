@@ -612,6 +612,11 @@ struct mgmt_cp_set_advertising_intervals {
 } __packed;
 #define MGMT_SET_ADVERTISING_INTERVALS_SIZE	4
 
+#define MGMT_OP_SET_KERNEL_DEBUG			0x0048
+struct mgmt_cp_set_kernel_debug {
+       uint8_t enabled;
+} __packed;
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
