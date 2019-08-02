@@ -9392,6 +9392,7 @@ static void add_supported_capability_wide_band_speech(dbus_bool_t val) {
 static void read_supported_capabilities_complete(uint8_t status,
 			uint16_t length, const void *param, void *user_data)
 {
+	struct btd_adapter *adapter = user_data;
 	const struct mgmt_rp_read_supported_capabilities *rp = param;
 
 	if (status != MGMT_STATUS_SUCCESS) {
@@ -9406,10 +9407,15 @@ static void read_supported_capabilities_complete(uint8_t status,
 	}
 
 	add_supported_capability_wide_band_speech(rp->wide_band_speech);
-	return;
+
+	goto start_adapter;
 
 failed:
 	add_supported_capability_wide_band_speech(false);
+
+start_adapter:
+	if (adapter->current_settings & MGMT_SETTING_POWERED)
+		adapter_start(adapter);
 }
 
 static void read_info_complete(uint8_t status, uint16_t length,
@@ -9659,10 +9665,18 @@ static void read_info_complete(uint8_t status, uint16_t length,
 		capability_dict = g_hash_table_new_full(g_str_hash, g_str_equal,
 					g_free, supported_capability_free);
 
-		mgmt_send(adapter->mgmt, MGMT_OP_READ_SUPPORTED_CAPABILITIES,
-					adapter->dev_id, 0, NULL,
-					read_supported_capabilities_complete,
-					adapter, NULL);
+		/*
+		 * We need to wait for this mgmt_send to finish before starting
+		 * adapter, so the start command will be invoked in the
+		 * callback. Here we can just return.
+		 */
+		if (mgmt_send(adapter->mgmt,
+				MGMT_OP_READ_SUPPORTED_CAPABILITIES,
+				adapter->dev_id, 0, NULL,
+				read_supported_capabilities_complete,
+				adapter, NULL)) {
+			return;
+		}
 	}
 
 	if (adapter->current_settings & MGMT_SETTING_POWERED)
