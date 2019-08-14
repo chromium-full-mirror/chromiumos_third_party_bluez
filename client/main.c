@@ -1814,7 +1814,7 @@ static void cmd_read(const char *arg)
 		return;
 	}
 
-	gatt_read_attribute(default_attr);
+	gatt_read_attribute(default_attr, arg);
 }
 
 static void cmd_write(const char *arg)

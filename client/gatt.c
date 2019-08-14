@@ -25,6 +25,7 @@
 #include <config.h>
 #endif
 
+#include <stdint.h>
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
@@ -54,6 +55,45 @@ static GList *services;
 static GList *characteristics;
 static GList *descriptors;
 static GList *managers;
+
+struct read_parameters {
+  uint16_t offset;
+  char *device_path;
+};
+
+static void append_variant(DBusMessageIter *iter, int type, void *val)
+{
+	DBusMessageIter value;
+	char sig[2] = { type, '\0' };
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT, sig, &value);
+
+	dbus_message_iter_append_basic(&value, type, val);
+
+	dbus_message_iter_close_container(iter, &value);
+}
+
+static void dict_append_entry(DBusMessageIter *dict, const char *key,
+							int type, void *val)
+{
+	DBusMessageIter entry;
+
+	if (type == DBUS_TYPE_STRING) {
+		const char *str = *((const char **) val);
+
+		if (str == NULL)
+			return;
+	}
+
+	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
+							NULL, &entry);
+
+	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
+
+	append_variant(&entry, type, val);
+
+	dbus_message_iter_close_container(dict, &entry);
+}
 
 static void print_service(GDBusProxy *proxy, const char *description)
 {
@@ -397,7 +437,9 @@ static void read_reply(DBusMessage *message, void *user_data)
 
 static void read_setup(DBusMessageIter *iter, void *user_data)
 {
+	struct read_parameters *params = (struct read_parameters *)user_data;
 	DBusMessageIter dict;
+	dbus_uint16_t offset = (dbus_uint16_t)params->offset;
 
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
@@ -405,14 +447,52 @@ static void read_setup(DBusMessageIter *iter, void *user_data)
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
 					&dict);
-	/* TODO: Add offset support */
+
+	dict_append_entry(&dict, "offset", DBUS_TYPE_UINT16, &offset);
+
+	// TODO: Add support for "device".
 	dbus_message_iter_close_container(iter, &dict);
 }
 
-static void read_attribute(GDBusProxy *proxy)
+static void read_attribute(GDBusProxy *proxy, char* arg)
 {
+	struct read_parameters params;
+	unsigned int i;
+	char *entry = NULL;
+	char delim[] = ":";
+	char *param = NULL;
+
+	params.offset = 0;
+	params.device_path = NULL;
+
+	 // The parameters should be provided in the format offset:<uint16_t
+	 // number in decimal>, e.g. offset:15.
+	for (i = 0; (entry = strsep(&arg, " \t")) != NULL; i++) {
+		long int val;
+
+		if (*entry == '\0')
+			continue;
+
+		param = strtok(entry, delim);
+		if (param && !strcmp(param, "offset")) {
+			param = strtok(NULL, delim);
+			if (!param || *param == '\0') {
+				rl_printf("invalid format of parameters\n");
+				return;
+			}
+
+			val = strtol(param, NULL, 0);
+			if (val > UINT16_MAX) {
+				rl_printf("Invalid offset value %lu\n", val);
+				return;
+			}
+
+			params.offset = (uint16_t)val;
+		}
+	}
+
 	if (g_dbus_proxy_method_call(proxy, "ReadValue", read_setup, read_reply,
-							NULL, NULL) == FALSE) {
+						&params, NULL) == FALSE) {
 		rl_printf("Failed to read\n");
 		return;
 	}
@@ -420,14 +500,14 @@ static void read_attribute(GDBusProxy *proxy)
 	rl_printf("Attempting to read %s\n", g_dbus_proxy_get_path(proxy));
 }
 
-void gatt_read_attribute(GDBusProxy *proxy)
+void gatt_read_attribute(GDBusProxy *proxy, const char *arg)
 {
 	const char *iface;
 
 	iface = g_dbus_proxy_get_interface(proxy);
 	if (!strcmp(iface, "org.bluez.GattCharacteristic1") ||
 				!strcmp(iface, "org.bluez.GattDescriptor1")) {
-		read_attribute(proxy);
+		read_attribute(proxy, (char *)arg);
 		return;
 	}
 
