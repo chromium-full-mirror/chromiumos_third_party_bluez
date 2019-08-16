@@ -69,6 +69,7 @@ struct pklg_pkt {
 struct btsnoop {
 	int ref_count;
 	int fd;
+	int rotation_fd;
 	unsigned long flags;
 	uint32_t format;
 	uint16_t index;
@@ -89,7 +90,7 @@ static size_t compress_src_size = 0;
 static char compress_src[COMPRESS_SRC_MAX];
 static char compress_dst[COMPRESS_DST_MAX];
 
-size_t btsnoop_compress(int fd, const void *data, size_t size)
+static size_t btsnoop_compress(const void *data, size_t size)
 {
 	size_t written = 0;
 	if (compress_src_size + size > COMPRESS_SRC_MAX) {
@@ -104,31 +105,108 @@ size_t btsnoop_compress(int fd, const void *data, size_t size)
 	return written;
 }
 
-ssize_t write_and_possibly_compress(struct btsnoop *btsnoop, const void *data,
-								size_t size)
+static ssize_t write_header(struct btsnoop *btsnoop)
+{
+	struct btsnoop_hdr hdr;
+
+	if (!btsnoop)
+		return -EINVAL;
+
+	memcpy(hdr.id, btsnoop_id, sizeof(btsnoop_id));
+	hdr.version = htobe32(btsnoop_version);
+	hdr.type = htobe32(btsnoop->format);
+
+	if (btsnoop->compress) {
+		/* reuse compress_src, temporarily store whatever data there */
+		void *src_copy = malloc(compress_src_size);
+		if (!src_copy)
+			return -ENOMEM;
+
+		memcpy(src_copy, compress_src, compress_src_size);
+
+		unsigned int compressed_size;
+		memcpy(compress_src, &hdr, BTSNOOP_HDR_SIZE);
+		BZ2_bzBuffToBuffCompress(compress_dst, &compressed_size,
+				compress_src, BTSNOOP_HDR_SIZE, 1, 0, 0);
+
+		memcpy(compress_src, src_copy, compress_src_size);
+		free(src_copy);
+		return write(btsnoop->fd, compress_dst, compressed_size);
+	} else {
+		return write(btsnoop->fd, &hdr, BTSNOOP_HDR_SIZE);
+	}
+}
+
+/*
+ * If successful, return the size of bytes written to file (0 is possible when
+ * the data is only written into the compression buffer and not to file).
+ * Otherwise, return a negative number indicating the error.
+ */
+static ssize_t write_and_possibly_compress(struct btsnoop *btsnoop,
+						const void *data, size_t size)
 {
 	struct stat st;
 	int fd = btsnoop->fd;
+	void *compressed_data = NULL;
+	ssize_t written = 0;
+	ssize_t return_value;
 
-	if(btsnoop->compress) {
-		size_t written = btsnoop_compress(fd, data, size);
-		if (written == 0)
+	if (btsnoop->compress) {
+		size_t compressed_size = btsnoop_compress(data, size);
+		if (compressed_size == 0)
 			return 0;
 
-		data = compress_dst;
-		size = written;
+		compressed_data = malloc(compressed_size);
+		if (!compressed_data)
+			return -ENOMEM;
+
+		memcpy(compressed_data, compress_dst, compressed_size);
+		data = compressed_data;
+		size = compressed_size;
 	}
 
-	if (btsnoop->file_size_limit > 0) {
-		if (fstat(fd, &st) < 0) {
-			return -errno;
+	/* if no size limit is specified, skip these several checks */
+	if (btsnoop->file_size_limit <= 0)
+		goto check_file_size_limit_done;
+
+	if (fstat(fd, &st) < 0) {
+		return_value = -errno;
+		goto clean_up;
+	}
+
+	if ((uint32_t)st.st_size + size >= btsnoop->file_size_limit) {
+		if (btsnoop->rotation_fd < 0) {
+			return_value = -ENOSPC;
+			goto clean_up;
 		}
-		if ((uint32_t)st.st_size > btsnoop->file_size_limit) {
-			return -ENOSPC;
+
+		/* rotate logs: swap fd, empty next log, write header */
+		fd = btsnoop->rotation_fd;
+		btsnoop->rotation_fd = btsnoop->fd;
+		btsnoop->fd = fd;
+
+		if (ftruncate(fd, 0) < 0) {
+			return_value = -errno;
+			goto clean_up;
+		}
+		lseek(fd, 0, SEEK_SET);
+
+		written = write_header(btsnoop);
+		if (written < 0) {
+			return_value = written;
+			goto clean_up;
 		}
 	}
 
-	return write(fd, data, size);
+check_file_size_limit_done:
+	written += write(fd, data, size);
+	return_value = written;
+
+clean_up:
+	if (compressed_data)
+		free(compressed_data);
+
+	return return_value;
 }
 
 struct btsnoop *btsnoop_open(const char *path, unsigned long flags)
@@ -188,10 +266,9 @@ failed:
 }
 
 struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
-						unsigned int file_size_limit)
+			unsigned int file_size_limit, const char *rotation_path)
 {
 	struct btsnoop *btsnoop;
-	struct btsnoop_hdr hdr;
 	ssize_t written;
 
 	btsnoop = calloc(1, sizeof(*btsnoop));
@@ -200,9 +277,16 @@ struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
 
 	btsnoop->fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
 					S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-	if (btsnoop->fd < 0) {
-		free(btsnoop);
-		return NULL;
+	if (btsnoop->fd < 0)
+		goto failed;
+
+	if (rotation_path) {
+		btsnoop->rotation_fd = open(rotation_path, O_WRONLY | O_CREAT | O_TRUNC
+				| O_CLOEXEC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+		if (btsnoop->rotation_fd < 0)
+			goto failed;
+	} else {
+		btsnoop->rotation_fd = -1;
 	}
 
 	btsnoop->format = format;
@@ -210,18 +294,19 @@ struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
 	btsnoop->compress = compress;
 	btsnoop->file_size_limit = file_size_limit;
 
-	memcpy(hdr.id, btsnoop_id, sizeof(btsnoop_id));
-	hdr.version = htobe32(btsnoop_version);
-	hdr.type = htobe32(btsnoop->format);
-
-	written = write_and_possibly_compress(btsnoop, &hdr, BTSNOOP_HDR_SIZE);
-	if (written < 0) {
-		close(btsnoop->fd);
-		free(btsnoop);
-		return NULL;
-	}
+	written = write_header(btsnoop);
+	if (written < 0)
+		goto failed;
 
 	return btsnoop_ref(btsnoop);
+
+failed:
+	if(btsnoop->fd >= 0)
+		close(btsnoop->fd);
+	if(btsnoop->rotation_fd >= 0)
+		close(btsnoop->rotation_fd);
+	free(btsnoop);
+	return NULL;
 }
 
 struct btsnoop *btsnoop_ref(struct btsnoop *btsnoop)
@@ -244,6 +329,8 @@ void btsnoop_unref(struct btsnoop *btsnoop)
 
 	if (btsnoop->fd >= 0)
 		close(btsnoop->fd);
+	if (btsnoop->rotation_fd >= 0)
+		close(btsnoop->rotation_fd);
 
 	free(btsnoop);
 }
@@ -263,6 +350,7 @@ bool btsnoop_write(struct btsnoop *btsnoop, struct timeval *tv,
 	struct btsnoop_pkt pkt;
 	uint64_t ts;
 	ssize_t written;
+	void *write_buffer;
 
 	if (!btsnoop || !tv)
 		return false;
@@ -275,17 +363,16 @@ bool btsnoop_write(struct btsnoop *btsnoop, struct timeval *tv,
 	pkt.drops = htobe32(drops);
 	pkt.ts    = htobe64(ts + 0x00E03AB44A676000ll);
 
-	written = write_and_possibly_compress(btsnoop, &pkt, BTSNOOP_PKT_SIZE);
-	if (written < 0)
-		return false;
+	/* allocate buffer to write pkt header and data at once */
+	write_buffer = malloc(BTSNOOP_PKT_SIZE + size);
+	memcpy(write_buffer, &pkt, BTSNOOP_PKT_SIZE);
+	memcpy(write_buffer + BTSNOOP_PKT_SIZE, data, size);
 
-	if (data && size > 0) {
-		written = write_and_possibly_compress(btsnoop, data, size);
-		if (written < 0)
-			return false;
-	}
+	written = write_and_possibly_compress(btsnoop, write_buffer,
+						BTSNOOP_PKT_SIZE + size);
+	free(write_buffer);
 
-	return true;
+	return written >= 0;
 }
 
 static uint32_t get_flags_from_opcode(uint16_t opcode)
