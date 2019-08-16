@@ -69,7 +69,6 @@ struct pklg_pkt {
 struct btsnoop {
 	int ref_count;
 	int fd;
-	int rotation_fd;
 	unsigned long flags;
 	uint32_t format;
 	uint16_t index;
@@ -77,7 +76,9 @@ struct btsnoop {
 	bool pklg_format;
 	bool pklg_v2;
 	bool compress;
+	bool rotate;
 	uint32_t file_size_limit;
+	char *log_path;
 };
 
 /*
@@ -89,6 +90,56 @@ struct btsnoop {
 static size_t compress_src_size = 0;
 static char compress_src[COMPRESS_SRC_MAX];
 static char compress_dst[COMPRESS_DST_MAX];
+
+static struct btsnoop *btsnoop_alloc()
+{
+	struct btsnoop *btsnoop = calloc(1, sizeof(*btsnoop));
+	if (!btsnoop)
+		return NULL;
+
+	btsnoop->fd = -1;
+	return btsnoop;
+}
+
+static void btsnoop_free(struct btsnoop *btsnoop)
+{
+	if (!btsnoop)
+		return;
+
+	if (btsnoop->fd >= 0)
+		close(btsnoop->fd);
+	if (btsnoop->log_path) {
+		free(btsnoop->log_path);
+		btsnoop->log_path = NULL;
+	}
+
+	free(btsnoop);
+	btsnoop = NULL;
+	return;
+}
+
+static char *alloc_and_concat(const char *str1, const char *str2)
+{
+	size_t len_of_str1 = (str1 ? strlen(str1) : 0);
+	size_t len_of_str2 = (str2 ? strlen(str2) : 0);
+	char *result = calloc(len_of_str1 + len_of_str2 + 1, sizeof(char));
+	if (!result)
+		return NULL;
+
+	if (len_of_str1)
+		strcat(result, str1);
+	if (len_of_str2)
+		strcat(result, str2);
+	return result;
+}
+
+static char *get_log_rotation_path(struct btsnoop *btsnoop)
+{
+	if (!btsnoop->log_path)
+		return NULL;
+
+	return alloc_and_concat(btsnoop->log_path, ".old");
+}
 
 static size_t btsnoop_compress(const void *data, size_t size)
 {
@@ -137,6 +188,28 @@ static ssize_t write_header(struct btsnoop *btsnoop)
 	}
 }
 
+bool btsnoop_rotate_logs(struct btsnoop *btsnoop)
+{
+	if (close(btsnoop->fd) != 0)
+		return false;
+	btsnoop->fd = -1;
+
+	char *log_rotation_path = get_log_rotation_path(btsnoop);
+	int rename_result = rename(btsnoop->log_path, log_rotation_path);
+	free(log_rotation_path);
+
+	if (rename_result != 0)
+		return false;
+
+	btsnoop->fd = open(btsnoop->log_path,
+				O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
+				S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+	if (btsnoop->fd < 0)
+		return false;
+
+	return true;
+}
+
 /*
  * If successful, return the size of bytes written to file (0 is possible when
  * the data is only written into the compression buffer and not to file).
@@ -150,6 +223,9 @@ static ssize_t write_and_possibly_compress(struct btsnoop *btsnoop,
 	void *compressed_data = NULL;
 	ssize_t written = 0;
 	ssize_t return_value;
+
+	if (fd < 0)
+		return -errno;
 
 	if (btsnoop->compress) {
 		size_t compressed_size = btsnoop_compress(data, size);
@@ -175,21 +251,15 @@ static ssize_t write_and_possibly_compress(struct btsnoop *btsnoop,
 	}
 
 	if ((uint32_t)st.st_size + size >= btsnoop->file_size_limit) {
-		if (btsnoop->rotation_fd < 0) {
+		if (!btsnoop->rotate) {
 			return_value = -ENOSPC;
 			goto clean_up;
 		}
 
-		/* rotate logs: swap fd, empty next log, write header */
-		fd = btsnoop->rotation_fd;
-		btsnoop->rotation_fd = btsnoop->fd;
-		btsnoop->fd = fd;
-
-		if (ftruncate(fd, 0) < 0) {
+		if (!btsnoop_rotate_logs(btsnoop)) {
 			return_value = -errno;
 			goto clean_up;
 		}
-		lseek(fd, 0, SEEK_SET);
 
 		written = write_header(btsnoop);
 		if (written < 0) {
@@ -215,13 +285,14 @@ struct btsnoop *btsnoop_open(const char *path, unsigned long flags)
 	struct btsnoop_hdr hdr;
 	ssize_t len;
 
-	btsnoop = calloc(1, sizeof(*btsnoop));
+	btsnoop = btsnoop_alloc();
 	if (!btsnoop)
 		return NULL;
 
 	btsnoop->fd = open(path, O_RDONLY | O_CLOEXEC);
 	if (btsnoop->fd < 0) {
-		free(btsnoop);
+		btsnoop_free(btsnoop);
+		btsnoop = NULL;
 		return NULL;
 	}
 
@@ -259,19 +330,18 @@ struct btsnoop *btsnoop_open(const char *path, unsigned long flags)
 	return btsnoop_ref(btsnoop);
 
 failed:
-	close(btsnoop->fd);
-	free(btsnoop);
-
+	btsnoop_free(btsnoop);
+	btsnoop = NULL;
 	return NULL;
 }
 
 struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
-			unsigned int file_size_limit, const char *rotation_path)
+			unsigned int file_size_limit, bool rotate)
 {
 	struct btsnoop *btsnoop;
 	ssize_t written;
 
-	btsnoop = calloc(1, sizeof(*btsnoop));
+	btsnoop = btsnoop_alloc();
 	if (!btsnoop)
 		return NULL;
 
@@ -280,19 +350,15 @@ struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
 	if (btsnoop->fd < 0)
 		goto failed;
 
-	if (rotation_path) {
-		btsnoop->rotation_fd = open(rotation_path, O_WRONLY | O_CREAT | O_TRUNC
-				| O_CLOEXEC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-		if (btsnoop->rotation_fd < 0)
-			goto failed;
-	} else {
-		btsnoop->rotation_fd = -1;
-	}
+	btsnoop->log_path = strdup(path);
+	if (!btsnoop->log_path)
+		goto failed;
 
 	btsnoop->format = format;
 	btsnoop->index = 0xffff;
 	btsnoop->compress = compress;
 	btsnoop->file_size_limit = file_size_limit;
+	btsnoop->rotate = rotate;
 
 	written = write_header(btsnoop);
 	if (written < 0)
@@ -301,11 +367,8 @@ struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
 	return btsnoop_ref(btsnoop);
 
 failed:
-	if(btsnoop->fd >= 0)
-		close(btsnoop->fd);
-	if(btsnoop->rotation_fd >= 0)
-		close(btsnoop->rotation_fd);
-	free(btsnoop);
+	btsnoop_free(btsnoop);
+	btsnoop = NULL;
 	return NULL;
 }
 
@@ -327,12 +390,8 @@ void btsnoop_unref(struct btsnoop *btsnoop)
 	if (__sync_sub_and_fetch(&btsnoop->ref_count, 1))
 		return;
 
-	if (btsnoop->fd >= 0)
-		close(btsnoop->fd);
-	if (btsnoop->rotation_fd >= 0)
-		close(btsnoop->rotation_fd);
-
-	free(btsnoop);
+	btsnoop_free(btsnoop);
+	btsnoop = NULL;
 }
 
 uint32_t btsnoop_get_format(struct btsnoop *btsnoop)
