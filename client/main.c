@@ -2459,7 +2459,8 @@ int main(int argc, char *argv[])
 	signal = setup_signalfd();
 	client = g_dbus_client_new(
 				dbus_conn,
-				option_service ? option_service : "org.bluez",
+				option_service ? option_service
+						: "org.chromium.Bluetooth",
 				"/org/bluez");
 
 	g_dbus_client_set_connect_watch(client, connect_handler, NULL);
