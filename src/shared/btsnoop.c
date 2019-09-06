@@ -36,6 +36,8 @@
 #include <sys/stat.h>
 
 #include "src/shared/btsnoop.h"
+#include "src/shared/queue.h"
+#include "src/shared/util.h"
 
 struct btsnoop_hdr {
 	uint8_t		id[8];		/* Identification Pattern */
@@ -82,6 +84,70 @@ struct btsnoop {
 };
 
 /*
+ * The struct ctrl_data exists for handling log file rotation, so that any
+ * single file can be read separately, independent from the other log.
+ * Using btmon, the content of the data is presented like this:
+ *      @ MGMT Open: bluetoothd (privileged) version 1.14     {0x0002} 0.985864
+ *      @ MGMT Open: bluetoothd (privileged) version 1.14     {0x0001} 0.985865
+ *      @ MGMT Open: btmon (privileged) version 1.14          {0x0003} 0.985894
+ *      ...
+ *      @ MGMT Close: bluetoothd                              {0x0001} 3.847409
+ *
+ * In each log file, the 'Open' data is required to be present before any other
+ * MGMT data, otherwise instead of displaying MGMT event like this:
+ *   @ MGMT Event: Device Found (0x0012) plen 37       {0x0003} [hci0] 0.226572
+ *      LE Address: F9:21:9B:D6:77:1E (Static)
+ *      RSSI: -71 dBm (0xb9)
+ *      Flags: 0x00000000
+ *      Data length: 23
+ *      Appearance: Mouse (0x03c2)
+ *      Flags: 0x04
+ *        BR/EDR Not Supported
+ *      16-bit Service UUIDs (complete): 1 entry
+ *        Human Interface Device (0x1812)
+ *      Name (complete): nRF5_Mouse
+ * It will display something like this:
+ *   @ Control Event: 0xffff                           {0x0003} [hci0] 0.226572
+ *      12 00 1e 77 d6 9b 21 f9 02 b9 00 00 00 00 17 00  ...w..!.........
+ *      03 19 c2 03 02 01 04 03 03 12 18 0b 09 6e 52 46  .............nRF
+ *      35 5f 4d 6f 75 73 65                             5_Mouse
+ *
+ * Therefore, we need to keep track on each of 'Open' and 'Close' data, and
+ * transfer the 'Open' data to the new log file when during log rotation.
+ * Specifically, we shall maintain a list of 'Open' data, appending new 'Open'
+ * data to the list and deleting 'Closed' data from the list.
+ */
+struct ctrl_data {
+	struct btsnoop_pkt pkt;
+	uint32_t cookie;
+	void *data;
+};
+
+/*
+ * These are lists of ctrl_data. The reason we have two lists is to support
+ * compression mode while log rotation is enabled.
+ * Take a look at this example of event sequence:
+ * 1) btmon logging is started with compression enabled
+ * 2) log until compression buffer is full. Compress.
+ * 3) write compression result to log #1.
+ * 4) continue logging until compression buffer is full. Compress.
+ * 5) However, this will cause log #1 to exceed its size limit. Therefore,
+ *    write to log #2 instead.
+ *
+ * On rotation in (5), we need to write some ctrl_data on log #2. However, the
+ * data that we should write is NOT the ctrl_data state in the beginning of (5),
+ * instead we should write the ctrl_data state in the beginning of (4), because
+ * that is what is contained in log #1.
+ *
+ * Therefore, we need two lists: One to keep track the latest state (5), and one
+ * to keep track the state since last time we write (4). The former is used only
+ * when log rotation is enabled, while the latter is used only when log rotation
+ * is enabled AND compression is also enabled.
+ */
+struct queue *ctrl_list = NULL;
+struct queue *ctrl_list_since_last_write_to_file = NULL;
+
+/*
  * To guarantee that the compressed data will fit, COMPRESS_DST_MAX is 1% larger
  * than the COMPRESS_SRC_MAX, plus 600 bytes.
  */
@@ -90,6 +156,86 @@ struct btsnoop {
 static size_t compress_src_size = 0;
 static char compress_src[COMPRESS_SRC_MAX];
 static char compress_dst[COMPRESS_DST_MAX];
+
+static bool ctrl_help_compare_to_cookie(const void *ctrl_ptr,
+							const void *cookie_ptr)
+{
+	if (!ctrl_ptr || !cookie_ptr)
+		return false;
+
+	const struct ctrl_data *ctrl_data = ctrl_ptr;
+	const uint32_t cookie = *((uint32_t*) cookie_ptr);
+	return ctrl_data->cookie == cookie;
+}
+
+static void ctrl_help_data_free(void *data)
+{
+	if (!data)
+		return;
+
+	struct ctrl_data *ctrl_data = data;
+	free(ctrl_data->data);
+	ctrl_data->data = NULL;
+}
+
+static struct queue *ctrl_store(struct queue *ctrls, struct btsnoop_pkt *pkt,
+							const void *data)
+{
+	if (!data || !pkt)
+		return ctrls;
+	if (!ctrls)
+		ctrls = queue_new();
+
+	uint32_t cookie = get_le32(data);
+	struct ctrl_data *ctrl_data = malloc(sizeof(struct ctrl_data));
+	if (!ctrl_data)
+		return ctrls;
+
+	ctrl_data->cookie = cookie;
+	ctrl_data->pkt = *pkt;
+
+	uint16_t size = be32toh(pkt->size);
+	ctrl_data->data = malloc(size);
+	if (!ctrl_data->data) {
+		free(ctrl_data);
+		return ctrls;
+	}
+
+	memcpy(ctrl_data->data, data, size);
+	queue_push_tail(ctrls, ctrl_data);
+	return ctrls;
+}
+
+static void ctrl_release(struct queue *ctrls, const void *data)
+{
+	if (!data)
+		return;
+
+	uint32_t cookie = get_le32(data);
+	queue_remove_all(ctrls, ctrl_help_compare_to_cookie, &cookie,
+							ctrl_help_data_free);
+}
+
+static void ctrl_release_all(struct queue *ctrls)
+{
+	queue_destroy(ctrls, ctrl_help_data_free);
+}
+
+static struct queue *ctrl_copy_list(struct queue *ctrls_to,
+						struct queue *ctrls_from)
+{
+	queue_remove_all(ctrls_to, NULL, NULL, ctrl_help_data_free);
+	ctrls_to = NULL;
+
+	const struct queue_entry *entry;
+	for (entry = queue_get_entries(ctrls_from); entry; entry = entry->next)
+	{
+		struct ctrl_data *from = entry->data;
+		ctrls_to = ctrl_store(ctrls_to, &from->pkt, from->data);
+	}
+
+	return ctrls_to;
+}
 
 static struct btsnoop *btsnoop_alloc()
 {
@@ -111,6 +257,15 @@ static void btsnoop_free(struct btsnoop *btsnoop)
 	if (btsnoop->log_path) {
 		free(btsnoop->log_path);
 		btsnoop->log_path = NULL;
+	}
+	if (btsnoop->rotate) {
+		ctrl_release_all(ctrl_list);
+		ctrl_list = NULL;
+
+		if (btsnoop->compress) {
+			ctrl_release_all(ctrl_list_since_last_write_to_file);
+			ctrl_list_since_last_write_to_file = NULL;
+		}
 	}
 
 	free(btsnoop);
@@ -156,36 +311,68 @@ static size_t btsnoop_compress(const void *data, size_t size)
 	return written;
 }
 
-static ssize_t write_header(struct btsnoop *btsnoop)
+static ssize_t write_header_and_ctrls(struct btsnoop *btsnoop)
 {
-	struct btsnoop_hdr hdr;
-
 	if (!btsnoop)
 		return -EINVAL;
 
+	struct btsnoop_hdr hdr;
 	memcpy(hdr.id, btsnoop_id, sizeof(btsnoop_id));
 	hdr.version = htobe32(btsnoop_version);
 	hdr.type = htobe32(btsnoop->format);
 
+	const struct queue_entry *entry;
+	struct queue *ctrls = btsnoop->compress ?
+				ctrl_list_since_last_write_to_file : ctrl_list;
+	size_t header_ctrl_total_size = BTSNOOP_HDR_SIZE;
+	for (entry = queue_get_entries(ctrls); entry; entry = entry->next) {
+		const struct ctrl_data *ctrl_data = entry->data;
+		uint16_t pkt_size = be32toh(ctrl_data->pkt.size);
+		header_ctrl_total_size += BTSNOOP_PKT_SIZE + pkt_size;
+	}
+
+	/* copy file header and active ctrl packets to buffer */
+	void *buffer = malloc(header_ctrl_total_size);
+	if (!buffer)
+		return -ENOMEM;
+	memcpy(buffer, &hdr, BTSNOOP_HDR_SIZE);
+
+	size_t offset = BTSNOOP_HDR_SIZE;
+	for (entry = queue_get_entries(ctrls); entry; entry = entry->next) {
+		const struct ctrl_data *ctrl_data = entry->data;
+		uint16_t pkt_size = be32toh(ctrl_data->pkt.size);
+		memcpy(buffer + offset, &ctrl_data->pkt, BTSNOOP_PKT_SIZE);
+		memcpy(buffer + offset + BTSNOOP_PKT_SIZE, ctrl_data->data,
+								pkt_size);
+		offset += BTSNOOP_PKT_SIZE + pkt_size;
+	}
+
+	ssize_t written;
 	if (btsnoop->compress) {
 		/* reuse compress_src, temporarily store whatever data there */
 		void *src_copy = malloc(compress_src_size);
-		if (!src_copy)
+		if (!src_copy) {
+			free(buffer);
 			return -ENOMEM;
+		}
 
 		memcpy(src_copy, compress_src, compress_src_size);
 
-		unsigned int compressed_size;
-		memcpy(compress_src, &hdr, BTSNOOP_HDR_SIZE);
+		unsigned int compressed_size = COMPRESS_DST_MAX;
+		memcpy(compress_src, buffer, header_ctrl_total_size);
 		BZ2_bzBuffToBuffCompress(compress_dst, &compressed_size,
-				compress_src, BTSNOOP_HDR_SIZE, 1, 0, 0);
+					compress_src, header_ctrl_total_size,
+					1, 0, 0);
 
 		memcpy(compress_src, src_copy, compress_src_size);
 		free(src_copy);
-		return write(btsnoop->fd, compress_dst, compressed_size);
+		written = write(btsnoop->fd, compress_dst, compressed_size);
 	} else {
-		return write(btsnoop->fd, &hdr, BTSNOOP_HDR_SIZE);
+		written = write(btsnoop->fd, buffer, header_ctrl_total_size);
 	}
+	free(buffer);
+
+	return written;
 }
 
 bool btsnoop_rotate_logs(struct btsnoop *btsnoop)
@@ -261,7 +448,7 @@ static ssize_t write_and_possibly_compress(struct btsnoop *btsnoop,
 			goto clean_up;
 		}
 
-		written = write_header(btsnoop);
+		written = write_header_and_ctrls(btsnoop);
 		if (written < 0) {
 			return_value = written;
 			goto clean_up;
@@ -271,6 +458,11 @@ static ssize_t write_and_possibly_compress(struct btsnoop *btsnoop,
 check_file_size_limit_done:
 	written += write(fd, data, size);
 	return_value = written;
+
+	if (btsnoop->rotate && btsnoop->compress) {
+		ctrl_list_since_last_write_to_file = ctrl_copy_list(
+				ctrl_list_since_last_write_to_file, ctrl_list);
+	}
 
 clean_up:
 	if (compressed_data)
@@ -360,7 +552,7 @@ struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
 	btsnoop->file_size_limit = file_size_limit;
 	btsnoop->rotate = rotate;
 
-	written = write_header(btsnoop);
+	written = write_header_and_ctrls(btsnoop);
 	if (written < 0)
 		goto failed;
 
@@ -402,19 +594,11 @@ uint32_t btsnoop_get_format(struct btsnoop *btsnoop)
 	return btsnoop->format;
 }
 
-bool btsnoop_write(struct btsnoop *btsnoop, struct timeval *tv,
-			uint32_t flags, uint32_t drops, const void *data,
-			uint16_t size)
+struct btsnoop_pkt create_btsnoop_pkt(struct timeval *tv, uint32_t flags,
+						uint32_t drops, uint16_t size)
 {
 	struct btsnoop_pkt pkt;
-	uint64_t ts;
-	ssize_t written;
-	void *write_buffer;
-
-	if (!btsnoop || !tv)
-		return false;
-
-	ts = (tv->tv_sec - 946684800ll) * 1000000ll + tv->tv_usec;
+	uint64_t ts = (tv->tv_sec - 946684800ll) * 1000000ll + tv->tv_usec;
 
 	pkt.size  = htobe32(size);
 	pkt.len   = htobe32(size);
@@ -422,16 +606,41 @@ bool btsnoop_write(struct btsnoop *btsnoop, struct timeval *tv,
 	pkt.drops = htobe32(drops);
 	pkt.ts    = htobe64(ts + 0x00E03AB44A676000ll);
 
-	/* allocate buffer to write pkt header and data at once */
-	write_buffer = malloc(BTSNOOP_PKT_SIZE + size);
-	memcpy(write_buffer, &pkt, BTSNOOP_PKT_SIZE);
-	memcpy(write_buffer + BTSNOOP_PKT_SIZE, data, size);
+	return pkt;
+}
 
-	written = write_and_possibly_compress(btsnoop, write_buffer,
+bool btsnoop_write_pkt(struct btsnoop *btsnoop, struct btsnoop_pkt *pkt,
+							const void *data)
+{
+	if (!btsnoop || !pkt)
+		return false;
+
+	/* allocate buffer to write pkt header and data at once */
+	uint16_t size = be32toh(pkt->size);
+	void *write_buffer = malloc(BTSNOOP_PKT_SIZE + size);
+	if (!write_buffer)
+		return false;
+
+	memcpy(write_buffer, pkt, BTSNOOP_PKT_SIZE);
+	if (data && size > 0)
+		memcpy(write_buffer + BTSNOOP_PKT_SIZE, data, size);
+
+	ssize_t written = write_and_possibly_compress(btsnoop, write_buffer,
 						BTSNOOP_PKT_SIZE + size);
 	free(write_buffer);
 
 	return written >= 0;
+}
+
+bool btsnoop_write(struct btsnoop *btsnoop, struct timeval *tv,
+			uint32_t flags, uint32_t drops, const void *data,
+			uint16_t size)
+{
+	if (!btsnoop || !tv)
+		return false;
+
+	struct btsnoop_pkt pkt = create_btsnoop_pkt(tv, flags, drops, size);
+	return btsnoop_write_pkt(btsnoop, &pkt, data);
 }
 
 static uint32_t get_flags_from_opcode(uint16_t opcode)
@@ -465,7 +674,7 @@ bool btsnoop_write_hci(struct btsnoop *btsnoop, struct timeval *tv,
 {
 	uint32_t flags;
 
-	if (!btsnoop)
+	if (!btsnoop || !tv)
 		return false;
 
 	switch (btsnoop->format) {
@@ -489,7 +698,17 @@ bool btsnoop_write_hci(struct btsnoop *btsnoop, struct timeval *tv,
 		return false;
 	}
 
-	return btsnoop_write(btsnoop, tv, flags, drops, data, size);
+	struct btsnoop_pkt pkt = create_btsnoop_pkt(tv, flags, drops, size);
+	bool result = btsnoop_write_pkt(btsnoop, &pkt, data);
+
+	if (btsnoop->rotate) {
+		if (opcode == BTSNOOP_OPCODE_CTRL_OPEN)
+			ctrl_list = ctrl_store(ctrl_list, &pkt, data);
+		else if (opcode == BTSNOOP_OPCODE_CTRL_CLOSE)
+			ctrl_release(ctrl_list, data);
+	}
+
+	return result;
 }
 
 bool btsnoop_write_phy(struct btsnoop *btsnoop, struct timeval *tv,
