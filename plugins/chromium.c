@@ -647,6 +647,10 @@ static DBusMessage *set_newblue_enabled(DBusConnection *conn, DBusMessage *msg,
 		return btd_error_invalid_args(msg);
 	}
 
+#ifndef ALLOW_SET_LE_SPLITTER
+	return btd_error_failed(msg, "Not allowed to configure NewBlue");
+#endif
+
 	create_file(NEWBLUE_CONFIG_FILE, S_IRUSR | S_IWUSR);
 
 	if (!g_file_set_contents(NEWBLUE_CONFIG_FILE,

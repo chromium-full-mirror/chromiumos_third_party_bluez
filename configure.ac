@@ -336,6 +336,11 @@ AC_ARG_ENABLE(android, AC_HELP_STRING([--enable-android],
 					[enable_android=${enableval}])
 AM_CONDITIONAL(ANDROID, test "${enable_android}" = "yes")
 
+AC_ARG_ENABLE(allow_set_le_splitter, AC_HELP_STRING([--enable-allow_set_le_splitter],
+			[enable setting LE splitter]),
+					[enable_set_le_splitter=${enableval}])
+AM_CONDITIONAL(ALLOW_SET_LE_SPLITTER, test "${enable_set_le_splitter}" = "yes")
+
 if (test "${enable_android}" = "yes"); then
 	PKG_CHECK_MODULES(SBC, sbc >= 1.2, dummy=yes,
 					AC_MSG_ERROR(SBC library >= 1.2 is required))
