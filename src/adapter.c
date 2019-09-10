@@ -5539,11 +5539,16 @@ static void adapter_start(struct btd_adapter *adapter)
 						ADAPTER_INTERFACE, "Powered");
 	adapter->stack_sync_quitting = false;
 	adapter->discovery_suspended_by_system = false;
-	adapter->newblue_client = g_dbus_client_new(dbus_conn, NEWBLUE_SERVICE,
+
+	if (!adapter->newblue_client) {
+		adapter->newblue_client = g_dbus_client_new(dbus_conn,
+								NEWBLUE_SERVICE,
 								adapter->path);
-	g_dbus_client_set_proxy_handlers(adapter->newblue_client,
+		g_dbus_client_set_proxy_handlers(adapter->newblue_client,
 							newblue_proxy_added,
 							NULL, NULL, adapter);
+	}
+
 	adapter->suspend_res_state = SUS_RES_STATE_RUNNING;
 	adapter->suspend_res_tasks = SUS_RES_TASK_NONE;
 	adapter->suspend_res_msg = NULL;
