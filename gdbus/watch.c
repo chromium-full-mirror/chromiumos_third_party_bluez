@@ -78,6 +78,8 @@ struct filter_data {
 	gboolean registered;
 };
 
+static const char *check_name_cache(const char *name);
+
 static struct filter_data *filter_data_find_match(DBusConnection *connection,
 							const char *name,
 							const char *owner,
@@ -250,10 +252,12 @@ static struct filter_data *filter_data_get(DBusConnection *connection,
 	if (sender == NULL)
 		goto proceed;
 
-	if (sender[0] == ':')
+	if (sender[0] == ':') {
 		owner = sender;
-	else
+	} else {
 		name = sender;
+		owner = check_name_cache(name) ? : "";
+	}
 
 proceed:
 	data = filter_data_find_match(connection, name, owner, path,
@@ -531,11 +535,23 @@ static DBusHandlerResult message_filter(DBusConnection *connection,
 		if (connection != data->connection)
 			continue;
 
-		if (!sender && data->owner)
+		if (!sender && g_str_equal(data->owner, "") == FALSE)
 			continue;
 
-		if (data->owner && g_str_equal(sender, data->owner) == FALSE)
+		if (!data->name && !data->owner) {
+			// If both |name| and |owner| filters are not specified,
+			// allow to go through next filters. Otherwise either
+			// |name| or |owner| filters needs to match |sender|.
+		} else if (data->name &&
+				g_str_equal(sender, data->name) == TRUE) {
+			// |name| filter matches |sender|, allow to go through.
+		} else if (data->owner &&
+				g_str_equal(sender, data->owner) == TRUE) {
+			// |owner| filter matches |sender|, allow to go through.
+		} else {
+			// Otherwise, the message should be filtered out.
 			continue;
+		}
 
 		if (data->path && g_str_equal(path, data->path) == FALSE)
 			continue;
@@ -627,6 +643,7 @@ static void service_reply(DBusPendingCall *call, void *user_data)
 						DBUS_TYPE_INVALID) == FALSE)
 		goto fail;
 
+	update_name_cache(data->name, data->owner);
 	update_service(data);
 
 	goto done;
@@ -657,8 +674,8 @@ static void check_service(DBusConnection *connection,
 	data->callback = callback;
 	callback->data = data;
 
-	data->owner = check_name_cache(name);
-	if (data->owner != NULL) {
+	data->owner = check_name_cache(name) ? : "";
+	if (g_str_equal(data->owner, "") == FALSE) {
 		data->id = g_idle_add(update_service, data);
 		return;
 	}
@@ -716,8 +733,7 @@ guint g_dbus_add_service_watch(DBusConnection *connection, const char *name,
 	if (cb == NULL)
 		return 0;
 
-	if (connect)
-		check_service(connection, name, cb);
+	check_service(connection, name, cb);
 
 	return cb->id;
 }
