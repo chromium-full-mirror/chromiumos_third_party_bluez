@@ -219,7 +219,15 @@ enum suspend_res_tasks {
 /* Pause discovery to avoid system wake ups on devices discovery */
 	SUS_RES_TASK_DISCOVERY  =  (1 << 0),
 /* MASK BT some controller events to avoid undesired system wakeups */
-	SUS_RES_TASK_SET_EVENTS =  (1 << 1)
+	SUS_RES_TASK_SET_EVENTS =  (1 << 1),
+/* Turn off adapter (only on some chips) */
+	SUS_RES_TASK_SET_POWER  =  (1 << 2),
+};
+
+enum suspend_res_actions {
+	SUS_RES_ACTION_NONE,
+	SUS_RES_ACTION_STOP,
+	SUS_RES_ACTION_START,
 };
 
 typedef enum {
@@ -701,6 +709,41 @@ static bool set_mode(struct btd_adapter *adapter, uint16_t opcode,
 		return true;
 
 	btd_error(adapter->dev_id, "Failed to set mode for index %u",
+							adapter->dev_id);
+
+	return false;
+}
+
+
+static void set_power_complete(uint8_t status, uint16_t length,
+			       const void *param, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+
+	DBG("Completing set_power with status %s (0x%02x)", mgmt_errstr(status),
+	    status);
+	update_suspend_res_tasks(adapter, SUS_RES_TASK_SET_POWER, false);
+
+	/* Complete as a regular set mode */
+	set_mode_complete(status, length, param, user_data);
+}
+
+static bool set_power(struct btd_adapter *adapter, uint8_t mode)
+{
+	struct mgmt_mode cp;
+
+	memset(&cp, 0, sizeof(cp));
+	cp.val = mode;
+
+	DBG("sending set power command for index %u", adapter->dev_id);
+	update_suspend_res_tasks(adapter, SUS_RES_TASK_SET_POWER, true);
+
+	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_POWERED,
+				adapter->dev_id, sizeof(cp), &cp,
+				set_power_complete, adapter, NULL) > 0)
+		return true;
+
+	btd_error(adapter->dev_id, "Failed to set power for index %u",
 							adapter->dev_id);
 
 	return false;
@@ -2891,6 +2934,18 @@ static void restore_event_masks_for_system_resume(struct btd_adapter *adapter)
 							adapter->dev_id);
 }
 
+static enum suspend_res_actions str_to_action(const char *str)
+{
+	enum suspend_res_actions action = SUS_RES_ACTION_NONE;
+
+	if (strncmp(str, "start", 5) == 0)
+		action = SUS_RES_ACTION_START;
+	else if (strncmp(str, "stop", 4) == 0)
+		action = SUS_RES_ACTION_STOP;
+
+	return action;
+}
+
 static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
 						DBusMessage *msg,
 						void *user_data)
@@ -2898,6 +2953,14 @@ static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
+
+	const char *action_str;
+	if (dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &action_str,
+				  DBUS_TYPE_INVALID) == FALSE) {
+		return btd_error_invalid_args(msg);
+	}
+
+	enum suspend_res_actions action = str_to_action(action_str);
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
@@ -2910,8 +2973,15 @@ static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
 	time(&last_system_resume_time);
 
 	/* Perform suspend tasks */
-	pause_discovery_for_system_suspend(adapter);
-	set_event_masks_for_system_suspend(adapter);
+	if (action == SUS_RES_ACTION_STOP) {
+		if (adapter->current_settings & MGMT_SETTING_POWERED) {
+			warn("Turning off adapter for suspend imminent");
+			set_power(adapter, 0x0);
+		}
+	} else {
+		pause_discovery_for_system_suspend(adapter);
+		set_event_masks_for_system_suspend(adapter);
+	}
 	/* End of suspend tasks */
 
 	/* Suspend may be async depedning on bluez tasks to be executed */
@@ -2932,9 +3002,18 @@ static DBusMessage *handle_suspend_done(DBusConnection *conn,
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
+	const char *action_str;
+	if (dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &action_str,
+				  DBUS_TYPE_INVALID) == FALSE) {
+		return btd_error_invalid_args(msg);
+	}
 
-	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+	enum suspend_res_actions action = str_to_action(action_str);
+
+	if (action != SUS_RES_ACTION_START &&
+	    !(adapter->current_settings & MGMT_SETTING_POWERED)) {
 		return btd_error_not_ready(msg);
+	}
 
 	if (SUS_RES_STATE_SUS_IMMINT_ACKED != adapter->suspend_res_state) {
 		warn("Suspend done called in wrong state %d",
@@ -2943,8 +3022,16 @@ static DBusMessage *handle_suspend_done(DBusConnection *conn,
 	}
 
 	/* Perform suspend tasks */
-	unpause_discovery_for_system_resume(adapter);
-	restore_event_masks_for_system_resume(adapter);
+	if (action == SUS_RES_ACTION_START) {
+		/* Only power on if it was previously powered */
+		if (adapter->desired_powered) {
+			warn("Turning on adapter for suspend done");
+			set_power(adapter, 0x1);
+		}
+	} else {
+		unpause_discovery_for_system_resume(adapter);
+		restore_event_masks_for_system_resume(adapter);
+	}
 	/* End of suspend tasks */
 
 	/* Resume may be async depedning on system state */
@@ -4105,9 +4192,11 @@ static const GDBusMethodTable adapter_methods[] = {
 			create_service_record)},
 	{ GDBUS_METHOD("RemoveServiceRecord", GDBUS_ARGS({"handle", "u"}), NULL,
 			remove_service_record)},
-	{ GDBUS_ASYNC_METHOD("HandleSuspendImminent", NULL, NULL,
+	{ GDBUS_ASYNC_METHOD("HandleSuspendImminent",
+			GDBUS_ARGS({"action", "s"}), NULL,
 			handle_suspend_imminent)},
-	{ GDBUS_ASYNC_METHOD("HandleSuspendDone", NULL , NULL,
+	{ GDBUS_ASYNC_METHOD("HandleSuspendDone",
+			GDBUS_ARGS({"action", "s"}), NULL,
 			handle_suspend_done)},
 	{ GDBUS_METHOD("SetLongTermKeys", GDBUS_ARGS({"keys", "aay"}) , NULL,
 			set_long_term_keys)},
