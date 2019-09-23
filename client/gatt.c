@@ -51,6 +51,20 @@
 #define COLORED_CHG	COLOR_YELLOW "CHG" COLOR_OFF
 #define COLORED_DEL	COLOR_RED "DEL" COLOR_OFF
 
+#define ARG_OPTION_KEY_LENGTH 16
+
+struct arg_options {
+	char key[ARG_OPTION_KEY_LENGTH];
+	uint16_t value;
+};
+
+struct attribute_data {
+	void *data;
+	size_t data_len;
+	struct arg_options *options;
+	size_t options_len;
+};
+
 static GList *services;
 static GList *characteristics;
 static GList *descriptors;
@@ -375,7 +389,7 @@ static char *attribute_generator(const char *text, int state, GList *source)
 
 		if (!strncmp(path, text, len))
 			return strdup(path);
-        }
+	}
 
 	return NULL;
 }
@@ -530,12 +544,13 @@ static void write_reply(DBusMessage *message, void *user_data)
 
 static void write_setup(DBusMessageIter *iter, void *user_data)
 {
-	struct iovec *iov = user_data;
+	struct attribute_data *attribute_data = user_data;
 	DBusMessageIter array, dict;
 
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y", &array);
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE,
-						&iov->iov_base, iov->iov_len);
+						&attribute_data->data,
+						attribute_data->data_len);
 	dbus_message_iter_close_container(iter, &array);
 
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
@@ -544,43 +559,93 @@ static void write_setup(DBusMessageIter *iter, void *user_data)
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
 					&dict);
-	/* TODO: Add offset support */
+
+	for (size_t i = 0; i < attribute_data->options_len; ++i) {
+		dict_append_entry(&dict, attribute_data->options[i].key,
+			DBUS_TYPE_UINT16, &attribute_data->options[i].value);
+	}
 	dbus_message_iter_close_container(iter, &dict);
 }
 
-static void write_attribute(GDBusProxy *proxy, char *arg)
+static void write_attribute(GDBusProxy *proxy, char *arg, uint8_t write_type)
 {
-	struct iovec iov;
 	uint8_t value[512];
 	char *entry;
-	unsigned int i;
+	struct arg_options options[2];
+	struct attribute_data attribute_data;
+	unsigned int data_index = 0;
+	unsigned int options_index = 0;
+	char valid_keys[][ARG_OPTION_KEY_LENGTH] = {"offset"};
 
-	for (i = 0; (entry = strsep(&arg, " \t")) != NULL; i++) {
+	while ((entry = strsep(&arg, " \t")) != NULL) {
 		long int val;
 		char *endptr = NULL;
 
 		if (*entry == '\0')
 			continue;
 
-		if (i >= G_N_ELEMENTS(value)) {
+		val = strtol(entry, &endptr, 0);
+
+		// Not a number so must be options
+		if (entry == endptr) {
+			if (options_index >= G_N_ELEMENTS(options)) {
+				rl_printf("Too many options\n");
+				return;
+			}
+			char *opt_key = strsep(&endptr, "=\t");
+			char *opt_value = strsep(&endptr, "=\t");
+			if (opt_key == NULL || opt_value == NULL) {
+				rl_printf("Invalid options\n");
+				return;
+			}
+			long int option_value = strtol(opt_value, &endptr, 0);
+			if (!endptr || *endptr != '\0') {
+				rl_printf("Invalid value at option %d\n", options_index);
+				return;
+			}
+			bool key_valid = false;
+			for (size_t i = 0; i < G_N_ELEMENTS(valid_keys); ++i)
+			{
+				if (!strcmp(valid_keys[i], opt_key)) {
+					key_valid = true;
+					break;
+				}
+			}
+			if (!key_valid) {
+				rl_printf("Invalid key: %s\n", opt_key);
+				return;
+			}
+			memset(options[options_index].key, 0,
+				   sizeof(options[options_index].key));
+			strncpy(options[options_index].key, opt_key,
+					sizeof(options[options_index].key));
+			options[options_index++].value = (uint16_t) option_value;
+			continue;
+		}
+
+		if (data_index >= G_N_ELEMENTS(value)) {
 			rl_printf("Too much data\n");
 			return;
 		}
 
-		val = strtol(entry, &endptr, 0);
 		if (!endptr || *endptr != '\0' || val > UINT8_MAX) {
-			rl_printf("Invalid value at index %d\n", i);
+			rl_printf("Invalid value at index %d\n", data_index);
 			return;
 		}
 
-		value[i] = val;
+		value[data_index++] = val;
 	}
 
-	iov.iov_base = value;
-	iov.iov_len = i;
+	attribute_data.data = value;
+	attribute_data.data_len = data_index;
+	attribute_data.options = options;
+	attribute_data.options_len = options_index;
 
-	if (g_dbus_proxy_method_call(proxy, "WriteValue", write_setup,
-					write_reply, &iov, NULL) == FALSE) {
+	const char *method_name =
+		(write_type == ATTRIBUTE_WRITE) ? "WriteValue" : "PrepareWriteValue";
+
+	if (g_dbus_proxy_method_call(proxy, method_name, write_setup,
+					write_reply, &attribute_data, NULL) == FALSE) {
 		rl_printf("Failed to write\n");
 		return;
 	}
@@ -588,14 +653,15 @@ static void write_attribute(GDBusProxy *proxy, char *arg)
 	rl_printf("Attempting to write %s\n", g_dbus_proxy_get_path(proxy));
 }
 
-void gatt_write_attribute(GDBusProxy *proxy, const char *arg)
+void gatt_write_attribute(GDBusProxy *proxy, const char *arg,
+    uint8_t write_type)
 {
 	const char *iface;
 
 	iface = g_dbus_proxy_get_interface(proxy);
 	if (!strcmp(iface, "org.bluez.GattCharacteristic1") ||
 				!strcmp(iface, "org.bluez.GattDescriptor1")) {
-		write_attribute(proxy, (char *) arg);
+		write_attribute(proxy, (char *) arg, write_type);
 		return;
 	}
 
