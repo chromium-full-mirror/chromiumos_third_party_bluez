@@ -29,7 +29,6 @@
 
 static GDBusClient *client;
 static struct mgmt *mgmt = NULL;
-static unsigned char current_bluez_debug_level = 0;
 
 static void update_bluez_debug(DBusMessageIter *iter)
 {
@@ -38,19 +37,10 @@ static void update_bluez_debug(DBusMessageIter *iter)
 		return;
 	}
 
-	unsigned char val;
-	dbus_message_iter_get_basic(iter, &val);
-	if (val > 1) {
-		error("Unexpected BlueZ debug level %u", val);
-		return;
-	}
+	unsigned char level;
+	dbus_message_iter_get_basic(iter, &level);
 
-	if (current_bluez_debug_level == val)
-		return;
-
-	current_bluez_debug_level = val;
-	info("BlueZ log level is set to %d", val);
-	btd_set_debug_enabled(val);
+	btd_set_debug_level(level);
 }
 
 static void update_kernel_debug(DBusMessageIter *iter)

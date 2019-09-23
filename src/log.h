@@ -37,8 +37,8 @@ void btd_warn(uint16_t index, const char *format, ...)
 					__attribute__((format(printf, 2, 3)));
 void btd_info(uint16_t index, const char *format, ...)
 					__attribute__((format(printf, 2, 3)));
-void btd_debug(uint16_t index, const char *format, ...)
-					__attribute__((format(printf, 2, 3)));
+void btd_debug(uint16_t index, uint8_t level, const char *format, ...)
+					__attribute__((format(printf, 3, 4)));
 
 void __btd_log_init(const char *debug, int detach);
 void __btd_log_cleanup(void);
@@ -55,7 +55,7 @@ void __btd_enable_debug(struct btd_debug_desc *start,
 					struct btd_debug_desc *stop);
 
 // To be called by D-bus API
-void btd_set_debug_enabled(bool enabled);
+void btd_set_debug_level(uint8_t level);
 
 /**
  * DBG:
@@ -65,13 +65,15 @@ void btd_set_debug_enabled(bool enabled);
  * Simple macro around btd_debug() which also include the function
  * name it is called in.
  */
-#define DBG_IDX(idx, fmt, arg...) do { \
+#define DBG_IDX(idx, lvl, fmt, arg...) do { \
 	static struct btd_debug_desc __btd_debug_desc \
 	__attribute__((used, section("__debug"), aligned(8))) = { \
 		.file = __FILE__, .flags = BTD_DEBUG_FLAG_DEFAULT, \
 	}; \
 	if (__btd_debug_desc.flags & BTD_DEBUG_FLAG_PRINT) \
-		btd_debug(idx, "%s:%s() " fmt, __FILE__, __func__ , ## arg); \
+		btd_debug(idx, lvl, "%s:%s() " fmt, __FILE__, __func__ , \
+								## arg); \
 } while (0)
 
-#define DBG(fmt, arg...) DBG_IDX(0xffff, fmt, ## arg)
+#define DBG_LVL(lvl, fmt, arg...) DBG_IDX(0xffff, lvl, fmt, ## arg)
+#define DBG(fmt, arg...) DBG_LVL(1, fmt, ## arg)
