@@ -1688,6 +1688,67 @@ static void cmd_disconn(const char *arg)
 	rl_printf("Attempting to disconnect from %s\n", arg);
 }
 
+static void execute_write_reply(DBusMessage *message, void *user_data)
+{
+	DBusError error;
+
+	dbus_error_init(&error);
+
+	if (dbus_set_error_from_message(&error, message) == TRUE) {
+		rl_printf("Failed to execute write: %s\n", error.name);
+		dbus_error_free(&error);
+		return;
+	}
+
+	rl_printf("Successfully executed write\n");
+}
+
+static void execute_write_setup(DBusMessageIter *iter, void *user_data)
+{
+	dbus_bool_t *execute = user_data;
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, execute);
+}
+
+static void cmd_execute_write(const char *arg)
+{
+	GDBusProxy *proxy;
+
+	if (!arg || !strlen(arg)) {
+		rl_printf("Missing data argument\n");
+		return;
+	}
+
+	char *real_arg = (char*) arg;
+	char *device = strsep(&real_arg, " \t");
+	char *value = strsep(&real_arg, " \t");
+
+	if (device == NULL || value == NULL) {
+		rl_printf("Invalid data argument\n");
+		return;
+	}
+
+	proxy = find_device(device);
+	if (!proxy) {
+		rl_printf("Invalid device\n");
+		return;
+	}
+
+	dbus_bool_t execute;
+
+	if (parse_argument_on_off(value, &execute) == FALSE) {
+		rl_printf("Missing parameter <yes/no>\n");
+		return;
+	}
+
+	if (g_dbus_proxy_method_call(proxy, "ExecuteWrite", execute_write_setup,
+	    execute_write_reply, &execute, NULL) == FALSE) {
+		rl_printf("Failed to execute write\n");
+		return;
+	}
+
+	rl_printf("Attempting to execute write on %s\n", device);
+}
+
 static void cmd_list_attributes(const char *arg)
 {
 	GDBusProxy *proxy;
@@ -2176,6 +2237,8 @@ static const struct {
 	{ "connect",      "<dev>",    cmd_connect, "Connect device",
 							dev_generator },
 	{ "disconnect",   "[dev]",    cmd_disconn, "Disconnect device",
+							dev_generator },
+	{ "execute-write", "[dev] <yes/no>",    cmd_execute_write, "Execute write",
 							dev_generator },
 	{ "list-attributes", "[dev]", cmd_list_attributes, "List attributes",
 							dev_generator },
