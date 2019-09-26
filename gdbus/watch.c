@@ -78,8 +78,6 @@ struct filter_data {
 	gboolean registered;
 };
 
-static const char *check_name_cache(const char *name);
-
 static struct filter_data *filter_data_find_match(DBusConnection *connection,
 							const char *name,
 							const char *owner,
@@ -267,10 +265,7 @@ proceed:
 
 	data->connection = dbus_connection_ref(connection);
 	data->name = g_strdup(name);
-	if (name)
-		data->owner = g_strdup(check_name_cache(name) ? : "");
-	else
-		data->owner = g_strdup(owner);
+	data->owner = g_strdup(owner);
 	data->path = g_strdup(path);
 	data->interface = g_strdup(interface);
 	data->member = g_strdup(member);
@@ -539,12 +534,8 @@ static DBusHandlerResult message_filter(DBusConnection *connection,
 		if (!sender && data->owner)
 			continue;
 
-		if (data->owner &&
-				g_str_equal(sender, data->owner) == FALSE &&
-				data->name &&
-				g_str_equal(sender, data->name) == FALSE) {
+		if (data->owner && g_str_equal(sender, data->owner) == FALSE)
 			continue;
-		}
 
 		if (data->path && g_str_equal(path, data->path) == FALSE)
 			continue;
@@ -636,7 +627,6 @@ static void service_reply(DBusPendingCall *call, void *user_data)
 						DBUS_TYPE_INVALID) == FALSE)
 		goto fail;
 
-	update_name_cache(data->name, data->owner);
 	update_service(data);
 
 	goto done;
