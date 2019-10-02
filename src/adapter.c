@@ -347,13 +347,6 @@ struct supported_capability_info {
 	void *data;
 };
 
-struct read_info_complete_data {
-	uint8_t status;
-	uint16_t length;
-	struct mgmt_rp_read_info param;
-	void *user_data;
-};
-
 static struct btd_adapter *btd_adapter_lookup(uint16_t index)
 {
 	GList *list;
@@ -5526,8 +5519,6 @@ static void adapter_start(struct btd_adapter *adapter)
 {
 	struct mgmt_cp_set_blocked_ltks cp;
 
-	DBG("");
-
 	memset(&cp, 0, sizeof(cp));
 	// TODO(crbug/973161): Store the bad LTKs in a config file.
 	memcpy(cp.ltks[0],
@@ -9403,6 +9394,29 @@ static void add_supported_capability_wide_band_speech(dbus_bool_t val) {
 			supported_capability_alloc(DBUS_TYPE_BOOLEAN, &val));
 }
 
+static void read_supported_capabilities_complete(uint8_t status,
+			uint16_t length, const void *param, void *user_data)
+{
+	const struct mgmt_rp_read_supported_capabilities *rp = param;
+
+	if (status != MGMT_STATUS_SUCCESS) {
+		error("Failed to read supported capabilities: %s (0x%02x)",
+						mgmt_errstr(status), status);
+		goto failed;
+	}
+
+	if (length < sizeof(*rp)) {
+		error("Wrong size of read supported capabilities response");
+		goto failed;
+	}
+
+	add_supported_capability_wide_band_speech(rp->wide_band_speech);
+	return;
+
+failed:
+	add_supported_capability_wide_band_speech(false);
+}
+
 static void read_info_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -9641,6 +9655,21 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	if (adapter->stored_discoverable && !adapter->discoverable_timeout)
 		set_discoverable(adapter, 0x01, 0);
 
+	/*
+	 * Query the supported capabilities for the first adapter only.
+	 * This should be OK since we plan to not have multiple adapters
+	 * in the future.
+	 */
+	if (!capability_dict) {
+		capability_dict = g_hash_table_new_full(g_str_hash, g_str_equal,
+					g_free, supported_capability_free);
+
+		mgmt_send(adapter->mgmt, MGMT_OP_READ_SUPPORTED_CAPABILITIES,
+					adapter->dev_id, 0, NULL,
+					read_supported_capabilities_complete,
+					adapter, NULL);
+	}
+
 	if (adapter->current_settings & MGMT_SETTING_POWERED)
 		adapter_start(adapter);
 
@@ -9659,68 +9688,6 @@ failed:
 	adapter_list = g_list_remove(adapter_list, adapter);
 
 	btd_adapter_unref(adapter);
-}
-
-static void read_supported_capabilities_complete(uint8_t status,
-			uint16_t length, const void *param, void *user_data)
-{
-	uint8_t is_wbs_supported = false;
-	struct read_info_complete_data *ric_data = user_data;
-	const struct mgmt_rp_read_supported_capabilities *rp = param;
-
-	if (status != MGMT_STATUS_SUCCESS) {
-		error("Failed to read supported capabilities: %s (0x%02x)",
-						mgmt_errstr(status), status);
-	} else if (length < sizeof(*rp)) {
-		error("Wrong size of read supported capabilities response");
-	} else {
-		is_wbs_supported = rp->wide_band_speech;
-	}
-
-	add_supported_capability_wide_band_speech(is_wbs_supported);
-	read_info_complete(ric_data->status, ric_data->length, &ric_data->param,
-				ric_data->user_data);
-	g_free(ric_data);
-}
-
-static void do_read_supported_capabilities(uint8_t status, uint16_t length,
-					const void *param, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-	/*
-	 * Query the supported capabilities for the first adapter only.
-	 * This should be OK since we plan to not have multiple adapters
-	 * in the future.
-	 */
-	if (!capability_dict) {
-		capability_dict = g_hash_table_new_full(g_str_hash, g_str_equal,
-					g_free, supported_capability_free);
-
-		struct read_info_complete_data *ric_data =
-			g_try_malloc0(sizeof(struct read_info_complete_data));
-		ric_data->status = status;
-		ric_data->length = length;
-		memcpy(&ric_data->param,
-				param,
-				// |param|'s allocated size, which is |length|,
-				// may be different from the size of struct
-				// mgmt_rp_read_info, so we take the minimum
-				// to avoid accessing unallocated memory.
-				MIN(length, sizeof(struct mgmt_rp_read_info)));
-		ric_data->user_data = user_data;
-
-		if (mgmt_send(adapter->mgmt,
-					MGMT_OP_READ_SUPPORTED_CAPABILITIES,
-					adapter->dev_id, 0, NULL,
-					read_supported_capabilities_complete,
-					ric_data, NULL) > 0) {
-			return;
-		}
-
-		g_free(ric_data);
-	}
-
-	read_info_complete(status, length, param, user_data);
 }
 
 gboolean suspend_resume_just_happened(struct btd_adapter *adapter) {
@@ -9777,11 +9744,8 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 
 	DBG("sending read info command for index %u", index);
 
-	// After READ_INFO command returns, intercept it with our business of
-	// reading supported capabilities before returning it to the original
-	// read_info_complete.
 	if (mgmt_send(mgmt_master, MGMT_OP_READ_INFO, index, 0, NULL,
-			do_read_supported_capabilities, adapter, NULL) > 0)
+					read_info_complete, adapter, NULL) > 0)
 		return;
 
 	btd_error(adapter->dev_id,
