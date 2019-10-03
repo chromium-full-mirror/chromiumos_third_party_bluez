@@ -58,6 +58,7 @@ struct oob_handler {
 };
 
 int adapter_init(void);
+int adapter_init_with_did_product(uint16_t);
 void adapter_cleanup(void);
 void adapter_shutdown(void);
 
@@ -230,4 +231,3 @@ void btd_adapter_for_each_device(struct btd_adapter *adapter,
 			void *data);
 
 bool btd_le_connect_before_pairing(void);
-

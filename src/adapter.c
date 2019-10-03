@@ -9970,6 +9970,24 @@ int adapter_init(void)
 	return -EIO;
 }
 
+/* A temporary hardcoded solution for WBS supported capability
+ * TODO(crbug.com/1010830): remove this function and directly use adapter_init()
+ *   when the bugs regarding querying supported capabilities are fixed.
+ */
+int adapter_init_with_did_product(uint16_t did_product)
+{
+	// Atlas:247D, Octopus:2478
+	bool wbs_supported = did_product == 0x247D || did_product == 0x2478;
+
+	if (!capability_dict) {
+		capability_dict = g_hash_table_new_full(g_str_hash, g_str_equal,
+					g_free, supported_capability_free);
+		add_supported_capability_wide_band_speech(wbs_supported);
+	}
+
+	return adapter_init();
+}
+
 void adapter_cleanup(void)
 {
 	g_list_free(adapter_list);

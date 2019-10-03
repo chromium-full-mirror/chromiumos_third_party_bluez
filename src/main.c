@@ -740,7 +740,7 @@ int main(int argc, char *argv[])
 
 	g_dbus_set_flags(gdbus_flags);
 
-	if (adapter_init() < 0) {
+	if (adapter_init_with_did_product(main_opts.did_product) < 0) {
 		error("Adapter handling initialization failed");
 		exit(1);
 	}
