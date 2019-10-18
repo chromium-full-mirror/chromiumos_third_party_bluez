@@ -58,6 +58,7 @@ struct log_hdr {
 
 static int logging_fd = -1;
 static unsigned char current_bluez_debug_level = 0;
+static bool level_set_by_flag = false;
 
 static void logging_open(void)
 {
@@ -299,7 +300,10 @@ void __btd_enable_debug(struct btd_debug_desc *start,
 			desc->flags |= BTD_DEBUG_FLAG_PRINT;
 	}
 
-	current_bluez_debug_level = 1;
+	if (enabled) {
+		current_bluez_debug_level = 1;
+		level_set_by_flag = true;
+	}
 }
 
 void __btd_toggle_debug(void)
@@ -347,6 +351,11 @@ void btd_set_debug_level(uint8_t level)
 
 	if (level > MAX_BLUEZ_DEBUG_LEVEL) {
 		error("Unexpected BlueZ debug level %u", level);
+		return;
+	}
+
+	if (level_set_by_flag) {
+		error("Debug level was set by flag parameter - cannot change");
 		return;
 	}
 
