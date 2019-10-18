@@ -5596,8 +5596,8 @@ static void newblue_proxy_added(GDBusProxy *proxy, void *user_data)
 	if (strcmp(g_dbus_proxy_get_interface(proxy), ADAPTER_INTERFACE))
 		return;
 
-	g_dbus_proxy_get_property(proxy, "StackSyncQuitting", &iter);
-	newblue_property_changed(proxy, "StackSyncQuitting", &iter, user_data);
+	if (g_dbus_proxy_get_property(proxy, "StackSyncQuitting", &iter))
+		newblue_property_changed(proxy, "StackSyncQuitting", &iter, user_data);
 	g_dbus_proxy_set_property_watch(proxy, newblue_property_changed,
 								user_data);
 	g_dbus_proxy_set_removed_watch(proxy, newblue_proxy_removed, user_data);
