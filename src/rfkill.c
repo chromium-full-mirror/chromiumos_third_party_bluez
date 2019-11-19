@@ -150,7 +150,7 @@ void rfkill_init(void)
 
 	fd = open("/dev/rfkill", O_RDWR);
 	if (fd < 0) {
-		error("Failed to open RFKILL control device");
+		DBG("Failed to open RFKILL control device");
 		return;
 	}
 
