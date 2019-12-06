@@ -654,6 +654,13 @@ struct mgmt_cp_set_kernel_debug {
        uint8_t enabled;
 } __packed;
 
+#define MGMT_OP_SET_WAKE_CAPABLE			0x004B
+#define MGMT_SET_WAKE_CAPABLE_SIZE			8
+struct mgmt_cp_set_wake_capable {
+	struct mgmt_addr_info addr;
+	uint8_t wake_enable;
+} __packed;
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
@@ -942,6 +949,13 @@ static const char *mgmt_op[] = {
 	"Read Extended Controller Information",
 	"Set Appearance",
 	"Set Advertising Intervals",
+	"Set Event Mask",
+	"Set Blocked LTKs",
+	"Read Supported Capabilities",
+	"Set Kernel Debug",
+	"Get PHY Configuration",
+	"Set PHY Configuration",
+	"Set Wake Capable",
 };
 
 static const char *mgmt_ev[] = {

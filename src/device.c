@@ -187,6 +187,8 @@ struct btd_device {
 	bool		le;
 	bool		pending_paired;		/* "Paired" waiting for SDP */
 	bool		svc_refreshed;
+	bool		profile_wake_support;	/* Profile supports wake */
+	bool		wake_capable;		/* Can wake from suspend */
 	GSList		*svc_callbacks;
 	GSList		*eir_uuids;
 	uint8_t		eir[255];
@@ -445,6 +447,9 @@ static gboolean store_device_info_cb(gpointer user_data)
 
 	g_key_file_set_boolean(key_file, "General", "Blocked",
 							device->blocked);
+
+	g_key_file_set_boolean(key_file, "General", "WakeCapable",
+							device->wake_capable);
 
 	if (device->uuids) {
 		GSList *l;
@@ -1347,6 +1352,47 @@ dev_property_service_data_exist(const GDBusPropertyTable *property,
 	return bt_ad_has_service_data(device->ad, NULL);
 }
 
+static gboolean
+dev_property_get_wake_capable(const GDBusPropertyTable *property,
+			     DBusMessageIter *iter, void *data)
+{
+	struct btd_device *device = data;
+	dbus_bool_t wake_capable =
+			device_get_wake_capable(device) ? TRUE : FALSE;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &wake_capable);
+
+	return TRUE;
+}
+
+static void dev_property_set_wake_capable(const GDBusPropertyTable *property,
+					 DBusMessageIter *value,
+					 GDBusPendingPropertySet id, void *data)
+{
+	struct btd_device *device = data;
+	dbus_bool_t b;
+
+	if (dbus_message_iter_get_arg_type(value) != DBUS_TYPE_BOOLEAN) {
+		g_dbus_pending_property_error(id,
+					ERROR_INTERFACE ".InvalidArguments",
+					"Invalid arguments in method call");
+		return;
+	}
+
+	dbus_message_iter_get_basic(value, &b);
+
+	adapter_set_wake_capable(device->adapter, device, b == TRUE);
+	g_dbus_pending_property_success(id);
+}
+
+static gboolean dev_property_wake_capable_exist(
+		const GDBusPropertyTable *property, void *data)
+{
+	struct btd_device *device = data;
+
+	return device_get_profile_wake_support(device) ? TRUE : FALSE;
+}
+
 static gboolean disconnect_all(gpointer user_data)
 {
 	struct btd_device *device = user_data;
@@ -1532,6 +1578,34 @@ void device_request_disconnect(struct btd_device *device, DBusMessage *msg)
 bool device_is_disconnecting(struct btd_device *device)
 {
 	return device->disconn_timer > 0;
+}
+
+bool device_get_profile_wake_support(struct btd_device *device)
+{
+	return device->profile_wake_support;
+}
+
+void device_set_profile_wake_support(struct btd_device *device,
+				     bool wake_support)
+{
+	device->profile_wake_support = wake_support;
+	/* WakeCapable is only visible when wake_support is true */
+	g_dbus_emit_property_changed(dbus_conn, device->path, DEVICE_INTERFACE,
+				     "WakeCapable");
+}
+
+bool device_get_wake_capable(struct btd_device *device)
+{
+	return device->wake_capable;
+}
+
+void device_set_wake_capable(struct btd_device *device, bool wake_capable)
+{
+	device->wake_capable = wake_capable;
+
+	store_device_info(device);
+	g_dbus_emit_property_changed(dbus_conn, device->path, DEVICE_INTERFACE,
+				     "WakeCapable");
 }
 
 static void device_set_auto_connect(struct btd_device *device, gboolean enable)
@@ -3249,7 +3323,9 @@ static const GDBusPropertyTable device_properties[] = {
 						dev_property_flags_exist },
 	{ "MTU", "q", dev_property_get_mtu, NULL, dev_property_mtu_exist },
 	{ "EIR", "ay", dev_property_get_eir, NULL, dev_property_eir_exist },
-
+	{ "WakeCapable", "b", dev_property_get_wake_capable,
+				dev_property_set_wake_capable,
+				dev_property_wake_capable_exist },
 	{ }
 };
 
@@ -3504,6 +3580,7 @@ static void load_info(struct btd_device *device, const char *local,
 	char *str;
 	gboolean store_needed = FALSE;
 	gboolean blocked;
+	gboolean wake_capable;
 	char **uuids;
 	int source, vendor, product, version;
 	char **techno, **t;
@@ -3614,6 +3691,11 @@ next:
 
 		btd_device_set_pnpid(device, source, vendor, product, version);
 	}
+
+	/* Mark wake capable */
+	wake_capable = g_key_file_get_boolean(key_file, "General",
+					      "WakeCapable", NULL);
+	adapter_set_wake_capable(device->adapter, device, wake_capable == TRUE);
 
 	if (store_needed)
 		store_device_info(device);
