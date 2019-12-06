@@ -223,6 +223,8 @@ void adapter_whitelist_add(struct btd_adapter *adapter,
 						struct btd_device *dev);
 void adapter_whitelist_remove(struct btd_adapter *adapter,
 						struct btd_device *dev);
+void adapter_set_wake_capable(struct btd_adapter* adapter,
+			      struct btd_device* dev, bool wake_enable);
 
 void btd_adapter_set_oob_handler(struct btd_adapter *adapter,
 						struct oob_handler *handler);

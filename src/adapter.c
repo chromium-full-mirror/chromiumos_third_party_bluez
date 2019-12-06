@@ -5197,6 +5197,71 @@ void adapter_whitelist_add(struct btd_adapter *adapter, struct btd_device *dev)
 				add_whitelist_complete, adapter, NULL);
 }
 
+static void set_wake_capable_complete(uint8_t status, uint16_t length,
+					const void *param, void *user_data)
+{
+	const struct mgmt_cp_set_wake_capable *rp = param;
+	struct btd_adapter *adapter = user_data;
+	struct btd_device *dev;
+
+	char addr[18];
+
+	if (length < sizeof(*rp)) {
+		btd_error(adapter->dev_id,
+			  "Too small Set Wake Capable complete event");
+		return;
+        }
+
+	ba2str(&rp->addr.bdaddr, addr);
+
+	dev = btd_adapter_find_device(adapter, &rp->addr.bdaddr,
+				      rp->addr.type);
+	if (!dev) {
+		btd_error(adapter->dev_id,
+			  "Set Wake Capable complete for unknown device %s",
+			  addr);
+		return;
+	}
+
+	if (status != MGMT_STATUS_SUCCESS) {
+		btd_error(adapter->dev_id,
+			  "Failed to set wake capable %s(%u) = %d: %s (0x%02x)",
+			  addr, rp->addr.type, rp->wake_enable,
+			  mgmt_errstr(status), status);
+		return;
+	}
+
+	device_set_wake_capable(dev, rp->wake_enable);
+
+	DBG("Set wake capable complete %s (%u)", addr, rp->addr.type);
+}
+
+void adapter_set_wake_capable(struct btd_adapter* adapter,
+			      struct btd_device* dev,
+			      bool wake_enable)
+{
+	struct mgmt_cp_set_wake_capable cp;
+	char addr[18];
+
+	memset(&cp, 0, sizeof(cp));
+	bacpy(&cp.addr.bdaddr, device_get_address(dev));
+	cp.addr.type = btd_device_get_bdaddr_type(dev);
+	cp.wake_enable = device_get_profile_wake_support(dev) && wake_enable;
+
+	ba2strlc(&cp.addr.bdaddr, addr);
+
+	if (!mgmt_send(adapter->mgmt, MGMT_OP_SET_WAKE_CAPABLE, adapter->dev_id,
+		       sizeof(cp), &cp, set_wake_capable_complete, adapter,
+		       NULL)) {
+		btd_warn(adapter->dev_id,
+			 "Could not set wake capable = %u on %s (%u)",
+			 cp.wake_enable, addr, cp.addr.type);
+	}
+
+	DBG("Setting %s (%u) to wake capable = %u", addr,
+	    cp.addr.type, cp.wake_enable);
+}
+
 static void remove_whitelist_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {

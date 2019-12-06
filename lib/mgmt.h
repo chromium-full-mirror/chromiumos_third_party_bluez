@@ -617,6 +617,13 @@ struct mgmt_cp_set_kernel_debug {
        uint8_t enabled;
 } __packed;
 
+#define MGMT_OP_SET_WAKE_CAPABLE			0x0065
+#define MGMT_SET_WAKE_CAPABLE_SIZE			8
+struct mgmt_cp_set_wake_capable {
+	struct mgmt_addr_info addr;
+	uint8_t wake_enable;
+} __packed;
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
@@ -914,6 +921,7 @@ static const char *mgmt_op[] = {
 	"Set Blocked Keys",
 	"Set Wideband Speech",
 	"Set Advertising Intervals",			/* 0x0048 */
+	"Set Wake Capable",
 };
 
 static const char *mgmt_ev[] = {
