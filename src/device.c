@@ -527,8 +527,8 @@ void device_store_cached_name(struct btd_device *dev, const char *name)
 	gsize length = 0;
 
 	if (device_address_is_private(dev)) {
-		warn("Can't store name for private addressed device %s",
-								dev->path);
+		DBG("Can't store name for private addressed device %s",
+		    dev->path);
 		return;
 	}
 
