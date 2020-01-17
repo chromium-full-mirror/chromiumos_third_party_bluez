@@ -969,6 +969,7 @@ static const char *mgmt_op[] = {
 	"Set Kernel Debug",
 	"Get PHY Configuration",
 	"Set PHY Configuration",
+	"Set Blocked Keys",
 	"Set Wake Capable",
 };
 
