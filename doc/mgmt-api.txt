@@ -2942,6 +2942,26 @@ Set Appearance Command
 				Invalid Index
 
 
+Set Wake Capable Command
+===========================
+
+	Command Code:		0x0047
+	Controller Index:	<controller id>
+	Command Parameters:	Address (6 Octets)
+				Address_Type (1 Octet)
+				Wake Capable (1 Octet)
+	Return Parameters:	Address (6 Octets)
+				Address_Type (1 Octet)
+				Wake Capable (1 Octet)
+
+	This command sets whether a bluetooth device is capable of waking the
+	system from suspend. This property is used to set the event filter and
+	LE whitelist when the system enters suspend.
+
+	Possible errors:	Failed
+				Invalid Parameters
+				Invalid Index
+
 Command Complete Event
 ======================
 
