@@ -300,3 +300,9 @@ Properties	string Address [readonly]
 
 			Local Device ID information in modalias format
 			used by the kernel and udev.
+
+		boolean UseSuspendNotifier
+
+			Controls whether the kernel suspend notifier is used. If
+			enabled, bluez will take no action on suspend imminent
+			and suspend done.
