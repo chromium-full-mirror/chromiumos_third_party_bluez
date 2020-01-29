@@ -1436,8 +1436,7 @@ dev_property_get_wake_capable(const GDBusPropertyTable *property,
 			     DBusMessageIter *iter, void *data)
 {
 	struct btd_device *device = data;
-	dbus_bool_t wake_capable =
-			device_get_wake_capable(device) ? TRUE : FALSE;
+	dbus_bool_t wake_capable = device_get_wake_capable(device);
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &wake_capable);
 
@@ -1460,7 +1459,13 @@ static void dev_property_set_wake_capable(const GDBusPropertyTable *property,
 
 	dbus_message_iter_get_basic(value, &b);
 
-	adapter_set_wake_capable(device->adapter, device, b == TRUE);
+	/* Set wake capable can fail if kernel doesn't support it */
+	if (adapter_set_wake_capable(device->adapter, device, b)) {
+		g_dbus_pending_property_error(id, ERROR_INTERFACE ".Failed",
+			"Kernel doesn't support setting wake capable");
+		return;
+	}
+
 	g_dbus_pending_property_success(id);
 }
 
@@ -1469,7 +1474,8 @@ static gboolean dev_property_wake_capable_exist(
 {
 	struct btd_device *device = data;
 
-	return device_get_profile_wake_support(device) ? TRUE : FALSE;
+	return device_get_profile_wake_support(device) &&
+			kernel_supports_wake_capable();
 }
 
 static gboolean disconnect_all(gpointer user_data)

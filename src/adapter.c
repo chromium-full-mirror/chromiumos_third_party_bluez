@@ -122,6 +122,7 @@ static const struct mgmt_blocked_key_info blocked_keys[] = {
 static DBusConnection *dbus_conn = NULL;
 
 static bool kernel_conn_control = false;
+static bool kernel_supports_wake_capable_cmd = false;
 
 static bool kernel_blocked_keys_supported = false;
 
@@ -5197,6 +5198,11 @@ void adapter_whitelist_add(struct btd_adapter *adapter, struct btd_device *dev)
 				add_whitelist_complete, adapter, NULL);
 }
 
+bool kernel_supports_wake_capable()
+{
+	return kernel_supports_wake_capable_cmd;
+}
+
 static void set_wake_capable_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -5236,7 +5242,7 @@ static void set_wake_capable_complete(uint8_t status, uint16_t length,
 	DBG("Set wake capable complete %s (%u)", addr, rp->addr.type);
 }
 
-void adapter_set_wake_capable(struct btd_adapter* adapter,
+bool adapter_set_wake_capable(struct btd_adapter* adapter,
 			      struct btd_device* dev,
 			      bool wake_enable)
 {
@@ -5250,16 +5256,20 @@ void adapter_set_wake_capable(struct btd_adapter* adapter,
 
 	ba2strlc(&cp.addr.bdaddr, addr);
 
-	if (!mgmt_send(adapter->mgmt, MGMT_OP_SET_WAKE_CAPABLE, adapter->dev_id,
+	if (!kernel_supports_wake_capable_cmd ||
+	    !mgmt_send(adapter->mgmt, MGMT_OP_SET_WAKE_CAPABLE, adapter->dev_id,
 		       sizeof(cp), &cp, set_wake_capable_complete, adapter,
 		       NULL)) {
 		btd_warn(adapter->dev_id,
 			 "Could not set wake capable = %u on %s (%u)",
 			 cp.wake_enable, addr, cp.addr.type);
+		return false;
 	}
 
 	DBG("Setting %s (%u) to wake capable = %u", addr,
 	    cp.addr.type, cp.wake_enable);
+
+	return true;
 }
 
 static void remove_whitelist_complete(uint8_t status, uint16_t length,
@@ -9809,6 +9819,11 @@ static void read_commands_complete(uint8_t status, uint16_t length,
 			break;
 		default:
 			break;
+		}
+
+		if (op == MGMT_OP_SET_WAKE_CAPABLE) {
+			DBG("enabling set wake capable operation");
+			kernel_supports_wake_capable_cmd = true;
 		}
 	}
 }
