@@ -177,7 +177,10 @@ Methods		void StartDiscovery()
 
 			This method returns a dictionary of supported
 			capabilities that is populated when the adapter
-			initiated.
+			initiated. This will be stored in memory, so even if
+			the controller is down afterwards, this method will
+			still return the supported capabilities. Before
+			initiating adapter, this will return empty dictionary.
 
 			The dictionary is following the format
 			{capability : value}, where:
@@ -187,8 +190,7 @@ Methods		void StartDiscovery()
 			variant value:		A more detailed description of
 						the capability.
 
-			Possible errors: org.bluez.Error.NotReady
-					 org.bluez.Error.Failed
+			Possible errors: org.bluez.Error.Failed
 
 Properties	string Address [readonly]
 
