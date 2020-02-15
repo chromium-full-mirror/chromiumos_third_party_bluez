@@ -35,6 +35,12 @@ typedef enum {
 	BT_GATT_CACHE_NO,
 } bt_gatt_cache_t;
 
+enum jw_repairing_t {
+	JW_REPAIRING_NEVER,
+	JW_REPAIRING_CONFIRM,
+	JW_REPAIRING_ALWAYS,
+};
+
 struct main_opts {
 	char		*name;
 	uint32_t	class;
@@ -55,6 +61,8 @@ struct main_opts {
 
 	bt_mode_t	mode;
 	bt_gatt_cache_t gatt_cache;
+
+	enum jw_repairing_t jw_repairing;
 };
 
 extern struct main_opts main_opts;

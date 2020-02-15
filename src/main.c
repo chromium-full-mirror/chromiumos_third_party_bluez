@@ -91,6 +91,7 @@ static const char * const supported_options[] = {
 	"ControllerMode",
 	"MultiProfile",
 	"Privacy",
+	"JustWorksRepairing",
 };
 
 GKeyFile *btd_get_main_conf(void)
@@ -190,6 +191,19 @@ static bt_gatt_cache_t parse_gatt_cache(const char *cache)
 	} else {
 		DBG("Invalid value for KeepCache=%s", cache);
 		return BT_GATT_CACHE_ALWAYS;
+	}
+}
+
+static enum jw_repairing_t parse_jw_repairing(const char *jw_repairing)
+{
+	if (!strcmp(jw_repairing, "never")) {
+		return JW_REPAIRING_NEVER;
+	} else if (!strcmp(jw_repairing, "confirm")) {
+		return JW_REPAIRING_CONFIRM;
+	} else if (!strcmp(jw_repairing, "always")) {
+		return JW_REPAIRING_ALWAYS;
+	} else {
+		return JW_REPAIRING_NEVER;
 	}
 }
 
@@ -317,6 +331,18 @@ static void parse_config(GKeyFile *config)
 			main_opts.privacy = 0x00;
 		}
 
+		g_free(str);
+	}
+
+	str = g_key_file_get_string(config, "General",
+						"JustWorksRepairing", &err);
+	if (err) {
+		DBG("%s", err->message);
+		g_clear_error(&err);
+		main_opts.jw_repairing = JW_REPAIRING_NEVER;
+	} else {
+		DBG("just_works_repairing=%s", str);
+		main_opts.jw_repairing = parse_jw_repairing(str);
 		g_free(str);
 	}
 
