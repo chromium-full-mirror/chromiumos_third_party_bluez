@@ -44,9 +44,6 @@
 
 #define DBUS_BLUEZ_DEVICE_INTERFACE "org.bluez.Device1"
 
-#define NEWBLUE_CONFIG_FILE STORAGEDIR "/newblue"
-#define LE_SPLITTER_STATUS_FILE "/sys/devices/virtual/misc/hci_le/le_splitter_enabled"
-
 #define SERVICE_RETRIES 1
 #define SERVICE_RETRY_TIMEOUT 2
 
@@ -641,72 +638,23 @@ static DBusMessage *set_newblue_enabled(DBusConnection *conn, DBusMessage *msg,
 								void *data)
 {
 	dbus_bool_t enable = FALSE;
+	char filename[PATH_MAX] = STORAGEDIR "/newblue";
 
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN, &enable,
-							DBUS_TYPE_INVALID)) {
+					DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
-	}
 
-	create_file(NEWBLUE_CONFIG_FILE, S_IRUSR | S_IWUSR);
-
-	if (!g_file_set_contents(NEWBLUE_CONFIG_FILE,
-				(enable == TRUE) ? "1" : "0", 1, NULL)) {
+	create_file(filename, S_IRUSR | S_IWUSR);
+	if (!g_file_set_contents(filename, (enable == TRUE) ? "1" : "0", 1,
+					NULL))
 		return btd_error_failed(msg, "Failed to configure newblue");
-	}
 
 	return dbus_message_new_method_return(msg);
-}
-
-static const char *get_newblue_status_message()
-{
-	bool newblue_enabled = FALSE, splitter_enabled = FALSE;
-	char *buf;
-
-	if (!g_file_get_contents(LE_SPLITTER_STATUS_FILE, &buf, NULL, NULL))
-		return "newblue is not supported";
-
-	if (strncmp("ON", buf, 2) == 0)
-		splitter_enabled = TRUE;
-
-	g_free(buf);
-
-	if (g_file_get_contents(NEWBLUE_CONFIG_FILE, &buf, NULL, NULL)
-							&& buf[0] == '1') {
-		newblue_enabled = TRUE;
-	}
-
-	// if g_file_get_contents fail, buf will be NULL so it's safe to free.
-	g_free(buf);
-
-	if (newblue_enabled) {
-		if (splitter_enabled)
-			return "enabled";
-		else
-			return "enabled but not applied (reboot required)";
-	} else {
-		if (splitter_enabled)
-			return "disabled but not applied (reboot required)";
-		else
-			return "disabled";
-	}
-}
-
-static DBusMessage *get_newblue_enabled(DBusConnection *conn, DBusMessage *msg,
-								void *data)
-{
-	const char *status = get_newblue_status_message();
-
-	DBusMessage *reply = dbus_message_new_method_return(msg);
-	dbus_message_append_args(reply,
-				DBUS_TYPE_STRING, &status,
-				DBUS_TYPE_INVALID);
-	return reply;
 }
 
 static const GDBusMethodTable experimental_methods[] = {
 	{ GDBUS_METHOD("SetNewblueEnabled", GDBUS_ARGS({ "enable", "b" }), NULL,
 							set_newblue_enabled) },
-	{ GDBUS_METHOD("GetNewblueEnabled", NULL, NULL, get_newblue_enabled) },
 	{}
 };
 

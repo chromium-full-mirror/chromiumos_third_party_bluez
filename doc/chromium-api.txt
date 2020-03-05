@@ -87,9 +87,3 @@ Object path	/org/bluez
 			Possible errors:
 					org.bluez.Error.InvalidArguments
 					org.bluez.Error.Failed
-
-		string GetNewblueEnabled()
-
-			This method returns the status of Newblue stack. Possible values:
-			"newblue is not supported", "enabled but not applied (reboot required)",
-			"enabled", "disabled but not applied (reboot required)", "disabled".
