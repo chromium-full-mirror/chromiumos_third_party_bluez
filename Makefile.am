@@ -49,10 +49,6 @@ dbussystembusdir = @DBUS_SYSTEMBUSDIR@
 dbussystembus_DATA = src/org.bluez.service
 endif
 
-if ALLOW_SET_LE_SPLITTER
-ALLOW_SET_LE_SPLITTER_CFLAGS = -DALLOW_SET_LE_SPLITTER
-endif
-
 EXTRA_DIST += src/bluetooth.service.in src/org.bluez.service
 
 plugindir = $(libdir)/bluetooth/plugins
@@ -210,8 +206,7 @@ src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
 				src/bluetooth.service
 
 src_bluetoothd_CFLAGS = $(AM_CFLAGS) -DBLUETOOTH_PLUGIN_BUILTIN \
-					-DPLUGINDIR=\""$(build_plugindir)"\" \
-					$(ALLOW_SET_LE_SPLITTER_CFLAGS)
+					-DPLUGINDIR=\""$(build_plugindir)"\"
 src_bluetoothd_SHORTNAME = bluetoothd
 
 builtin_files = src/builtin.h $(builtin_nodist)
