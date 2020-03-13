@@ -603,7 +603,10 @@ struct mgmt_cp_set_blocked_keys {
 
 #define MGMT_OP_SET_WIDEBAND_SPEECH	0x0047
 
-#define MGMT_OP_SET_ADVERTISING_INTERVALS	0x0048
+/*
+ * Begin chromium only op_codes
+ */
+#define MGMT_OP_SET_ADVERTISING_INTERVALS	0x0060
 #define ADVERTISING_INTERVAL_UNIT_TIME 0.625
 struct mgmt_cp_set_advertising_intervals {
 	/* A unit of the intervals below is 0.625 ms.*/
@@ -612,7 +615,7 @@ struct mgmt_cp_set_advertising_intervals {
 } __packed;
 #define MGMT_SET_ADVERTISING_INTERVALS_SIZE	4
 
-#define MGMT_OP_SET_KERNEL_DEBUG			0x0048
+#define MGMT_OP_SET_KERNEL_DEBUG			0x0064
 struct mgmt_cp_set_kernel_debug {
        uint8_t enabled;
 } __packed;
@@ -623,6 +626,10 @@ struct mgmt_cp_set_wake_capable {
 	struct mgmt_addr_info addr;
 	uint8_t wake_enable;
 } __packed;
+
+/*
+ * End chromium only op_codes
+ */
 
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
