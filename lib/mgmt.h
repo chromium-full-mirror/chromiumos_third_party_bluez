@@ -549,7 +549,17 @@ struct mgmt_cp_set_appearance {
 	uint16_t appearance;
 } __packed;
 
-#define MGMT_OP_SET_ADVERTISING_INTERVALS	0x0044
+#define MGMT_OP_SET_WAKE_CAPABLE			0x0047
+#define MGMT_SET_WAKE_CAPABLE_SIZE			8
+struct mgmt_cp_set_wake_capable {
+	struct mgmt_addr_info addr;
+	uint8_t wake_enable;
+} __packed;
+
+/*
+ * Begin chromium only op_codes
+ */
+#define MGMT_OP_SET_ADVERTISING_INTERVALS	0x0060
 #define ADVERTISING_INTERVAL_UNIT_TIME 0.625
 struct mgmt_cp_set_advertising_intervals {
 	/* A unit of the intervals below is 0.625 ms.*/
@@ -558,7 +568,7 @@ struct mgmt_cp_set_advertising_intervals {
 } __packed;
 #define MGMT_SET_ADVERTISING_INTERVALS_SIZE	4
 
-#define MGMT_OP_SET_EVENT_MASK			0x0045
+#define MGMT_OP_SET_EVENT_MASK			0x0061
 struct mgmt_cp_set_event_mask {
 	/*
 	 * The mask variable enables modifying a subset of the 'event mask'.
@@ -637,29 +647,26 @@ enum mgmt_set_event_mask_byte_7 {
 #define MGMT_MAX_BLOCKED_LTKS				8
 #define MGMT_LTK_LENGTH					16
 
-#define MGMT_OP_SET_BLOCKED_LTKS			0x0046
+#define MGMT_OP_SET_BLOCKED_LTKS			0x0062
 struct mgmt_cp_set_blocked_ltks {
 	uint8_t	ltks[MGMT_MAX_BLOCKED_LTKS][MGMT_LTK_LENGTH];
 } __packed;
 #define MGMT_SET_BLOCKED_LTKS_CP_SIZE  (MGMT_MAX_BLOCKED_LTKS * MGMT_LTK_LENGTH)
 
-#define MGMT_OP_READ_SUPPORTED_CAPABILITIES		0x0047
+#define MGMT_OP_READ_SUPPORTED_CAPABILITIES		0x0063
 #define MGMT_READ_SUPPORTED_CAPABILITIES_SIZE		0
 struct mgmt_rp_read_supported_capabilities {
 	uint8_t wide_band_speech;
 } __packed;
 
-#define MGMT_OP_SET_KERNEL_DEBUG			0x0048
+#define MGMT_OP_SET_KERNEL_DEBUG			0x0064
 struct mgmt_cp_set_kernel_debug {
        uint8_t enabled;
 } __packed;
 
-#define MGMT_OP_SET_WAKE_CAPABLE			0x004B
-#define MGMT_SET_WAKE_CAPABLE_SIZE			8
-struct mgmt_cp_set_wake_capable {
-	struct mgmt_addr_info addr;
-	uint8_t wake_enable;
-} __packed;
+/*
+ * End chromium only op_codes
+ */
 
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
