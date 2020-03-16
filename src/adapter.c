@@ -5615,29 +5615,12 @@ void adapter_auto_connect_remove(struct btd_adapter *adapter,
 
 static void adapter_start(struct btd_adapter *adapter)
 {
-	struct mgmt_cp_set_blocked_ltks cp;
-
-	memset(&cp, 0, sizeof(cp));
-	// TODO(crbug/973161): Store the bad LTKs in a config file.
-	memcpy(cp.ltks[0],
-		"\xbf\x01\xfb\x9d\x4e\xf3\xbc\x36"
-			"\xd8\x74\xf5\x39\x41\x38\x68\x4c",
-		16);
-
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
 	adapter->discovery_suspended_by_system = false;
 	adapter->suspend_res_state = SUS_RES_STATE_RUNNING;
 	adapter->suspend_res_tasks = SUS_RES_TASK_NONE;
 	adapter->suspend_res_msg = NULL;
-
-	if (!mgmt_send(adapter->mgmt, MGMT_OP_SET_BLOCKED_LTKS,
-				adapter->dev_id, sizeof(cp), &cp,
-				set_blocked_ltks_complete, adapter, NULL)) {
-		btd_error(adapter->dev_id,
-				"Failed to set blocked LTKs for index %u",
-				adapter->dev_id);
-	}
 
 	info("adapter %s has been enabled", adapter->path);
 
