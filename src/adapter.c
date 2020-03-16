@@ -110,11 +110,6 @@
 #define USE_SUSPEND_NOTIFIER_PATH \
 		"/sys/class/bluetooth/hci0/prepare_for_suspend"
 
-// TODO(crbug/973161): Store the bad LTKs in a config file.
-static const uint8_t known_bad_ltks[] =
-			{0xbf, 0x01, 0xfb, 0x9d, 0x4e, 0xf3, 0xbc, 0x36,
-			 0xd8, 0x74, 0xf5, 0x39, 0x41, 0x38, 0x68, 0x4c};
-
 static DBusConnection *dbus_conn = NULL;
 
 static bool kernel_conn_control = false;
@@ -4065,7 +4060,6 @@ static DBusMessage *remove_service_record(DBusConnection *conn,
 
 	return dbus_message_new_method_return(msg);
 }
-
 static bool append_supported_capability_info(DBusMessageIter *iter,
 				struct supported_capability_info *info)
 {
@@ -5621,12 +5615,29 @@ void adapter_auto_connect_remove(struct btd_adapter *adapter,
 
 static void adapter_start(struct btd_adapter *adapter)
 {
+	struct mgmt_cp_set_blocked_ltks cp;
+
+	memset(&cp, 0, sizeof(cp));
+	// TODO(crbug/973161): Store the bad LTKs in a config file.
+	memcpy(cp.ltks[0],
+		"\xbf\x01\xfb\x9d\x4e\xf3\xbc\x36"
+			"\xd8\x74\xf5\x39\x41\x38\x68\x4c",
+		16);
+
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
 	adapter->discovery_suspended_by_system = false;
 	adapter->suspend_res_state = SUS_RES_STATE_RUNNING;
 	adapter->suspend_res_tasks = SUS_RES_TASK_NONE;
 	adapter->suspend_res_msg = NULL;
+
+	if (!mgmt_send(adapter->mgmt, MGMT_OP_SET_BLOCKED_LTKS,
+				adapter->dev_id, sizeof(cp), &cp,
+				set_blocked_ltks_complete, adapter, NULL)) {
+		btd_error(adapter->dev_id,
+				"Failed to set blocked LTKs for index %u",
+				adapter->dev_id);
+	}
 
 	info("adapter %s has been enabled", adapter->path);
 
@@ -9803,7 +9814,6 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 							void *user_data)
 {
 	struct btd_adapter *adapter;
-	struct mgmt_cp_set_blocked_ltks cp;
 
 	if (!!chip_lost_metrics_timer_id) {
 		g_source_remove(chip_lost_metrics_timer_id);
@@ -9839,16 +9849,6 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 	 * command fails the adapter is removed from the list again.
 	 */
 	adapter_list = g_list_append(adapter_list, adapter);
-
-	memset(&cp, 0, sizeof(cp));
-	memcpy(cp.ltks[0], known_bad_ltks, sizeof(known_bad_ltks));
-	if (!mgmt_send(adapter->mgmt, MGMT_OP_SET_BLOCKED_LTKS,
-				adapter->dev_id, sizeof(cp), &cp,
-				set_blocked_ltks_complete, adapter, NULL)) {
-		btd_error(adapter->dev_id,
-				"Failed to set blocked LTKs for index %u",
-				adapter->dev_id);
-	}
 
 	DBG("sending read info command for index %u", index);
 
