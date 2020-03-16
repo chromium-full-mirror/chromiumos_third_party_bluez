@@ -4066,68 +4066,6 @@ static DBusMessage *remove_service_record(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
-static void set_blocked_ltks_complete(uint8_t status, uint16_t length,
-					const void *param, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-
-	if (status != MGMT_STATUS_SUCCESS) {
-		btd_error(adapter->dev_id,
-				"Failed to set blocked LTKs: %s (0x%02x)",
-				mgmt_errstr(status), status);
-		return;
-	}
-
-	DBG("Successfully set blocked LTKs for index %u", adapter->dev_id);
-}
-
-static DBusMessage *set_long_term_keys(DBusConnection *conn,
-					DBusMessage *msg, void *user_data)
-{
-	const uint8_t *key;
-	int key_len, i;
-	DBusMessageIter iter, subiter, keyiter;
-	struct btd_adapter *adapter = user_data;
-	struct mgmt_cp_set_blocked_ltks cp;
-
-	memset(&cp, 0, sizeof(cp));
-	memcpy(cp.ltks[0], known_bad_ltks, sizeof(known_bad_ltks));
-
-	dbus_message_iter_init(msg, &iter);
-
-	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY ||
-		dbus_message_iter_get_element_type(&iter) != DBUS_TYPE_ARRAY) {
-		return btd_error_invalid_args(msg);
-	}
-
-	dbus_message_iter_recurse(&iter, &subiter);
-
-	int known_bad_ltks_count = sizeof(known_bad_ltks) / MGMT_LTK_LENGTH;
-	for (i = known_bad_ltks_count; i < MGMT_MAX_BLOCKED_LTKS &&
-			dbus_message_iter_get_arg_type(&subiter) !=
-			DBUS_TYPE_INVALID; i++) {
-		dbus_message_iter_recurse(&subiter, &keyiter);
-		dbus_message_iter_get_fixed_array(&keyiter, &key, &key_len);
-		if (key_len != MGMT_LTK_LENGTH) {
-			error("Received wrong LTK size");
-			return btd_error_invalid_args(msg);
-		}
-		memcpy(cp.ltks[i], key, key_len);
-		dbus_message_iter_next(&subiter);
-	}
-
-	if (!mgmt_send(adapter->mgmt, MGMT_OP_SET_BLOCKED_LTKS,
-				adapter->dev_id, sizeof(cp), &cp,
-				set_blocked_ltks_complete, adapter, NULL)) {
-		btd_error(adapter->dev_id,
-				"Failed to set blocked LTKs for index %u",
-				adapter->dev_id);
-		return btd_error_failed(msg, "Failed to set blocked LTKs");
-	}
-
-	return dbus_message_new_method_return(msg);
-}
-
 static bool append_supported_capability_info(DBusMessageIter *iter,
 				struct supported_capability_info *info)
 {
@@ -4256,8 +4194,6 @@ static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_ASYNC_METHOD("HandleSuspendDone",
 			GDBUS_ARGS({"action", "s"}), NULL,
 			handle_suspend_done)},
-	{ GDBUS_METHOD("SetLongTermKeys", GDBUS_ARGS({"keys", "aay"}) , NULL,
-			set_long_term_keys)},
 	{ GDBUS_METHOD("GetSupportedCapabilities", NULL,
 			GDBUS_ARGS({"supported_capabilities", "a{sv}"}),
 			get_supported_capabilities)},
