@@ -4127,20 +4127,6 @@ static bool append_supported_capability(gpointer key, gpointer value,
 	return TRUE;
 }
 
-static bool append_supported_capabilities(DBusMessageIter *iter)
-{
-	GHashTableIter capability_iter;
-	gpointer key, value;
-
-	g_hash_table_iter_init(&capability_iter, capability_dict);
-	while(g_hash_table_iter_next(&capability_iter, &key, &value)) {
-		if(!append_supported_capability(key, value, iter))
-			return FALSE;
-	}
-
-	return TRUE;
-}
-
 static DBusMessage *get_supported_capabilities(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
@@ -4164,6 +4150,20 @@ static DBusMessage *get_supported_capabilities(DBusConnection *conn,
 
 failed:
 	return btd_error_failed(msg, "Failed to get supported capabilities");
+	for (i = 0; i < MAX_BANNED_LTKS &&
+			dbus_message_iter_get_arg_type(&subiter) !=
+			DBUS_TYPE_INVALID; i++) {
+		dbus_message_iter_recurse(&subiter, &keyiter);
+		dbus_message_iter_get_fixed_array(&keyiter, &key, &key_len);
+		if (key_len != LTK_LENGTH) {
+			error("Received wrong LTK size");
+			return btd_error_invalid_args(msg);
+		}
+		memcpy(banned_ltks[i].ltk, key, key_len);
+		dbus_message_iter_next(&subiter);
+	}
+
+	return dbus_message_new_method_return(msg);
 }
 
 static const GDBusMethodTable adapter_methods[] = {
