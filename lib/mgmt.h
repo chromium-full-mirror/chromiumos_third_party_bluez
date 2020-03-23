@@ -565,13 +565,6 @@ struct mgmt_cp_set_blocked_keys {
 	struct mgmt_blocked_key_info keys[0];
 } __packed;
 
-#define MGMT_OP_SET_WAKE_CAPABLE			0x0047
-#define MGMT_SET_WAKE_CAPABLE_SIZE			8
-struct mgmt_cp_set_wake_capable {
-	struct mgmt_addr_info addr;
-	uint8_t wake_enable;
-} __packed;
-
 /*
  * Begin chromium only op_codes
  */
@@ -669,6 +662,13 @@ struct mgmt_rp_read_supported_capabilities {
 #define MGMT_OP_SET_KERNEL_DEBUG			0x0064
 struct mgmt_cp_set_kernel_debug {
        uint8_t enabled;
+} __packed;
+
+#define MGMT_OP_SET_WAKE_CAPABLE			0x0065
+#define MGMT_SET_WAKE_CAPABLE_SIZE			8
+struct mgmt_cp_set_wake_capable {
+	struct mgmt_addr_info addr;
+	uint8_t wake_enable;
 } __packed;
 
 /*
