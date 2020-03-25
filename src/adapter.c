@@ -107,6 +107,8 @@
 
 #define USE_SUSPEND_NOTIFIER_PATH \
 		"/sys/class/bluetooth/hci0/prepare_for_suspend"
+
+#define SUPPORTED_CAPABILITY_WBS		"wide band speech"
 /*
  * These are known security keys that have been compromised.
  * If this grows or there are needs to be platform specific, it is
@@ -144,8 +146,6 @@ static GSList *adapter_drivers = NULL;
 
 static GSList *disconnect_list = NULL;
 static GSList *conn_fail_list = NULL;
-
-static GHashTable *capability_dict = NULL;
 
 /* Timer ID of delay task of metrics */
 static guint adapter_lost_metrics_timer_id = 0;
@@ -354,6 +354,8 @@ struct btd_adapter {
 	unsigned int db_id;		/* Service event handler for GATT db */
 
 	bool is_default;		/* true if adapter is default one */
+
+	GHashTable *capability_dict;
 };
 
 struct sync_method_try {
@@ -595,6 +597,54 @@ static void trigger_passive_scanning(struct btd_adapter *adapter);
 static bool set_mode(struct btd_adapter *adapter, uint16_t opcode,
 							uint8_t mode);
 
+static struct supported_capability_info *supported_capability_alloc(
+						int dbus_type, void *data)
+{
+	int info_size = sizeof(struct supported_capability_info);
+	struct supported_capability_info *info = g_try_malloc(info_size);
+	if (!info)
+		return NULL;
+
+	info->dbus_type = dbus_type;
+	info->data = NULL;
+
+	switch (dbus_type) {
+	case DBUS_TYPE_BOOLEAN:
+		info->data = g_memdup(data, sizeof(dbus_bool_t));
+		break;
+	case DBUS_TYPE_INT32:
+		info->data = g_memdup(data, sizeof(int));
+		break;
+	case DBUS_TYPE_STRING:
+		info->data = g_strdup(*(char**)data);
+		break;
+	}
+
+	if (!info->data) {
+		g_free(info);
+		return NULL;
+	}
+
+	return info;
+}
+
+static void supported_capability_free(gpointer data) {
+	struct supported_capability_info *info = data;
+
+	if (info) {
+		g_free(info->data);
+		g_free(info);
+	}
+}
+
+static void add_supported_capability_wide_band_speech(
+						    struct btd_adapter *adapter,
+						    dbus_bool_t val) {
+	g_hash_table_insert(adapter->capability_dict,
+			   strdup(SUPPORTED_CAPABILITY_WBS),
+			   supported_capability_alloc(DBUS_TYPE_BOOLEAN, &val));
+}
+
 static void settings_changed(struct btd_adapter *adapter, uint32_t settings)
 {
 	uint32_t changed_mask;
@@ -658,6 +708,12 @@ static void settings_changed(struct btd_adapter *adapter, uint32_t settings)
 					ADAPTER_INTERFACE, "Pairable");
 
 		trigger_pairable_timeout(adapter);
+	}
+
+	if (changed_mask & MGMT_SETTING_WIDEBAND_SPEECH) {
+		const bool enabled = adapter->current_settings &
+						   MGMT_SETTING_WIDEBAND_SPEECH;
+		add_supported_capability_wide_band_speech(adapter, enabled);
 	}
 }
 
@@ -4131,12 +4187,13 @@ static bool append_supported_capability(gpointer key, gpointer value,
 	return TRUE;
 }
 
-static bool append_supported_capabilities(DBusMessageIter *iter)
+static bool append_supported_capabilities(struct btd_adapter *adapter,
+							  DBusMessageIter *iter)
 {
 	GHashTableIter capability_iter;
 	gpointer key, value;
 
-	g_hash_table_iter_init(&capability_iter, capability_dict);
+	g_hash_table_iter_init(&capability_iter, adapter->capability_dict);
 	while(g_hash_table_iter_next(&capability_iter, &key, &value)) {
 		if(!append_supported_capability(key, value, iter))
 			return FALSE;
@@ -4148,6 +4205,7 @@ static bool append_supported_capabilities(DBusMessageIter *iter)
 static DBusMessage *get_supported_capabilities(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
+	struct btd_adapter *adapter = user_data;
 	DBusMessage *reply;
 	DBusMessageIter iter, array_iter;
 
@@ -4157,7 +4215,7 @@ static DBusMessage *get_supported_capabilities(DBusConnection *conn,
 	if(!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}",
 								&array_iter))
 		goto failed;
-	if(!append_supported_capabilities(&array_iter)) {
+	if(!append_supported_capabilities(adapter, &array_iter)) {
 		dbus_message_iter_abandon_container(&iter, &array_iter);
 		goto failed;
 	}
@@ -5888,6 +5946,11 @@ void btd_adapter_unref(struct btd_adapter *adapter)
 {
 	if (__sync_sub_and_fetch(&adapter->ref_count, 1))
 		return;
+
+	if (adapter->capability_dict) {
+		g_hash_table_destroy(adapter->capability_dict);
+		adapter->capability_dict = NULL;
+	}
 
 	if (!adapter->path) {
 		DBG("Freeing adapter %u", adapter->dev_id);
@@ -9570,6 +9633,17 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	adapter->supported_settings = btohl(rp->supported_settings);
 	adapter->current_settings = btohl(rp->current_settings);
 
+	if (adapter->capability_dict == NULL)
+		adapter->capability_dict = g_hash_table_new_full(g_str_hash,
+						     g_str_equal,
+						     g_free,
+						     supported_capability_free);
+
+	if (adapter->current_settings & MGMT_SETTING_WIDEBAND_SPEECH)
+		add_supported_capability_wide_band_speech(adapter, true);
+	else
+		add_supported_capability_wide_band_speech(adapter, false);
+
 	clear_uuids(adapter);
 	clear_devices(adapter);
 
@@ -9599,6 +9673,8 @@ static void read_info_complete(uint8_t status, uint16_t length,
 			set_mode(adapter, MGMT_OP_SET_LE, 0x01);
 		if (missing_settings & MGMT_SETTING_BREDR)
 			set_mode(adapter, MGMT_OP_SET_BREDR, 0x01);
+		if (missing_settings & MGMT_SETTING_WIDEBAND_SPEECH)
+			set_mode(adapter, MGMT_OP_SET_WIDEBAND_SPEECH, 0x01);
 		break;
 	case BT_MODE_BREDR:
 		if (!(adapter->supported_settings & MGMT_SETTING_BREDR)) {
@@ -9611,6 +9687,8 @@ static void read_info_complete(uint8_t status, uint16_t length,
 			set_mode(adapter, MGMT_OP_SET_SSP, 0x01);
 		if (missing_settings & MGMT_SETTING_BREDR)
 			set_mode(adapter, MGMT_OP_SET_BREDR, 0x01);
+		if (missing_settings & MGMT_SETTING_WIDEBAND_SPEECH)
+			set_mode(adapter, MGMT_OP_SET_WIDEBAND_SPEECH, 0x01);
 		if (adapter->current_settings & MGMT_SETTING_LE)
 			set_mode(adapter, MGMT_OP_SET_LE, 0x00);
 		break;
