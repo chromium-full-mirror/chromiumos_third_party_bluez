@@ -105,8 +105,6 @@
 
 #define DEFAULT_MGMT_TIMEOUT	2	/* Timeout for MGMT commands (secs) */
 
-#define SUPPORTED_CAPABILITY_WBS		"wide band speech"
-
 #define USE_SUSPEND_NOTIFIER_PATH \
 		"/sys/class/bluetooth/hci0/prepare_for_suspend"
 /*
@@ -9495,51 +9493,6 @@ static bool set_static_addr(struct btd_adapter *adapter)
 	return false;
 }
 
-static struct supported_capability_info *supported_capability_alloc(
-						int dbus_type, void *data)
-{
-	int info_size = sizeof(struct supported_capability_info);
-	struct supported_capability_info *info = g_try_malloc(info_size);
-	if (!info)
-		return NULL;
-
-	info->dbus_type = dbus_type;
-	info->data = NULL;
-
-	switch(dbus_type) {
-	case DBUS_TYPE_BOOLEAN:
-		info->data = g_memdup(data, sizeof(dbus_bool_t));
-		break;
-	case DBUS_TYPE_INT32:
-		info->data = g_memdup(data, sizeof(int));
-		break;
-	case DBUS_TYPE_STRING:
-		info->data = g_strdup(*(char**)data);
-		break;
-	}
-
-	if(!info->data) {
-		g_free(info);
-		return NULL;
-	}
-
-	return info;
-}
-
-static void supported_capability_free(gpointer data) {
-	struct supported_capability_info *info = data;
-
-	if(info) {
-		g_free(info->data);
-		g_free(info);
-	}
-}
-
-static void add_supported_capability_wide_band_speech(dbus_bool_t val) {
-	g_hash_table_insert(capability_dict, strdup(SUPPORTED_CAPABILITY_WBS),
-			supported_capability_alloc(DBUS_TYPE_BOOLEAN, &val));
-}
-
 static void set_blocked_keys_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -9820,21 +9773,6 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 	if (adapter->stored_discoverable && !adapter->discoverable_timeout)
 		set_discoverable(adapter, 0x01, 0);
-
-	/*
-	 * Query the supported capabilities for the first adapter only.
-	 * This should be OK since we plan to not have multiple adapters
-	 * in the future.
-	 */
-	if (!capability_dict) {
-		capability_dict = g_hash_table_new_full(g_str_hash, g_str_equal,
-					g_free, supported_capability_free);
-
-		mgmt_send(adapter->mgmt, MGMT_OP_READ_SUPPORTED_CAPABILITIES,
-					adapter->dev_id, 0, NULL,
-					read_supported_capabilities_complete,
-					adapter, NULL);
-	}
 
 	if (adapter->current_settings & MGMT_SETTING_POWERED)
 		adapter_start(adapter);
@@ -10160,9 +10098,6 @@ void adapter_cleanup(void)
 		adapters = g_slist_remove(adapters, adapter);
 		btd_adapter_unref(adapter);
 	}
-
-	g_hash_table_destroy(capability_dict);
-	capability_dict = NULL;
 
 	/*
 	 * In case there is another reference active, clear out
