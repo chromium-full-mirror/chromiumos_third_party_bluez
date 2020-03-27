@@ -1830,22 +1830,7 @@ static void cmd_write(const char *arg)
 		return;
 	}
 
-	gatt_write_attribute(default_attr, arg, ATTRIBUTE_WRITE);
-}
-
-static void cmd_prepare_write(const char *arg)
-{
-	if (!arg || !strlen(arg)) {
-		rl_printf("Missing data argument\n");
-		return;
-	}
-
-	if (!default_attr) {
-		rl_printf("No attribute selected\n");
-		return;
-	}
-
-	gatt_write_attribute(default_attr, arg, ATTRIBUTE_WRITE_PREPARE);
+	gatt_write_attribute(default_attr, arg);
 }
 
 static void cmd_notify(const char *arg)
@@ -2186,10 +2171,8 @@ static const struct {
 	{ "attribute-info", "[attribute]",  cmd_attribute_info,
 				"Select attribute", attribute_generator },
 	{ "read",         NULL,       cmd_read, "Read attribute value" },
-	{ "write",        "<xx xx ... offset=nn>", cmd_write,
+	{ "write",        "<data=[xx xx ...]>", cmd_write,
 						"Write attribute value" },
-	{ "prepare-write","<xx xx ... offset=nn>", cmd_prepare_write,
-						"Prepare write attribute value" },
 	{ "notify",       "<on/off>", cmd_notify, "Notify attribute value" },
 	{ "register-profile", "<UUID ...>", cmd_register_profile,
 						"Register profile to connect" },

@@ -21,10 +21,6 @@
  *
  */
 
-/* Attribute write types */
-#define ATTRIBUTE_WRITE 0
-#define ATTRIBUTE_WRITE_PREPARE 1
-
 void gatt_add_service(GDBusProxy *proxy);
 void gatt_remove_service(GDBusProxy *proxy);
 
@@ -39,8 +35,7 @@ GDBusProxy *gatt_select_attribute(const char *path);
 char *gatt_attribute_generator(const char *text, int state);
 
 void gatt_read_attribute(GDBusProxy *proxy, const char* arg);
-void gatt_write_attribute(GDBusProxy *proxy, const char *arg,
-    uint8_t write_type);
+void gatt_write_attribute(GDBusProxy *proxy, const char *arg);
 void gatt_notify_attribute(GDBusProxy *proxy, bool enable);
 
 void gatt_add_manager(GDBusProxy *proxy);
