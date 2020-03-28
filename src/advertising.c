@@ -860,24 +860,6 @@ static DBusMessage *reset_advertising(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
-static gboolean prop_get_is_tx_power_supported(
-					const GDBusPropertyTable *property,
-					DBusMessageIter *iter,
-					void *data)
-{
-	dbus_bool_t is_tx_power_supported = false;
-
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN,
-					&is_tx_power_supported);
-
-	return TRUE;
-}
-
-static const GDBusPropertyTable properties[] = {
-	{ "IsTXPowerSupported", "b", prop_get_is_tx_power_supported },
-	{ }
-};
-
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_ASYNC_METHOD("RegisterAdvertisement",
 					GDBUS_ARGS({ "advertisement", "o" },
@@ -932,8 +914,8 @@ static void read_adv_features_callback(uint8_t status, uint16_t length,
 
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					adapter_get_path(manager->adapter),
-					LE_ADVERTISING_MGR_IFACE, methods,
-					NULL, properties, manager, NULL))
+					LE_ADVERTISING_MGR_IFACE,
+					methods, NULL, NULL, manager, NULL))
 		error("Failed to register " LE_ADVERTISING_MGR_IFACE);
 }
 
