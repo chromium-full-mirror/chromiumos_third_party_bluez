@@ -105,10 +105,8 @@
 
 #define DEFAULT_MGMT_TIMEOUT	2	/* Timeout for MGMT commands (secs) */
 
-#define USE_SUSPEND_NOTIFIER_PATH \
-		"/sys/class/bluetooth/hci0/prepare_for_suspend"
-
 #define SUPPORTED_CAPABILITY_WBS		"wide band speech"
+
 /*
  * These are known security keys that have been compromised.
  * If this grows or there are needs to be platform specific, it is
@@ -302,7 +300,6 @@ struct btd_adapter {
 	 * suspend/resume */
 	uint32_t suspend_res_tasks;
 	DBusMessage *suspend_res_msg;
-	bool use_suspend_notifier;	/* use kernel suspend notifier? */
 
 	uint8_t discovery_type;		/* current active discovery type */
 	uint8_t discovery_enable;	/* discovery enabled/disabled */
@@ -3037,19 +3034,15 @@ static DBusMessage *handle_suspend_imminent(DBusConnection *conn,
 	}
 	time(&last_system_resume_time);
 
-	/* Perform suspend tasks if not using kernel suspend notifier. If kernel
-	 * suspend notifier is in use, it will take care of cleaning up the
-	 * system and userspace doesn't need to take any action. */
-	if (!adapter->use_suspend_notifier) {
-		if (action == SUS_RES_ACTION_STOP) {
-			if (adapter->current_settings & MGMT_SETTING_POWERED) {
-				warn("Turning off adapter for suspend imminent");
-				set_power(adapter, 0x0);
-			}
-		} else {
-			pause_discovery_for_system_suspend(adapter);
-			set_event_masks_for_system_suspend(adapter);
+	/* Perform suspend tasks */
+	if (action == SUS_RES_ACTION_STOP) {
+		if (adapter->current_settings & MGMT_SETTING_POWERED) {
+			warn("Turning off adapter for suspend imminent");
+			set_power(adapter, 0x0);
 		}
+	} else {
+		pause_discovery_for_system_suspend(adapter);
+		set_event_masks_for_system_suspend(adapter);
 	}
 	/* End of suspend tasks */
 
@@ -3090,18 +3083,16 @@ static DBusMessage *handle_suspend_done(DBusConnection *conn,
 		return btd_error_busy(msg);
 	}
 
-	/* Perform suspend tasks if not using kernel suspend notifier */
-	if (!adapter->use_suspend_notifier) {
-		if (action == SUS_RES_ACTION_START) {
-			/* Only power on if it was previously powered */
-			if (adapter->desired_powered) {
-				warn("Turning on adapter for suspend done");
-				set_power(adapter, 0x1);
-			}
-		} else {
-			unpause_discovery_for_system_resume(adapter);
-			restore_event_masks_for_system_resume(adapter);
+	/* Perform suspend tasks */
+	if (action == SUS_RES_ACTION_START) {
+		/* Only power on if it was previously powered */
+		if (adapter->desired_powered) {
+			warn("Turning on adapter for suspend done");
+			set_power(adapter, 0x1);
 		}
+	} else {
+		unpause_discovery_for_system_resume(adapter);
+		restore_event_masks_for_system_resume(adapter);
 	}
 	/* End of suspend tasks */
 
@@ -3115,66 +3106,6 @@ static DBusMessage *handle_suspend_done(DBusConnection *conn,
 		return NULL;
 	}
 }
-
-static gboolean property_get_use_suspend_notifier(
-		const GDBusPropertyTable *property,
-		DBusMessageIter *iter, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-	dbus_bool_t b = adapter->use_suspend_notifier;
-
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &b);
-	return TRUE;
-}
-
-static void property_set_use_suspend_notifier(
-		const GDBusPropertyTable *property, DBusMessageIter *iter,
-		GDBusPendingPropertySet id, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-	dbus_bool_t use_notifier;
-	int fd;
-	char *enable;
-	int ret = -1;
-
-	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_BOOLEAN) {
-		g_dbus_pending_property_error(
-				id, ERROR_INTERFACE ".InvalidArguments",
-				"Invalid arguments in method call");
-		return;
-	}
-
-	dbus_message_iter_get_basic(iter, &use_notifier);
-
-	/* Only modify on change */
-	if (adapter->use_suspend_notifier != use_notifier) {
-		enable = use_notifier ? "enabled" : "disabled";
-		fd = open(USE_SUSPEND_NOTIFIER_PATH, O_WRONLY);
-		if (fd >= 0) {
-			ret = write(fd, enable, strlen(enable) + 1);
-			close(fd);
-			info("Set suspend notifier to %s: result = %d", enable,
-			     ret);
-		} else {
-			warn("Couldn't open %s", USE_SUSPEND_NOTIFIER_PATH);
-		}
-
-		if (ret >= 0) {
-			adapter->use_suspend_notifier = use_notifier;
-			g_dbus_emit_property_changed(dbus_conn, adapter->path,
-						     ADAPTER_INTERFACE,
-						     "UseSuspendNotifier");
-			g_dbus_pending_property_success(id);
-		} else {
-			g_dbus_pending_property_error(
-					id, ERROR_INTERFACE ".Failed",
-					"Failed to update property");
-		}
-	} else {
-		g_dbus_pending_property_success(id);
-	}
-}
-
 
 static gboolean property_get_address(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *user_data)
@@ -4279,8 +4210,6 @@ static const GDBusPropertyTable adapter_properties[] = {
 	{ "UUIDs", "as", property_get_uuids },
 	{ "Modalias", "s", property_get_modalias, NULL,
 					property_exists_modalias },
-	{ "UseSuspendNotifier", "b", property_get_use_suspend_notifier,
-		property_set_use_suspend_notifier },
 	{ }
 };
 
