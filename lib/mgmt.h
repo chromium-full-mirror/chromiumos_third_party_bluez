@@ -590,6 +590,12 @@ struct mgmt_cp_set_phy_confguration {
 
 #define MGMT_OP_SET_BLOCKED_KEYS	0x0046
 
+#define MGMT_OP_READ_SECURITY_INFO	0x0048
+struct mgmt_rp_read_security_info {
+	uint16_t sec_len;
+	uint8_t  sec[0];
+} __packed;
+
 #define HCI_BLOCKED_KEY_TYPE_LINKKEY	0x00
 #define HCI_BLOCKED_KEY_TYPE_LTK		0x01
 #define HCI_BLOCKED_KEY_TYPE_IRK		0x02
@@ -930,6 +936,7 @@ static const char *mgmt_op[] = {
 	"Set PHY Configuration",
 	"Set Blocked Keys",
 	"Set Wideband Speech",
+	"Read Security Information",
 	"Set Advertising Intervals",			/* 0x0048 */
 	[0x49 ... 0x5F] = "",
 	"Set Advertising Intervals",			/* 0x0060 */
