@@ -12193,7 +12193,7 @@ static void mgmt_load_link_keys_cmd(const void *data, uint16_t size)
 
 static void mgmt_load_long_term_keys_cmd(const void *data, uint16_t size)
 {
-	uint16_t num_keys = get_le16(data + 1);
+	uint16_t num_keys = get_le16(data);
 	int i;
 
 	print_field("Keys: %u", num_keys);
@@ -12623,7 +12623,7 @@ static void mgmt_set_privacy_cmd(const void *data, uint16_t size)
 
 static void mgmt_load_identity_resolving_keys_cmd(const void *data, uint16_t size)
 {
-	uint16_t num_keys = get_le16(data + 1);
+	uint16_t num_keys = get_le16(data);
 	int i;
 
 	print_field("Keys: %u", num_keys);
