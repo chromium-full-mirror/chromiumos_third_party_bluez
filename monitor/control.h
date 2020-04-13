@@ -25,7 +25,7 @@
 #include <stdint.h>
 
 bool control_writer(const char *path, bool compress, unsigned int size_limit,
-								bool rotate);
+						const char *rotate_path);
 void control_reader(const char *path);
 void control_server(const char *path);
 int control_tty(const char *path, unsigned int speed);

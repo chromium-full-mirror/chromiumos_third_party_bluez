@@ -62,8 +62,8 @@ static void usage(void)
 		"\t-r, --read <file>      Read traces in btsnoop format\n"
 		"\t-w, --write <file>     Save traces in btsnoop format\n"
 		"\t-l  --limit-size <size> Limit save [-w] to <size> bytes\n"
-		"\t-R  --rotate           Have two rotating logs when size\n"
-		"\t                         limit [-l] is reached\n"
+		"\t-R  --rotate <file>    Upon reaching limit [-l], write to\n"
+		"\t                         this file instead\n"
 		"\t-c, --compress         Compress the saved btsnoop\n"
 		"\t-a, --analyze <file>   Analyze traces in btsnoop format\n"
 		"\t-s, --server <socket>  Start monitor server socket\n"
@@ -107,10 +107,10 @@ int main(int argc, char *argv[])
 {
 	unsigned long filter_mask = 0;
 	bool compress = false;
-	bool rotate = false;
 	int size_limit = 0;
 	const char *reader_path = NULL;
 	const char *writer_path = NULL;
+	const char *writer_rotate_path = NULL;
 	const char *analyze_path = NULL;
 	const char *ellisys_server = NULL;
 	const char *tty = NULL;
@@ -127,7 +127,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSAE:vhc0l:R",
+		opt = getopt_long(argc, argv, "d:r:w:a:s:p:i:tTSAE:vhc0l:R:",
 						main_options, NULL);
 		if (opt < 0)
 			break;
@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
 			}
 			break;
 		case 'R':
-			rotate = true;
+			writer_rotate_path = optarg;
 			break;
 		case 'c':
 			compress = true;
@@ -254,13 +254,13 @@ int main(int argc, char *argv[])
 		return EXIT_SUCCESS;
 	}
 
-	if (rotate && (!writer_path || !size_limit)) {
+	if (writer_rotate_path && (!writer_path || !size_limit)) {
 		printf("Rotating logs also requires -w and -l\n");
 		return EXIT_FAILURE;
 	}
 
 	if (writer_path && !control_writer(writer_path, compress, size_limit,
-								rotate)) {
+							writer_rotate_path)) {
 		printf("Failed to open '%s'\n", writer_path);
 		return EXIT_FAILURE;
 	}

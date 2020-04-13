@@ -1365,10 +1365,10 @@ int control_tty(const char *path, unsigned int speed)
 }
 
 bool control_writer(const char *path, bool compress, unsigned int size_limit,
-								bool rotate)
+							const char *rotate_path)
 {
 	btsnoop_file = btsnoop_create(path, BTSNOOP_FORMAT_MONITOR, compress,
-							size_limit, rotate);
+						size_limit, rotate_path);
 
 	return !!btsnoop_file;
 }

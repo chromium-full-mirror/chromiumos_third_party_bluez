@@ -100,7 +100,8 @@ struct btsnoop;
 
 struct btsnoop *btsnoop_open(const char *path, unsigned long flags);
 struct btsnoop *btsnoop_create(const char *path, uint32_t format, bool compress,
-				unsigned int file_size_limit, bool rotate);
+				unsigned int file_size_limit,
+				const char *rotation_path);
 
 struct btsnoop *btsnoop_ref(struct btsnoop *btsnoop);
 void btsnoop_unref(struct btsnoop *btsnoop);
