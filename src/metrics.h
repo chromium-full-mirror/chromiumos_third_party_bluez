@@ -22,17 +22,11 @@
 #define H_NAME_DISCONN_REASON	"BlueZ.ReasonOfDisconnection"
 #define H_NAME_PAIR_RESULT	"BlueZ.ResultOfPairing"
 #define H_NAME_CONN_RESULT	"BlueZ.ResultOfConnection"
-#define H_NAME_CHIP_LOST	"BlueZ.ChipLost"
-#define H_NAME_CHIP_LOST2	"BlueZ.ChipLost2"
 #define H_NAME_NUM_EXISTING_ADV	"BlueZ.NumberOfExistingAdvertisements"
 
 /* The lower and upper bounds of number of registered advertisements. */
 #define NUM_ADV_MAX 6
 #define NUM_ADV_MIN 0
-
-/* This is used to prevent sending repeated samples of continuous adapter
- * losts. 10 seconds */
-#define TIME_LENGTH_LAST_LOST	10.00
 
 struct btd_adapter;
 struct btd_device;
@@ -52,8 +46,6 @@ typedef enum {
 	TIMER_PAIRING,
 	TIMER_ADVERTISEMENT,
 	TIMER_CONNECT,
-	TIMER_CHIP_LOST,
-	TIMER_CHIP_LOST2,
 } metrics_timer_type;
 
 typedef enum {
