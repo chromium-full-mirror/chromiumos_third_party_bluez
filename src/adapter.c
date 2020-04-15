@@ -147,12 +147,8 @@ static GSList *adapter_drivers = NULL;
 static GSList *disconnect_list = NULL;
 static GSList *conn_fail_list = NULL;
 
-/* Timer ID of delay task of metrics */
-static guint adapter_lost_metrics_timer_id = 0;
 /* Timer ID of delay task of metrics (specific to hardware disconnection) */
 static guint chip_lost_metrics_timer_id = 0;
-/* Time of the previous adapter lost */
-static time_t metrics_last_adapter_lost_time;
 /* Time of the previous adapter lost (specific to hardware disconnection) */
 static time_t metrics_last_chip_lost_time;
 /* Time of the last system resume from suspend */
@@ -5860,17 +5856,6 @@ static void remove_discovery_list(struct btd_adapter* adapter)
 	}
 }
 
-static gboolean record_adapter_lost()
-{
-	struct metrics_timer_data timer_data = {NULL, NULL, NULL};
-
-	DBG("sending adapter lost metrics");
-	metrics_stop_timer(TIMER_ADAPTER_LOST, timer_data);
-	adapter_lost_metrics_timer_id = 0;
-
-	return FALSE;
-}
-
 static gboolean record_chip_lost()
 {
 	struct metrics_timer_data timer_data = {NULL, NULL, NULL};
@@ -5885,8 +5870,6 @@ static gboolean record_chip_lost()
 static void adapter_free(gpointer user_data)
 {
 	struct btd_adapter *adapter = user_data;
-	struct metrics_timer_data timer_data = {NULL, NULL, NULL};
-	time_t cur_time;
 
 	DBG("%p", adapter);
 
@@ -5938,19 +5921,6 @@ static void adapter_free(gpointer user_data)
 	g_free(adapter->current_alias);
 	free(adapter->modalias);
 	g_free(adapter);
-
-	time(&cur_time);
-	// Prevent sending duplicate samples for continuous adapter losts
-	if (difftime(cur_time, metrics_last_adapter_lost_time) <
-		TIME_LENGTH_LAST_LOST) {
-		metrics_last_adapter_lost_time = cur_time;
-		return;
-	}
-	metrics_last_adapter_lost_time = cur_time;
-	metrics_start_timer(TIMER_ADAPTER_LOST, timer_data);
-	adapter_lost_metrics_timer_id = g_timeout_add_seconds(
-						TIME_LENGTH_LAST_LOST,
-						record_adapter_lost, NULL);
 }
 
 struct btd_adapter *btd_adapter_ref(struct btd_adapter *adapter)
@@ -6858,12 +6828,6 @@ static void load_config(struct btd_adapter *adapter)
 static struct btd_adapter *btd_adapter_new(uint16_t index)
 {
 	struct btd_adapter *adapter;
-
-	if (!!adapter_lost_metrics_timer_id) {
-		g_source_remove(adapter_lost_metrics_timer_id);
-		adapter_lost_metrics_timer_id = 0;
-		record_adapter_lost();
-	}
 
 	adapter = g_try_new0(struct btd_adapter, 1);
 	if (!adapter)
@@ -10169,7 +10133,6 @@ int adapter_init(void)
 
 	if (!metrics_init())
 		error("Failed to init UMA metrics");
-	time(&metrics_last_adapter_lost_time);
 	time(&metrics_last_chip_lost_time);
 	time(&last_system_resume_time);
 
