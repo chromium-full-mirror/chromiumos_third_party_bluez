@@ -10992,7 +10992,7 @@ static void packet_decode(struct timeval *tv, struct ucred *cred, char dir,
 
 	/* Discard last byte since it just a filler */
 	l2cap_frame(index, dir == '>', 0, hdr->cid, hdr->psm,
-			data + sizeof(*hdr), size - (sizeof(*hdr) + 1));
+			(void*)data + sizeof(*hdr), size - (sizeof(*hdr) + 1));
 }
 
 void packet_user_logging(struct timeval *tv, struct ucred *cred,
