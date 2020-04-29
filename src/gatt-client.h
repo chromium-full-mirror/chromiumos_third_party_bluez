@@ -17,7 +17,6 @@
  *
  */
 
-struct bt_gatt_client;
 struct btd_gatt_client;
 
 struct btd_gatt_client *btd_gatt_client_new(struct btd_device *device);
@@ -36,7 +35,3 @@ typedef void (*btd_gatt_client_service_path_t)(const char *service_path,
 void btd_gatt_client_foreach_service(struct btd_gatt_client *client,
 					btd_gatt_client_service_path_t func,
 					void *user_data);
-
-DBusMessage *btd_create_gatt_dbus_error(DBusMessage *msg, uint8_t att_ecode);
-struct bt_gatt_client *btd_gatt_client_get_gatt_client(
-					struct btd_gatt_client *client);

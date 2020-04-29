@@ -157,16 +157,6 @@ Methods		void Connect()
 					 org.bluez.Error.NotConnected
 					 org.bluez.Error.Failed
 
-		void ExecuteWrite(boolean execute)
-
-			This method ends a reliable write session, and commits
-			the changes in previous prepare writes if execute ==
-			true, or aborts those changes if execute == false.
-
-			Possible errors: org.bluez.Error.DoesNotExist
-					 org.bluez.Error.Failed
-					 org.bluez.Error.InvalidArguments
-
 Properties	string Address [readonly]
 
 			The Bluetooth device address of the remote device.

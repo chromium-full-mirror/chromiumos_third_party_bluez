@@ -3425,44 +3425,6 @@ static DBusMessage *get_service_records(DBusConnection *conn,
 	return reply;
 }
 
-static void execute_write_cb(bool success, uint8_t err, void *user_data)
-{
-	DBusMessage *msg = user_data;
-	DBusMessage *reply = success ?
-		g_dbus_create_reply(msg, DBUS_TYPE_INVALID) :
-		btd_create_gatt_dbus_error(msg, err);
-	g_dbus_send_message(dbus_conn, reply);
-	dbus_message_unref(msg);
-}
-
-static DBusMessage *execute_write(DBusConnection *conn,
-					DBusMessage *msg, void *data)
-{
-	struct btd_device *dev = data;
-	dbus_bool_t execute = false;
-	unsigned int id = 0;
-	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN, &execute,
-					DBUS_TYPE_INVALID))
-		return btd_error_invalid_args(msg);
-
-	struct bt_gatt_client *client =
-		btd_gatt_client_get_gatt_client(dev->client_dbus);
-	if (client == NULL)
-		return btd_error_does_not_exist(msg);
-
-	id = bt_gatt_client_reliable_write_session_id(client);
-	if (!execute) {
-		bt_gatt_client_cancel(client, id);
-		return dbus_message_new_method_return(msg);
-	}
-	if (!bt_gatt_client_write_execute(client, id, execute_write_cb,
-						dbus_message_ref(msg), NULL)) {
-		dbus_message_unref(msg);
-		return btd_error_failed(msg, "Execute write failed");
-	}
-	return NULL;
-}
-
 static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Disconnect", NULL, NULL, dev_disconnect) },
 	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },
@@ -3475,8 +3437,6 @@ static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("GetServiceRecords", NULL,
 			GDBUS_ARGS({"records", "aa{q(yuv)}"}),
 			get_service_records) },
-	{ GDBUS_ASYNC_METHOD("ExecuteWrite", GDBUS_ARGS({ "execute", "b" }),
-						NULL, execute_write) },
 	{ }
 };
 
