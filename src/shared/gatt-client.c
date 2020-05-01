@@ -654,7 +654,7 @@ static bool discover_descs(struct discovery_op *op, bool *discovering)
 		gatt_db_attribute_get_service_handles(svc, &start, &end);
 
 		/*
-		 * Ajust end_handle in case the next chrc is not within the
+		 * Adjust end_handle in case the next chrc is not within the
 		 * same service.
 		 */
 		if (chrc_data->end_handle > end)
@@ -663,7 +663,7 @@ static bool discover_descs(struct discovery_op *op, bool *discovering)
 		/*
 		 * check for descriptors presence, before initializing the
 		 * desc_handle and avoid integer overflow during desc_handle
-		 * intialization.
+		 * initialization.
 		 */
 		if (chrc_data->value_handle >= chrc_data->end_handle) {
 			free(chrc_data);
