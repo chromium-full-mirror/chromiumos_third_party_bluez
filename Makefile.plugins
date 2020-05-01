@@ -104,8 +104,14 @@ builtin_cppflags += $(ALSA_CFLAGS)
 builtin_ldadd += $(ALSA_LIBS)
 endif
 
-builtin_modules += battery
-builtin_sources += profiles/battery/battery.c
+# Internal battery profile prevents clients from accessing it via generic GATT
+# API. So we disable it here.
+# TODO(b/156403830): We should re-enable once we have the solution to let
+# clients use generic GATT API while still allowing BlueZ to handle it
+# internally.
+#
+# builtin_modules += battery
+# builtin_sources += profiles/battery/battery.c
 
 if SIXAXIS
 plugin_LTLIBRARIES += plugins/sixaxis.la
