@@ -638,10 +638,7 @@ static bool discover_descs(struct discovery_op *op, bool *discovering)
 			util_debug(client->debug_callback, client->debug_data,
 				"Failed to insert characteristic at 0x%04x",
 				chrc_data->value_handle);
-
-			/* Skip over invalid characteristic */
-			free(chrc_data);
-			continue;
+			goto failed;
 		}
 
 		if (gatt_db_attribute_get_handle(attr) !=
