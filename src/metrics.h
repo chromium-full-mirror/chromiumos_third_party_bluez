@@ -27,6 +27,20 @@
 #define H_NAME_CHIP_LOST2	"BlueZ.ChipLost2"
 #define H_NAME_NUM_EXISTING_ADV	"BlueZ.NumberOfExistingAdvertisements"
 
+#define H_NAME_HID_PROBE_RESULT "BlueZ.PerProfile.HID.ProbingResult"
+#define H_NAME_HID_CONN_RESULT "BlueZ.PerProfile.HID.ConnectionResult"
+#define H_NAME_HOG_PROBE_RESULT "BlueZ.PerProfile.HOG.ProbingResult"
+#define H_NAME_HOG_CONN_RESULT "BlueZ.PerProfile.HOG.ConnectionResult"
+#define H_NAME_A2DP_SINK_PROBE_RESULT "BlueZ.PerProfile.A2DPSink.ProbingResult"
+#define H_NAME_A2DP_SINK_CONN_RESULT                                           \
+	"BlueZ.PerProfile.A2DPSink.ConnectionResult"
+#define H_NAME_HFP_PROBE_RESULT "BlueZ.PerProfile.HFP.ProbingResult"
+#define H_NAME_HFP_CONN_RESULT "BlueZ.PerProfile.HFP.ConnectionResult"
+#define H_NAME_AVRCP_PROBE_RESULT "BlueZ.PerProfile.AVRCP.ProbingResult"
+#define H_NAME_AVRCP_CONN_RESULT "BlueZ.PerProfile.AVRCP.ConnectionResult"
+#define H_NAME_BATTERY_PROBE_RESULT "BlueZ.PerProfile.Battery.ProbingResult"
+#define H_NAME_BATTERY_CONN_RESULT "BlueZ.PerProfile.Battery.ConnectionResult"
+
 /* The lower and upper bounds of number of registered advertisements. */
 #define NUM_ADV_MAX 6
 #define NUM_ADV_MIN 0
@@ -66,6 +80,11 @@ typedef enum {
 	ENUM_TYPE_PAIR_RESULT,
 	ENUM_TYPE_CONN_RESULT,
 } metrics_send_enum_type;
+
+typedef enum {
+	PROFILE_PROBE_RESULT = 1,
+	PROFILE_CONN_RESULT,
+} metrics_per_profile_type;
 
 /* These enums must never be renumbered or deleted and reused unless the XML
  * file is also changed.
@@ -183,6 +202,27 @@ typedef enum {
 	CONN_FAIL_END = 14,
 } metrics_conn_result;
 
+typedef enum {
+	PROFILE_PROBE_SUCCEED = 0,
+	PROFILE_PROBE_UNKNOWN_ERROR = 1,
+	PROFILE_PROBE_UNABLE_TO_REGISTER_INTERFACE = 2,
+	PROFILE_PROBE_UNABLE_TO_CREATE_NEW_DEVICE = 3,
+	PROFILE_PROBE_PROFILE_NOT_SUPPORTED = 4,
+	PROFILE_PROBE_END = 5,
+} metrics_profile_probe_result;
+
+typedef enum {
+	PROFILE_CONN_SUCCEED = 0,
+	PROFILE_CONN_UNKNOWN_ERROR = 1,
+	PROFILE_CONN_ALREADY_CONNECTED = 2,
+	PROFILE_CONN_BUSY_CONNECTING = 3,
+	PROFILE_CONN_CONNECTION_REFUSED = 4,
+	PROFILE_CONN_CONNECT_CANCELED = 5,
+	PROFILE_CONN_REMOTE_UNAVAILABLE = 6,
+	PROFILE_CONN_PROFILE_NOT_SUPPORTED = 7,
+	PROFILE_CONN_END = 8,
+} metrics_profile_conn_result;
+
 /* Corresponding methods to C Metrics Library */
 bool metrics_init(void);
 void metrics_deinit(void);
@@ -190,6 +230,8 @@ int metrics_is_enabled(void);
 bool metrics_send(const char* name, int sample, int min, int max, int buckets);
 bool metrics_send_enum(metrics_send_enum_type type, int sample,
 			bool is_mgmt_status);
+bool metrics_send_per_profile_enum(metrics_per_profile_type type,
+				   const char *uuid, int sample);
 
 /* Methods to create a timer and emit a sample when removing the timer */
 bool metrics_start_timer(metrics_timer_type type,

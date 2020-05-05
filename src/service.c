@@ -46,6 +46,7 @@
 #include "device.h"
 #include "profile.h"
 #include "service.h"
+#include "metrics.h"
 
 struct btd_service {
 	int			ref;
@@ -203,6 +204,12 @@ int service_accept(struct btd_service *service)
 	if (!err)
 		goto done;
 
+	/* Capture error in profile connection. A successful profile
+	 * connection will be captured in btd_service_connecting_complete()
+	 */
+	metrics_send_per_profile_enum(PROFILE_CONN_RESULT,
+				      service->profile->remote_uuid, err);
+
 	ba2str(device_get_address(service->device), addr);
 	error("%s profile accept failed for %s", service->profile->name, addr);
 
@@ -260,6 +267,12 @@ int btd_service_connect(struct btd_service *service)
 		change_state(service, BTD_SERVICE_STATE_CONNECTING, 0);
 		return 0;
 	}
+
+	/* Capture error in profile connection. A successful profile
+	 * connection will be captured in btd_service_connecting_complete()
+	 */
+	metrics_send_per_profile_enum(PROFILE_CONN_RESULT,
+				      service->profile->remote_uuid, err);
 
 	ba2str(device_get_address(service->device), addr);
 	error("%s profile connect failed for %s: %s", profile->name, addr,
@@ -375,6 +388,9 @@ void btd_service_connecting_complete(struct btd_service *service, int err)
 	if (service->state != BTD_SERVICE_STATE_DISCONNECTED &&
 			service->state != BTD_SERVICE_STATE_CONNECTING)
 		return;
+
+	metrics_send_per_profile_enum(PROFILE_CONN_RESULT,
+				      service->profile->remote_uuid, err);
 
 	if (err == 0)
 		change_state(service, BTD_SERVICE_STATE_CONNECTED, 0);

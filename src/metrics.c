@@ -6,11 +6,13 @@
 
 #include "metrics.h"
 
+#include <errno.h>
 #include <glib.h>
 #include <time.h>
 
 #include "lib/bluetooth.h"
 #include "lib/mgmt.h"
+#include "lib/uuid.h"
 #include "log.h"
 #include "metrics/c_metrics_library.h"
 
@@ -182,6 +184,49 @@ static metrics_pair_result convert_pair_result(int sample)
 	}
 }
 
+static metrics_profile_probe_result convert_profile_probe_result(int sample)
+{
+	switch (sample) {
+	case 0:
+		return PROFILE_PROBE_SUCCEED;
+	case -EINVAL:
+		return PROFILE_PROBE_UNABLE_TO_REGISTER_INTERFACE;
+	case -EIO:
+		return PROFILE_PROBE_UNABLE_TO_CREATE_NEW_DEVICE;
+	case -ENOENT:
+		return PROFILE_PROBE_PROFILE_NOT_SUPPORTED;
+	default:
+		return PROFILE_PROBE_UNKNOWN_ERROR;
+	}
+}
+
+static metrics_profile_conn_result convert_profile_conn_result(int sample)
+{
+	switch (sample) {
+	case 0:
+		return PROFILE_CONN_SUCCEED;
+	case -EALREADY:
+		return PROFILE_CONN_ALREADY_CONNECTED;
+	case -EBUSY:
+		return PROFILE_CONN_BUSY_CONNECTING;
+	case -ECONNREFUSED:
+	case -EAGAIN:
+		return PROFILE_CONN_CONNECTION_REFUSED;
+	case -ECANCELED:
+		return PROFILE_CONN_CONNECT_CANCELED;
+	case -EHOSTDOWN:
+	case -EHOSTUNREACH:
+		return PROFILE_CONN_REMOTE_UNAVAILABLE;
+	case -EPROTONOSUPPORT:
+	case -ENOPROTOOPT:
+	case -ENOENT:
+	case -ENOTSUP:
+		return PROFILE_CONN_PROFILE_NOT_SUPPORTED;
+	default:
+		return PROFILE_CONN_UNKNOWN_ERROR;
+	}
+}
+
 bool metrics_init(void)
 {
 	if (lib)
@@ -277,6 +322,81 @@ bool metrics_send_enum(metrics_send_enum_type type, int sample,
 		break;
 	default:
 		DBG("Invalid enum type:%d", type);
+		return false;
+	}
+
+	if (sample <= 0 || sample >= max) {
+		DBG("Invalid sample:%d, max:%d type:%d", sample, max, type);
+		return false;
+	}
+
+	CMetricsLibrarySendEnumToUMA(lib, histogram, sample, max);
+	return true;
+}
+
+bool metrics_send_per_profile_enum(metrics_per_profile_type type,
+				   const char *uuid, int sample)
+{
+	int max;
+	char *histogram;
+
+	if (!lib)
+		return false;
+
+	// According to Metrics library, here are requirements for samples and
+	// buckets:
+	// - 1 <= |sample| < |max|
+	// - An enumeration histogram requires |max| + 1 number of buckets.
+	// Therefore, we convert the sample into corresponding value defined in
+	// metrics.h.
+
+	if (bt_uuid_strcmp(uuid, HID_UUID) == 0) {
+		histogram = (type == PROFILE_PROBE_RESULT) ?
+				    H_NAME_HID_PROBE_RESULT :
+				    H_NAME_HID_CONN_RESULT;
+	} else if (bt_uuid_strcmp(uuid, HOG_UUID) == 0) {
+		histogram = (type == PROFILE_PROBE_RESULT) ?
+				    H_NAME_HOG_PROBE_RESULT :
+				    H_NAME_HOG_CONN_RESULT;
+	} else if (bt_uuid_strcmp(uuid, A2DP_SINK_UUID) == 0) {
+		histogram = (type == PROFILE_PROBE_RESULT) ?
+				    H_NAME_A2DP_SINK_PROBE_RESULT :
+				    H_NAME_A2DP_SINK_CONN_RESULT;
+	} else if (bt_uuid_strcmp(uuid, HFP_AG_UUID) == 0 ||
+		   bt_uuid_strcmp(uuid, HFP_HS_UUID) == 0) {
+		histogram = (type == PROFILE_PROBE_RESULT) ?
+				    H_NAME_HFP_PROBE_RESULT :
+				    H_NAME_HFP_CONN_RESULT;
+	} else if (bt_uuid_strcmp(uuid, AVRCP_REMOTE_UUID) == 0) {
+		histogram = (type == PROFILE_PROBE_RESULT) ?
+				    H_NAME_AVRCP_PROBE_RESULT :
+				    H_NAME_AVRCP_CONN_RESULT;
+	} else if (bt_uuid_strcmp(uuid, BATTERY_UUID) == 0) {
+		histogram = (type == PROFILE_PROBE_RESULT) ?
+				    H_NAME_BATTERY_PROBE_RESULT :
+				    H_NAME_BATTERY_CONN_RESULT;
+	} else {
+		/* do not report metrics for any other profile */
+		return false;
+	}
+
+	switch (type) {
+	case PROFILE_PROBE_RESULT:
+		sample = convert_profile_probe_result(sample);
+		max = PROFILE_PROBE_END;
+
+		/* HOG device_probe returns -EINVAL in case it fails
+		 * to create a device, so handle it separately
+		 */
+		if (bt_uuid_strcmp(uuid, HOG_UUID) == 0 && sample == -EINVAL)
+			sample = PROFILE_PROBE_UNABLE_TO_CREATE_NEW_DEVICE;
+		break;
+	case PROFILE_CONN_RESULT:
+		sample = convert_profile_conn_result(sample);
+		max = PROFILE_CONN_END;
+		break;
+	default:
+		DBG("Invalid type:%d", type);
 		return false;
 	}
 

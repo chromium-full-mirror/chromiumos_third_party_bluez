@@ -5128,6 +5128,8 @@ static struct btd_service *probe_service(struct btd_device *device,
 {
 	GSList *l;
 	struct btd_service *service;
+	struct bearer_state *state = get_state(device, device->bdaddr_type);
+	int err;
 
 	if (profile->device_probe == NULL)
 		return NULL;
@@ -5146,8 +5148,18 @@ static struct btd_service *probe_service(struct btd_device *device,
 		return l->data;
 
 	service = service_create(device, profile);
+	err = service_probe(service);
 
-	if (service_probe(service)) {
+	/* Service discovery may happen during the pairing process or after
+	 * the pairing process (device is marked as pending_paired in such
+	 * case). Capture the outcome of profile probing while pairing with
+	 * a remote device.
+	 */
+	if (!state->paired || device->pending_paired)
+		metrics_send_per_profile_enum(PROFILE_PROBE_RESULT,
+					      profile->remote_uuid, err);
+
+	if (err) {
 		btd_service_unref(service);
 		return NULL;
 	}

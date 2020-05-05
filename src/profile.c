@@ -53,6 +53,7 @@
 #include "device.h"
 #include "profile.h"
 #include "service.h"
+#include "metrics.h"
 
 #define DUN_DEFAULT_CHANNEL	1
 #define SPP_DEFAULT_CHANNEL	3
@@ -1619,6 +1620,12 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 failed:
 	if (conn->service)
 		btd_service_connecting_complete(conn->service, err);
+
+	/* Capture error in profile connection. A successful profile
+	 * connection will be captured in btd_service_connecting_complete()
+	 */
+	metrics_send_per_profile_enum(PROFILE_CONN_RESULT, ext->p.remote_uuid,
+				      err);
 
 	ext->conns = g_slist_remove(ext->conns, conn);
 	ext_io_destroy(conn);
