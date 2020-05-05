@@ -614,6 +614,26 @@ struct mgmt_rp_read_security_info {
 	uint8_t  sec[0];
 } __packed;
 
+#define MGMT_OP_READ_EXP_FEATURES_INFO	0x0049
+struct mgmt_rp_read_exp_features_info {
+	uint16_t feature_count;
+	struct {
+		uint8_t  uuid[16];
+		uint32_t flags;
+	} features[];
+} __packed;
+
+#define MGMT_OP_SET_EXP_FEATURE		0x004a
+struct mgmt_cp_set_exp_feature {
+	uint8_t  uuid[16];
+	uint8_t  action;
+} __packed;
+#define MGMT_SET_EXP_FEATURE_SIZE	17
+struct mgmt_rp_set_exp_feature {
+	uint8_t  uuid[16];
+	uint32_t flags;
+} __packed;
+
 #define MGMT_OP_READ_DEF_SYSTEM_CONFIG	0x004b
 struct mgmt_rp_read_default_system_config {
 	uint8_t parameters[0]; /* mgmt_tlv */
@@ -912,6 +932,12 @@ struct mgmt_ev_phy_configuration_changed {
 	uint16_t	selected_phys;
 } __packed;
 
+#define MGMT_EV_EXP_FEATURE_CHANGE	0x0027
+struct mgmt_ev_exp_feature_changed {
+	uint8_t  uuid[16];
+	uint32_t flags;
+} __packed;
+
 #define MGMT_EV_ADV_MONITOR_ADDED	0x002b
 struct mgmt_ev_adv_monitor_added {
 	uint16_t monitor_handle;
@@ -995,9 +1021,9 @@ static const char *mgmt_op[] = {
 	"Set PHY Configuration",
 	"Set Blocked Keys",
 	"Set Wideband Speech",
-	"Read Security Information",
-	"Set Advertising Intervals",			/* 0x0048 */
-	[0x49 ... 0x4a] = "",
+	"Read Security Information",			/* 0x0048 */
+	"Read Experimental Features Information",
+	"Set Experimental Feature",
 	"Read Default System Configuration",
 	"Set Default System Configuration",
 	[0x4d ... 0x50] = "",
@@ -1049,7 +1075,8 @@ static const char *mgmt_ev[] = {
 	"Advertising Removed",
 	"Extended Controller Information Changed",
 	"PHY Configuration Changed",
-	[0x27 ... 0x2a] = "",
+	"Experimental Feature Changed",
+	[0x28 ... 0x2a] = "",
 	"Advertisement Monitor Added",			/* 0x002b */
 	"Advertisement Monitor Removed",
 };
