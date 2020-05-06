@@ -532,6 +532,7 @@ bool gatt_db_remove_service(struct gatt_db *db,
 		return false;
 
 	service = attrib->service;
+	attrib->service = NULL;
 
 	queue_remove(db->services, service);
 
@@ -1641,7 +1642,7 @@ bool gatt_db_attribute_get_service_data(const struct gatt_db_attribute *attrib,
 	struct gatt_db_service *service;
 	struct gatt_db_attribute *decl;
 
-	if (!attrib)
+	if (!(attrib && attrib->service && attrib->service->attributes))
 		return false;
 
 	service = attrib->service;
