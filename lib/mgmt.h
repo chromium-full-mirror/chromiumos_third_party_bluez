@@ -931,6 +931,10 @@ static const char *mgmt_op[] = {
 	"Set Blocked Keys",
 	"Set Wideband Speech",
 	"Set Advertising Intervals",			/* 0x0048 */
+	[0x49 ... 0x5F] = "",
+	"Set Advertising Intervals",			/* 0x0060 */
+	[0x61 ... 0x63] = "",
+	"Set Kernel Debug",
 	"Set Wake Capable",
 };
 
