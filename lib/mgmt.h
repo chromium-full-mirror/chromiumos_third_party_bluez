@@ -634,6 +634,42 @@ struct mgmt_cp_set_default_runtime_config {
 	uint8_t parameters[0]; /* mgmt_tlv */
 } __packed;
 
+#define MGMT_ADV_MONITOR_FEATURE_MASK_OR_PATTERNS	(1 << 0)
+
+#define MGMT_OP_READ_ADV_MONITOR_FEATURES	0x0051
+struct mgmt_rp_read_adv_monitor_features {
+	uint32_t supported_features;
+	uint32_t enabled_features;
+	uint16_t max_num_handles;
+	uint8_t max_num_patterns;
+	uint16_t num_handles;
+	uint16_t handles[0];
+}  __packed;
+
+struct mgmt_adv_pattern {
+	uint8_t ad_type;
+	uint8_t offset;
+	uint8_t length;
+	uint8_t value[31];
+} __packed;
+
+#define MGMT_OP_ADD_ADV_MONITOR			0x0052
+struct mgmt_cp_add_adv_monitor {
+	uint8_t pattern_count;
+	struct mgmt_adv_pattern patterns[0];
+} __packed;
+struct mgmt_rp_add_adv_patterns_monitor {
+	uint16_t monitor_handle;
+} __packed;
+
+#define MGMT_OP_REMOVE_ADV_MONITOR		0x0053
+struct mgmt_cp_remove_adv_monitor {
+	uint16_t monitor_handle;
+} __packed;
+struct mgmt_rp_remove_adv_monitor {
+	uint16_t monitor_handle;
+} __packed;
+
 /*
  * Begin chromium only op_codes
  */
@@ -876,6 +912,16 @@ struct mgmt_ev_phy_configuration_changed {
 	uint16_t	selected_phys;
 } __packed;
 
+#define MGMT_EV_ADV_MONITOR_ADDED	0x002b
+struct mgmt_ev_adv_monitor_added {
+	uint16_t monitor_handle;
+}  __packed;
+
+#define MGMT_EV_ADV_MONITOR_REMOVED	0x002c
+struct mgmt_ev_adv_monitor_removed {
+	uint16_t monitor_handle;
+}  __packed;
+
 static const char *mgmt_op[] = {
 	"<0x0000>",
 	"Read Version",
@@ -954,7 +1000,11 @@ static const char *mgmt_op[] = {
 	[0x49 ... 0x4a] = "",
 	"Read Default System Configuration",
 	"Set Default System Configuration",
-	[0x4d ... 0x63] = "",
+	[0x4d ... 0x50] = "",
+	"Read Advertisement Monitor Features",
+	"Add Advertisement Monitor",
+	"Remove Advertisement Monitor",
+	[0x54 ... 0x63] = "",
 	"Set Kernel Debug",
 	"Set Wake Capable",
 };
@@ -999,6 +1049,9 @@ static const char *mgmt_ev[] = {
 	"Advertising Removed",
 	"Extended Controller Information Changed",
 	"PHY Configuration Changed",
+	[0x27 ... 0x2a] = "",
+	"Advertisement Monitor Added",			/* 0x002b */
+	"Advertisement Monitor Removed",
 };
 
 static const char *mgmt_status[] = {
