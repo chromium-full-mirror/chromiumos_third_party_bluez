@@ -3097,7 +3097,7 @@ Set Wideband Speech Command
 Set Advertising Intervals Command
 =================================
 
-	Command Code:		0x0048
+	Command Code:		0x0060
 	Controller Index:	<controller id>
 	Command Parameters:	Min_Interval     (2 Octets)
 				Max_Interval     (2 Octets)
