@@ -109,7 +109,8 @@ static void read_device_name_cb(bool success, uint8_t att_ecode,
 
 	name = name2utf8(value, length);
 
-	DBG("GAP Device Name: %s", name);
+	DBG("success");
+	DBG_LVL(2, "GAP Device Name: %s", name);
 
 	btd_device_device_set_name(gas->device, name);
 

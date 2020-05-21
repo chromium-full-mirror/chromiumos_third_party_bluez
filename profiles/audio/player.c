@@ -637,7 +637,7 @@ media_player_create_subfolder(struct media_player *mp, const char *name,
 
 	path = g_strdup_printf("%s/%s", folder->item->name, name);
 
-	DBG("%s", path);
+	DBG_LVL(2, "%s", path);
 
 	item = media_player_create_item(mp, path, PLAYER_ITEM_TYPE_FOLDER,
 									uid);
@@ -860,7 +860,7 @@ static void media_item_destroy(void *data)
 {
 	struct media_item *item = data;
 
-	DBG("%s", item->path);
+	DBG_LVL(2, "%s", item->path);
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(), item->path,
 						MEDIA_ITEM_INTERFACE);
@@ -891,7 +891,7 @@ static void media_player_change_scope(struct media_player *mp,
 	if (mp->scope == folder)
 		return;
 
-	DBG("%s", folder->item->name);
+	DBG_LVL(2, "%s", folder->item->name);
 
 	/* Skip setting current folder if folder is current playlist/search */
 	if (folder == mp->playlist || folder == mp->search)
@@ -1031,7 +1031,7 @@ static gboolean get_folder_name(const GDBusPropertyTable *property,
 	if (folder == NULL || folder->item == NULL)
 		return FALSE;
 
-	DBG("%s", folder->item->name);
+	DBG_LVL(2, "%s", folder->item->name);
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING,
 							&folder->item->name);
@@ -1372,7 +1372,7 @@ void media_player_set_metadata(struct media_player *mp,
 
 	value = g_strndup(data, len);
 
-	DBG("%s: %s", key, value);
+	DBG_LVL(2, "%s: %s", key, value);
 
 	curval = g_hash_table_lookup(mp->track, key);
 	if (g_strcmp0(curval, value) == 0) {
@@ -1421,7 +1421,7 @@ void media_player_set_name(struct media_player *mp, const char *name)
 	if (g_strcmp0(mp->name, name) == 0)
 		return;
 
-	DBG("%s", name);
+	DBG_LVL(2, "%s", name);
 
 	mp->name = g_strdup(name);
 
@@ -1468,7 +1468,7 @@ void media_player_set_folder(struct media_player *mp, const char *name,
 {
 	struct media_folder *folder;
 
-	DBG("%s number of items %u", name, number_of_items);
+	DBG_LVL(2, "%s number of items %u", name, number_of_items);
 
 	folder = media_player_find_folder(mp, name);
 	if (folder == NULL) {
@@ -1795,7 +1795,7 @@ static struct media_item *media_folder_create_item(struct media_player *mp,
 	if (strtype == NULL)
 		return NULL;
 
-	DBG("%s type %s uid %" PRIu64 "", name, strtype, uid);
+	DBG_LVL(2, "%s type %s uid %" PRIu64 "", name, strtype, uid);
 
 	item = g_new0(struct media_item, 1);
 	item->player = mp;
@@ -1828,7 +1828,7 @@ static struct media_item *media_folder_create_item(struct media_player *mp,
 							g_free, g_free);
 	}
 
-	DBG("%s", item->path);
+	DBG_LVL(2, "%s", item->path);
 
 	return item;
 }

@@ -85,8 +85,9 @@ static void update_name(struct btd_adapter *adapter, gpointer user_data)
 	if (hostname == NULL)
 		return;
 
+	DBG("");
 	if (btd_adapter_is_default(adapter)) {
-		DBG("name: %s", hostname);
+		DBG_LVL(2, "name: %s", hostname);
 
 		adapter_set_name(adapter, hostname);
 	} else {
@@ -96,7 +97,7 @@ static void update_name(struct btd_adapter *adapter, gpointer user_data)
 		/* Avoid "some device #0" names, start at #1 */
 		str = g_strdup_printf("%s #%u", hostname, index + 1);
 
-		DBG("name: %s", str);
+		DBG_LVL(2, "name: %s", str);
 
 		adapter_set_name(adapter, str);
 
@@ -141,7 +142,7 @@ static void property_changed(GDBusProxy *proxy, const char *name,
 
 			dbus_message_iter_get_basic(iter, &str);
 
-			DBG("pretty hostname: %s", str);
+			DBG_LVL(2, "pretty hostname: %s", str);
 
 			g_free(pretty_hostname);
 			pretty_hostname = g_strdup(str);
@@ -159,7 +160,7 @@ static void property_changed(GDBusProxy *proxy, const char *name,
 
 			dbus_message_iter_get_basic(iter, &str);
 
-			DBG("static hostname: %s", str);
+			DBG_LVL(2, "static hostname: %s", str);
 
 			g_free(static_hostname);
 			static_hostname = g_strdup(str);

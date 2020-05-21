@@ -1397,7 +1397,7 @@ static gboolean set_position(struct media_player *mp, DBusMessageIter *iter)
 static void set_metadata(struct media_player *mp, const char *key,
 							const char *value)
 {
-	DBG("%s=%s", key, value);
+	DBG_LVL(2, "%s=%s", key, value);
 	g_hash_table_replace(mp->track, g_strdup(key), g_strdup(value));
 }
 

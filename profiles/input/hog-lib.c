@@ -962,7 +962,7 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 		return;
 	}
 
-	DBG("Report MAP:");
+	DBG_LVL(2, "Report MAP:");
 	for (i = 0; i < vlen;) {
 		ssize_t ilen = 0;
 		bool long_item = false;
@@ -973,14 +973,16 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 			if (!long_item && (value[i] & 0xfc) == 0x84)
 				hog->has_report_id = TRUE;
 
-			DBG("\t%s", item2string(itemstr, &value[i], ilen));
+			DBG_LVL(2, "\t%s",
+					item2string(itemstr, &value[i], ilen));
 
 			i += ilen;
 		} else {
 			error("Report Map parsing failed at %d", i);
 
 			/* Just print remaining items at once and break */
-			DBG("\t%s", item2string(itemstr, &value[i], vlen - i));
+			DBG_LVL(2, "\t%s",
+				item2string(itemstr, &value[i], vlen - i));
 			break;
 		}
 	}
@@ -1059,8 +1061,9 @@ static void info_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 	hog->bcountrycode = value[2];
 	hog->flags = value[3];
 
-	DBG("bcdHID: 0x%04X bCountryCode: 0x%02X Flags: 0x%02X",
-			hog->bcdhid, hog->bcountrycode, hog->flags);
+	DBG("success");
+	DBG_LVL(2, "bcdHID: 0x%04X bCountryCode: 0x%02X Flags: 0x%02X",
+				hog->bcdhid, hog->bcountrycode, hog->flags);
 }
 
 static void proto_mode_read_cb(guint8 status, const guint8 *pdu, guint16 plen,

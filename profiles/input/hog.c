@@ -86,8 +86,9 @@ static void hog_device_accept(struct hog_device *dev, struct gatt_db *db)
 	product = btd_device_get_product(dev->device);
 	version = btd_device_get_version(dev->device);
 
-	DBG("name=%s vendor=0x%X, product=0x%X, version=0x%X", name, vendor,
-							product, version);
+	DBG("success");
+	DBG_LVL(2, "name=%s vendor=0x%X, product=0x%X, version=0x%X", name,
+						vendor, product, version);
 
 	dev->hog = bt_hog_new_default(name, vendor, product, version, db);
 }

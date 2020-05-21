@@ -4735,7 +4735,8 @@ void btd_device_device_set_name(struct btd_device *device, const char *name)
 	if (strncmp(name, device->name, MAX_NAME_LENGTH) == 0)
 		return;
 
-	DBG("%s %s", device->path, name);
+	DBG("");
+	DBG_LVL(2, "%s %s", device->path, name);
 
 	strncpy(device->name, name, MAX_NAME_LENGTH);
 

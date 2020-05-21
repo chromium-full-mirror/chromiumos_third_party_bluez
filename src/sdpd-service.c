@@ -416,7 +416,8 @@ void register_device_id(uint16_t source, uint16_t vendor,
 	sdp_profile_desc_t profile;
 	sdp_record_t *record = sdp_record_alloc();
 
-	DBG("Adding device id record for %04x:%04x:%04x:%04x",
+	DBG("");
+	DBG_LVL(2, "Adding device id record for %04x:%04x:%04x:%04x",
 					source, vendor, product, version);
 
 	record->handle = sdp_next_handle();

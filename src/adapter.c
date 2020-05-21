@@ -834,8 +834,9 @@ static void local_name_changed_callback(uint16_t index, uint16_t length,
 			!g_strcmp0(adapter->name, (const char *) rp->name))
 		return;
 
-	DBG("Name: %s", rp->name);
-	DBG("Short name: %s", rp->short_name);
+	DBG("success");
+	DBG_LVL(2, "Name: %s", rp->name);
+	DBG_LVL(2, "Short name: %s", rp->short_name);
 
 	g_free(adapter->name);
 	adapter->name = g_strdup((const char *) rp->name);
@@ -861,7 +862,7 @@ static void local_name_changed_callback(uint16_t index, uint16_t length,
 		adapter->current_alias = g_strdup(adapter->short_name);
 	}
 
-	DBG("Current alias: %s", adapter->current_alias);
+	DBG_LVL(2, "Current alias: %s", adapter->current_alias);
 
 	if (!adapter->current_alias)
 		return;
@@ -929,7 +930,8 @@ int adapter_set_name(struct btd_adapter *adapter, const char *name)
 	if (g_strcmp0(adapter->system_name, name) == 0)
 		return 0;
 
-	DBG("name: %s", name);
+	DBG("");
+	DBG_LVL(2, "name: %s", name);
 
 	g_free(adapter->system_name);
 	adapter->system_name = g_strdup(name);
@@ -941,7 +943,7 @@ int adapter_set_name(struct btd_adapter *adapter, const char *name)
 	if (adapter->stored_alias)
 		return 0;
 
-	DBG("alias: %s", name);
+	DBG_LVL(2, "alias: %s", name);
 
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Alias");
@@ -6829,7 +6831,7 @@ static struct btd_adapter *btd_adapter_new(uint16_t index)
 	adapter->discoverable_timeout = main_opts.discovto;
 	adapter->pairable_timeout = main_opts.pairto;
 
-	DBG("System name: %s", adapter->system_name);
+	DBG_LVL(2, "System name: %s", adapter->system_name);
 	DBG("Major class: %u", adapter->major_class);
 	DBG("Minor class: %u", adapter->minor_class);
 	DBG("Modalias: %s", adapter->modalias);
