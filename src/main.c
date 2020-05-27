@@ -504,10 +504,11 @@ static void init_defaults(void)
 	if (sscanf(VERSION, "%hhu.%hhu", &major, &minor) != 2)
 		return;
 
-	main_opts.did_source = 0x0002;		/* USB */
-	main_opts.did_vendor = 0x1d6b;		/* Linux Foundation */
-	main_opts.did_product = 0x0246;		/* BlueZ */
-	main_opts.did_version = (major << 8 | minor);
+	/* TODO(b/152526402): Revert after this config is moved to main.conf. */
+	main_opts.did_source = 0x0001;		/* Bluetooth */
+	main_opts.did_vendor = 0x00e0;		/* Google */
+	main_opts.did_product = 0xc405;		/* Chrome OS */
+	main_opts.did_version = 0x0055;		/* Branch 85 */
 
 	main_opts.gatt_cache = BT_GATT_CACHE_YES;
 	main_opts.gatt_mtu = BT_ATT_MAX_LE_MTU;
