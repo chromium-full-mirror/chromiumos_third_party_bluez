@@ -2489,6 +2489,7 @@ static struct option lescan_options[] = {
 	{ "whitelist",	0, 0, 'w' },
 	{ "discovery",	1, 0, 'd' },
 	{ "duplicates",	0, 0, 'D' },
+	{ "lowduty",	0, 0, 'l' },
 	{ 0, 0, 0, 0 }
 };
 
@@ -2500,6 +2501,7 @@ static const char *lescan_help =
 	"\tlescan [--discovery=g|l] enable general or limited discovery"
 		"procedure\n"
 	"\tlescan [--duplicates] don't filter duplicates\n";
+	"\tlescan [--lowduty] scan with 25%% duty\n";
 
 static void cmd_lescan(int dev_id, int argc, char **argv)
 {
@@ -2538,6 +2540,10 @@ static void cmd_lescan(int dev_id, int argc, char **argv)
 			break;
 		case 'D':
 			filter_dup = 0x00;
+			break;
+		case 'l':
+			interval = htobs(0x0010);
+			window = htobs(0x0004); // 25% duty
 			break;
 		default:
 			printf("%s", lescan_help);
