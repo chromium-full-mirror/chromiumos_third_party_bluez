@@ -612,6 +612,24 @@ struct mgmt_rp_read_security_info {
 	uint8_t  sec[0];
 } __packed;
 
+#define MGMT_OP_READ_DEFAULT_SYSTEM_PARAMETERS	0x004b
+
+struct mgmt_system_parameter_tlv {
+	uint16_t type;
+	uint8_t  length;
+	uint8_t  value[];
+} __packed;
+
+struct mgmt_rp_read_default_system_parameters {
+	uint8_t  parameters[0]; /* mgmt_system_parameter_tlv */
+} __packed;
+
+#define MGMT_OP_SET_DEFAULT_SYSTEM_PARAMETERS	0x004c
+
+struct mgmt_cp_set_default_system_parameters {
+	uint8_t  parameters[0]; /* mgmt_system_parameter_tlv */
+} __packed;
+
 /*
  * Begin chromium only op_codes
  */
@@ -938,7 +956,10 @@ static const char *mgmt_op[] = {
 	"Set Wideband Speech",
 	"Read Security Information",
 	"Set Advertising Intervals",			/* 0x0048 */
-	[0x49 ... 0x5F] = "",
+	[0x49 ... 0x4a] = "",
+	"Read Default System Configuration",
+	"Set Default System Configuration",
+	[0x4d ... 0x5F] = "",
 	"Set Advertising Intervals",			/* 0x0060 */
 	[0x61 ... 0x63] = "",
 	"Set Kernel Debug",
