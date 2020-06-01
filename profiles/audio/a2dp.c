@@ -2196,6 +2196,14 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 {
 	struct a2dp_setup *setup = user_data;
 	uint16_t omtu, imtu;
+	GSList *l;
+
+	l = g_slist_find(setups, setup);
+	if (!l) {
+		warn("bt_io_accept: setup %p no longer valid", setup);
+		g_io_channel_shutdown(io, TRUE, NULL);
+		return;
+	}
 
 	if (err) {
 		error("%s", err->message);
