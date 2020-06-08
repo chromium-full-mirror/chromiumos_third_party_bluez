@@ -76,12 +76,6 @@ struct main_opts main_opts;
 static GKeyFile *main_conf;
 static char *main_conf_file_path;
 
-static enum {
-	MPS_OFF,
-	MPS_SINGLE,
-	MPS_MULTIPLE,
-} mps = MPS_OFF;
-
 static const char *supported_options[] = {
 	"Name",
 	"Class",
@@ -619,9 +613,11 @@ static void parse_config(GKeyFile *config)
 		DBG("MultiProfile=%s", str);
 
 		if (!strcmp(str, "single"))
-			mps = MPS_SINGLE;
+			main_opts.mps = MPS_SINGLE;
 		else if (!strcmp(str, "multiple"))
-			mps = MPS_MULTIPLE;
+			main_opts.mps = MPS_MULTIPLE;
+		else
+			main_opts.mps = MPS_OFF;
 
 		g_free(str);
 	}
@@ -957,8 +953,8 @@ int main(int argc, char *argv[])
 						main_opts.did_version);
 	}
 
-	if (mps != MPS_OFF)
-		register_mps(mps == MPS_MULTIPLE);
+	if (main_opts.mps != MPS_OFF)
+		register_mps(main_opts.mps == MPS_MULTIPLE);
 
 	/* Loading plugins has to be done after D-Bus has been setup since
 	 * the plugins might wanna expose some paths on the bus. However the
