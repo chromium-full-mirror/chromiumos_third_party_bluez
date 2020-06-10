@@ -208,6 +208,11 @@ struct watch_client {
 	struct discovery_filter *discovery_filter;
 };
 
+struct stop_discovery_context {
+	struct btd_adapter *adapter;
+	struct watch_client *client;
+};
+
 struct service_auth {
 	guint id;
 	unsigned int svc_id;
@@ -277,6 +282,7 @@ struct btd_adapter {
 	GSList *set_filter_list;	/* list of clients that specified
 					 * filter, but don't scan yet
 					 */
+	GSList *stop_discovery_list;	/* list of pending stop_discovery */
 	/* current discovery filter, if any */
 	struct mgmt_cp_start_service_discovery *current_discovery_filter;
 
@@ -1991,6 +1997,9 @@ static void discovery_free(void *user_data)
 	if (client->msg)
 		dbus_message_unref(client->msg);
 
+	client->adapter->stop_discovery_list =
+		g_slist_remove(client->adapter->stop_discovery_list, client);
+
 	g_free(client->owner);
 	g_free(client);
 }
@@ -2040,24 +2049,30 @@ static void discovery_remove(struct watch_client *client, bool exit)
 static void stop_discovery_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
-	struct watch_client *client = user_data;
-	struct btd_adapter *adapter = client->adapter;
+	struct stop_discovery_context *ctx = user_data;
+	struct watch_client *client = ctx->client;
+	struct btd_adapter *adapter = ctx->adapter;
 	DBusMessage *reply;
 
 	DBG("status 0x%02x", status);
 
-	if (status != MGMT_STATUS_SUCCESS) {
-		if (client->msg) {
-			reply = btd_error_busy(client->msg);
-			g_dbus_send_message(dbus_conn, reply);
+	if (g_slist_find(adapter->stop_discovery_list, client)) {
+		if (status != MGMT_STATUS_SUCCESS) {
+			if (client->msg) {
+				reply = btd_error_busy(client->msg);
+				g_dbus_send_message(dbus_conn, reply);
+			}
+			goto done;
 		}
-		goto done;
-	}
 
-	if (client->msg) {
-		g_dbus_send_reply(dbus_conn, client->msg, DBUS_TYPE_INVALID);
-		dbus_message_unref(client->msg);
-		client->msg = NULL;
+		if (client->msg) {
+			g_dbus_send_reply(dbus_conn, client->msg,
+							DBUS_TYPE_INVALID);
+			dbus_message_unref(client->msg);
+			client->msg = NULL;
+		}
+	} else {
+		client = NULL;
 	}
 
 	adapter->discovery_type = 0x00;
@@ -2074,7 +2089,10 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 	trigger_passive_scanning(adapter);
 
 done:
-	discovery_remove(client, false);
+	if (client)
+		discovery_remove(client, false);
+
+	g_free(ctx);
 }
 
 static int compare_sender(gconstpointer a, gconstpointer b)
@@ -2313,6 +2331,7 @@ static int discovery_stop(struct watch_client *client, bool exit)
 {
 	struct btd_adapter *adapter = client->adapter;
 	struct mgmt_cp_stop_discovery cp;
+	struct stop_discovery_context *ctx;
 
 	/* Check if there are more client discovering */
 	if (g_slist_next(adapter->discovery_list)) {
@@ -2356,9 +2375,16 @@ static int discovery_stop(struct watch_client *client, bool exit)
 
 	cp.type = adapter->discovery_type;
 
+	adapter->stop_discovery_list =
+		g_slist_prepend(adapter->stop_discovery_list, client);
+
+	ctx = g_new(struct stop_discovery_context, 1);
+	ctx->adapter = adapter;
+	ctx->client = client;
+
 	mgmt_send(adapter->mgmt, MGMT_OP_STOP_DISCOVERY,
 				adapter->dev_id, sizeof(cp), &cp,
-				stop_discovery_complete, client, NULL);
+				stop_discovery_complete, ctx, NULL);
 
 	return -EINPROGRESS;
 }
