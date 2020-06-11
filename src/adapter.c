@@ -202,7 +202,7 @@ struct discovery_filter {
 	bool discoverable;
 };
 
-struct watch_client {
+struct discovery_client {
 	struct btd_adapter *adapter;
 	DBusMessage *msg;
 	char *owner;
@@ -281,7 +281,7 @@ struct btd_adapter {
 					 */
 	/* current discovery filter, if any */
 	struct mgmt_cp_start_service_discovery *current_discovery_filter;
-	struct watch_client *client;	/* active discovery client */
+	struct discovery_client *client;	/* active discovery client */
 
 	GSList *discovery_found;	/* list of found devices */
 	guint discovery_idle_timeout;	/* timeout between discovery runs */
@@ -1639,7 +1639,7 @@ static void discovery_cleanup(struct btd_adapter *adapter)
 
 static void discovery_free(void *user_data)
 {
-	struct watch_client *client = user_data;
+	struct discovery_client *client = user_data;
 
 	DBG("%p", client);
 
@@ -1658,7 +1658,7 @@ static void discovery_free(void *user_data)
 	g_free(client);
 }
 
-static void discovery_remove(struct watch_client *client)
+static void discovery_remove(struct discovery_client *client)
 {
 	struct btd_adapter *adapter = client->adapter;
 
@@ -1691,10 +1691,10 @@ static void discovery_remove(struct watch_client *client)
 
 static void trigger_start_discovery(struct btd_adapter *adapter, guint delay);
 
-static struct watch_client *discovery_complete(struct btd_adapter *adapter,
+static struct discovery_client *discovery_complete(struct btd_adapter *adapter,
 						uint8_t status)
 {
-	struct watch_client *client = adapter->client;
+	struct discovery_client *client = adapter->client;
 	DBusMessage *reply;
 
 	if (!client)
@@ -1722,7 +1722,7 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
-	struct watch_client *client;
+	struct discovery_client *client;
 	const struct mgmt_cp_start_discovery *rp = param;
 
 	DBG("status 0x%02x", status);
@@ -2070,7 +2070,7 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
-	struct watch_client *client;
+	struct discovery_client *client;
 
 	DBG("status 0x%02x", status);
 
@@ -2094,7 +2094,7 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 
 static int compare_sender(gconstpointer a, gconstpointer b)
 {
-	const struct watch_client *client = a;
+	const struct discovery_client *client = a;
 	const char *sender = b;
 
 	return g_strcmp0(client->owner, sender);
@@ -2127,7 +2127,7 @@ static int merge_discovery_filters(struct btd_adapter *adapter, int *rssi,
 	bool has_filtered_discovery = false;
 
 	for (l = adapter->discovery_list; l != NULL; l = g_slist_next(l)) {
-		struct watch_client *client = l->data;
+		struct discovery_client *client = l->data;
 		struct discovery_filter *item = client->discovery_filter;
 
 		if (!item) {
@@ -2294,7 +2294,7 @@ static int update_discovery_filter(struct btd_adapter *adapter)
 	}
 
 	for (l = adapter->discovery_list; l; l = g_slist_next(l)) {
-		struct watch_client *client = l->data;
+		struct discovery_client *client = l->data;
 
 		if (!client->discovery_filter)
 			continue;
@@ -2324,7 +2324,7 @@ static int update_discovery_filter(struct btd_adapter *adapter)
 	return -EINPROGRESS;
 }
 
-static int discovery_stop(struct watch_client *client)
+static int discovery_stop(struct discovery_client *client)
 {
 	struct btd_adapter *adapter = client->adapter;
 	struct mgmt_cp_stop_discovery cp;
@@ -2381,7 +2381,7 @@ static int discovery_stop(struct watch_client *client)
 
 static void discovery_disconnect(DBusConnection *conn, void *user_data)
 {
-	struct watch_client *client = user_data;
+	struct discovery_client *client = user_data;
 
 	DBG("owner %s", client->owner);
 
@@ -2394,9 +2394,8 @@ static void discovery_disconnect(DBusConnection *conn, void *user_data)
  * Returns true if client was already discovering, false otherwise. *client
  * will point to discovering client, or client that have pre-set his filter.
  */
-static bool get_discovery_client(struct btd_adapter *adapter,
-						const char *owner,
-						struct watch_client **client)
+static bool get_discovery_client(struct btd_adapter *adapter, const char *owner,
+				struct discovery_client **client)
 {
 	GSList *list = g_slist_find_custom(adapter->discovery_list, owner,
 								compare_sender);
@@ -2421,7 +2420,7 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 {
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
-	struct watch_client *client;
+	struct discovery_client *client;
 	bool is_discovering;
 	int err;
 
@@ -2461,7 +2460,7 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 		goto done;
 	}
 
-	client = g_new0(struct watch_client, 1);
+	client = g_new0(struct discovery_client, 1);
 
 	client->adapter = adapter;
 	client->owner = g_strdup(sender);
@@ -2726,7 +2725,7 @@ static DBusMessage *set_discovery_filter(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
-	struct watch_client *client;
+	struct discovery_client *client;
 	struct discovery_filter *discovery_filter;
 	const char *sender = dbus_message_get_sender(msg);
 	bool is_discovering;
@@ -2763,7 +2762,7 @@ static DBusMessage *set_discovery_filter(DBusConnection *conn,
 		DBG("successfully cleared pre-set filter");
 	} else if (discovery_filter) {
 		/* Client pre-setting his filter for first time */
-		client = g_new0(struct watch_client, 1);
+		client = g_new0(struct discovery_client, 1);
 		client->adapter = adapter;
 		client->owner = g_strdup(sender);
 		client->discovery_filter = discovery_filter;
@@ -2784,7 +2783,7 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 {
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
-	struct watch_client *client;
+	struct discovery_client *client;
 	GSList *list;
 	int err;
 
@@ -7297,7 +7296,7 @@ static bool is_filter_match(GSList *discovery_filter, struct eir_data *eir_data,
 
 	for (l = discovery_filter; l != NULL && got_match != true;
 							l = g_slist_next(l)) {
-		struct watch_client *client = l->data;
+		struct discovery_client *client = l->data;
 		struct discovery_filter *item = client->discovery_filter;
 
 		/*
@@ -7345,7 +7344,7 @@ static bool is_filter_match(GSList *discovery_filter, struct eir_data *eir_data,
 
 static void filter_duplicate_data(void *data, void *user_data)
 {
-	struct watch_client *client = data;
+	struct discovery_client *client = data;
 	bool *duplicate = user_data;
 
 	if (*duplicate || !client->discovery_filter)
@@ -7375,7 +7374,7 @@ static bool device_is_discoverable(struct btd_adapter *adapter,
 
 	/* Do a prefix match for both address and name if pattern is set */
 	for (l = adapter->discovery_list; l; l = g_slist_next(l)) {
-		struct watch_client *client = l->data;
+		struct discovery_client *client = l->data;
 		struct discovery_filter *filter = client->discovery_filter;
 		size_t pattern_len;
 
