@@ -694,7 +694,7 @@ static void init_defaults(void)
 	main_opts.did_product = 0xc405;		/* Chrome OS */
 	main_opts.did_version = 0x0055;		/* Branch 85 */
 
-	main_opts.gatt_cache = BT_GATT_CACHE_YES;
+	main_opts.gatt_cache = BT_GATT_CACHE_ALWAYS;
 	main_opts.gatt_mtu = BT_ATT_MAX_LE_MTU;
 	main_opts.gatt_channels = 3;
 }
