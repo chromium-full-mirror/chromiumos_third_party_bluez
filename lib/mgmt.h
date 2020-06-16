@@ -1002,7 +1002,7 @@ static const char *mgmt_op[] = {
 	"Set Default System Configuration",
 	[0x4d ... 0x50] = "",
 	"Read Advertisement Monitor Features",
-	"Add Advertisement Monitor",
+	"Add Advertisement Patterns Monitor",
 	"Remove Advertisement Monitor",
 	[0x54 ... 0x63] = "",
 	"Set Kernel Debug",
