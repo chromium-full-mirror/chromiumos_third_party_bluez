@@ -217,12 +217,6 @@ static void client_remove(void *data)
 				LE_ADVERTISING_MGR_IFACE, "ActiveInstances");
 }
 
-/* A dummy wrapper of client_remove called in queue_foreach. */
-static void remove_advertisement(void *data, void *user_data)
-{
-	client_remove(data);
-}
-
 static void client_disconnect_cb(DBusConnection *conn, void *user_data)
 {
 	DBG("Client disconnected");
