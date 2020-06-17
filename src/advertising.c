@@ -1371,125 +1371,6 @@ static const GDBusPropertyTable properties[] = {
 	{ }
 };
 
-static void set_advertising_intervals_callback(uint8_t status, uint16_t length,
-					const void *param, void *user_data)
-{
-	DBusMessage *msg = user_data;
-	DBusMessage *reply;
-
-	switch (status) {
-	case MGMT_STATUS_SUCCESS:
-		reply = dbus_message_new_method_return(msg);
-		break;
-	case MGMT_STATUS_REJECTED:
-		reply = btd_error_failed(
-				msg, "A non-BLE device should not advertise!");
-		break;
-	case MGMT_STATUS_INVALID_PARAMS:
-		reply = btd_error_invalid_args(msg);
-		break;
-	case MGMT_STATUS_BUSY:
-		reply = btd_error_busy(msg);
-		break;
-	default:
-		reply = btd_error_failed(
-				msg, "failed to set advertising intervals");
-	}
-
-	g_dbus_send_message(btd_get_dbus_connection(), reply);
-	dbus_message_unref(msg);
-}
-
-static int adapter_set_advertising_intervals(struct btd_adv_manager *manager,
-						DBusMessage *msg,
-						uint16_t min_interval_ms,
-						uint16_t max_interval_ms)
-{
-	struct mgmt_cp_set_advertising_intervals cp;
-
-	memset(&cp, 0, sizeof(cp));
-
-	/* Convert milli-seconds to multiples of 0.625 ms which are used
-	 * in kernel.
-	 */
-	cp.min_interval = min_interval_ms / ADVERTISING_INTERVAL_UNIT_TIME;
-	cp.max_interval = max_interval_ms / ADVERTISING_INTERVAL_UNIT_TIME;
-
-	if (cp.min_interval == 0 && cp.max_interval == 0) {
-		btd_info(manager->mgmt_index, "Reset Advertising Intervals.");
-        } else {
-		btd_info(manager->mgmt_index,
-				"Set Advertising Intervals: 0x%04x, 0x%04x",
-				cp.min_interval, cp.max_interval);
-	}
-
-	if (mgmt_send(manager->mgmt,
-			MGMT_OP_SET_ADVERTISING_INTERVALS, manager->mgmt_index,
-			sizeof(cp), &cp, set_advertising_intervals_callback,
-			dbus_message_ref(msg), NULL) > 0) {
-		return true;
-	}
-
-	return false;
-}
-
-static DBusMessage *set_advertising_intervals(DBusConnection *conn,
-					DBusMessage *msg, void *user_data)
-{
-	struct btd_adv_manager *manager = user_data;
-	const char *sender = dbus_message_get_sender(msg);
-	dbus_uint16_t min_interval_ms, max_interval_ms;
-
-	DBG("set_advertising_intervals: sender %s", sender);
-
-	if (!dbus_message_get_args(msg, NULL,
-					DBUS_TYPE_UINT16, &min_interval_ms,
-					DBUS_TYPE_UINT16, &max_interval_ms,
-					DBUS_TYPE_INVALID)) {
-		return btd_error_invalid_args(msg);
-	}
-
-	/* The adapter is not required to be powered to set advertising
-	 * intervals. Hence, just go ahead to set the intervals.
-	 */
-	if (!adapter_set_advertising_intervals(manager, msg, min_interval_ms,
-						max_interval_ms)) {
-		return btd_error_failed(msg,
-					"failed to set advertising intervals");
-	}
-
-	return NULL;
-}
-
-static DBusMessage *reset_advertising(DBusConnection *conn, DBusMessage *msg,
-					void *user_data)
-{
-	struct btd_adv_manager *manager = user_data;
-	const char *sender = dbus_message_get_sender(msg);
-
-	DBG("reset_advertising: sender %s", sender);
-
-	/* if manager->ads is empty, no need to remove any advertisements. */
-	if (queue_isempty(manager->clients)) {
-		btd_info(manager->mgmt_index,
-				"hci%d: no advertisements to clear",
-				manager->mgmt_index);
-	} else {
-		/* Remove advertisements one by one. The advertising would be
-                 * disabled when the last one is removed.
-                 */
-		queue_foreach(manager->clients, remove_advertisement, NULL);
-	}
-
-	/* Reset the advertising intervals to default by assigning 0, 0. */
-	if (!adapter_set_advertising_intervals(manager, msg, 0, 0)) {
-		return btd_error_failed(msg,
-					"failed to set advertising intervals");
-	}
-
-	return dbus_message_new_method_return(msg);
-}
-
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_ASYNC_METHOD("RegisterAdvertisement",
 					GDBUS_ARGS({ "advertisement", "o" },
@@ -1499,12 +1380,6 @@ static const GDBusMethodTable methods[] = {
 						GDBUS_ARGS({ "service", "o" }),
 						NULL,
 						unregister_advertisement) },
-	{ GDBUS_ASYNC_METHOD("SetAdvertisingIntervals",
-				GDBUS_ARGS({"min_interval_ms", "q"},
-						{"max_interval_ms", "q"}),
-				NULL, set_advertising_intervals)},
-	{ GDBUS_ASYNC_METHOD("ResetAdvertising", NULL, NULL,
-						reset_advertising) },
 	{ }
 };
 
