@@ -140,8 +140,12 @@ static void stream_state_changed(struct avdtp_stream *stream,
 	struct btd_service *service = user_data;
 	struct source *source = btd_service_get_user_data(service);
 
-	if (err)
+	if (err) {
+		SETUP_ASSERT_VALID();
 		return;
+	}
+
+	SETUP_ASSERT_VALID();
 
 	switch (new_state) {
 	case AVDTP_STATE_IDLE:
@@ -158,18 +162,22 @@ static void stream_state_changed(struct avdtp_stream *stream,
 		}
 		source->stream = NULL;
 		source->cb_id = 0;
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_OPEN:
 		btd_service_connecting_complete(source->service, 0);
 		source_set_state(source, SOURCE_STATE_CONNECTED);
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_STREAMING:
 		source_set_state(source, SOURCE_STATE_PLAYING);
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_CONFIGURED:
 	case AVDTP_STATE_CLOSING:
 	case AVDTP_STATE_ABORTING:
 	default:
+		SETUP_ASSERT_VALID();
 		break;
 	}
 

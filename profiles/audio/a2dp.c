@@ -73,6 +73,8 @@
 
 #define MEDIA_ENDPOINT_INTERFACE "org.bluez.MediaEndpoint1"
 
+struct a2dp_setup *setup_to_assert = NULL;
+
 struct a2dp_sep {
 	struct a2dp_server *server;
 	struct a2dp_endpoint *endpoint;
@@ -159,6 +161,14 @@ struct a2dp_channel {
 static GSList *servers = NULL;
 static GSList *setups = NULL;
 static unsigned int cb_id = 0;
+
+void setup_assert_valid()
+{
+	if (setup_to_assert && !g_slist_find(setups, setup_to_assert)) {
+		error("Trying to unref a non-existing setup");
+		abort();
+	}
+}
 
 static struct a2dp_setup *setup_ref(struct a2dp_setup *setup)
 {
@@ -349,6 +359,7 @@ static gboolean finalize_resume(gpointer data)
 		cb->resume_cb(s->session, error_to_errno(s->err),
 							cb->user_data);
 		setup_cb_free(cb);
+		SETUP_ASSERT_VALID();
 	}
 
 	return FALSE;
@@ -460,6 +471,7 @@ static void stream_state_changed(struct avdtp_stream *stream,
 {
 	struct a2dp_sep *sep = user_data;
 
+	SETUP_ASSERT_VALID();
 	if (new_state == AVDTP_STATE_OPEN) {
 		struct a2dp_setup *setup;
 		int err;
@@ -475,31 +487,39 @@ static void stream_state_changed(struct avdtp_stream *stream,
 			error("avdtp_start: %s (%d)", strerror(-err), -err);
 			finalize_setup_errno(setup, err, finalize_resume,
 									NULL);
+			SETUP_ASSERT_VALID();
 			return;
 		}
 
 		sep->starting = TRUE;
 
+		SETUP_ASSERT_VALID();
 		return;
 	}
 
-	if (new_state != AVDTP_STATE_IDLE)
+	if (new_state != AVDTP_STATE_IDLE) {
+		SETUP_ASSERT_VALID();
 		return;
+	}
 
 	if (sep->suspend_timer) {
 		g_source_remove(sep->suspend_timer);
 		sep->suspend_timer = 0;
+		SETUP_ASSERT_VALID();
 	}
 
 	if (sep->session) {
 		avdtp_unref(sep->session);
 		sep->session = NULL;
+		SETUP_ASSERT_VALID();
 	}
 
 	sep->stream = NULL;
 
-	if (sep->endpoint && sep->endpoint->clear_configuration)
+	if (sep->endpoint && sep->endpoint->clear_configuration) {
 		sep->endpoint->clear_configuration(sep, sep->user_data);
+		SETUP_ASSERT_VALID();
+	}
 }
 
 static gboolean auto_config(gpointer data)
@@ -950,6 +970,8 @@ static void open_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 	struct a2dp_setup *setup;
 
+	SETUP_ASSERT_VALID();
+
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
 		DBG("Sink %p: Open_Cfm", sep);
 	else
@@ -959,6 +981,8 @@ static void open_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	if (!setup)
 		return;
 
+	SETUP_ASSERT_VALID();
+
 	if (setup->reconfigure)
 		setup->reconfigure = FALSE;
 
@@ -967,10 +991,14 @@ static void open_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 		setup->err = err;
 		if (setup->start)
 			finalize_resume(setup);
-	} else if (setup->chan)
+		SETUP_ASSERT_VALID();
+	} else if (setup->chan) {
 		update_last_used(setup->chan, a2dp_sep, stream);
+		SETUP_ASSERT_VALID();
+	}
 
 	finalize_config(setup);
+	SETUP_ASSERT_VALID();
 
 	return;
 }
@@ -1287,6 +1315,7 @@ static void abort_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 	struct a2dp_setup *setup;
 
+	SETUP_ASSERT_VALID();
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
 		DBG("Sink %p: Abort_Cfm", sep);
 	else
@@ -1302,6 +1331,7 @@ static void abort_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	}
 
 	setup_unref(setup);
+	SETUP_ASSERT_VALID();
 }
 
 static gboolean reconf_ind(struct avdtp *session, struct avdtp_local_sep *sep,
@@ -2203,6 +2233,11 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 		return;
 	}
 
+	/* Begin spying on setup */
+	setup_to_assert = setup;
+
+	SETUP_ASSERT_VALID();
+
 	if (err) {
 		error("%s", err->message);
 		goto drop;
@@ -2210,6 +2245,9 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 
 	bt_io_get(io, &err, BT_IO_OPT_OMTU, &omtu, BT_IO_OPT_IMTU, &imtu,
 							BT_IO_OPT_INVALID);
+
+	SETUP_ASSERT_VALID();
+
 	if (err) {
 		error("%s", err->message);
 		g_error_free(err);
@@ -2221,18 +2259,27 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 					imtu, omtu))
 		goto drop;
 
+	SETUP_ASSERT_VALID();
+
 	g_io_channel_set_close_on_unref(io, FALSE);
 
 	g_io_channel_unref(setup->io);
 	setup->io = NULL;
 
+	SETUP_ASSERT_VALID();
+
 	setup_unref(setup);
+
+	/* End spying on setup */
+	setup_to_assert = NULL;
 
 	return;
 
 drop:
 	setup_unref(setup);
 	g_io_channel_shutdown(io, TRUE, NULL);
+	/* End spying on setup */
+	setup_to_assert = NULL;
 
 }
 static void confirm_cb(GIOChannel *io, gpointer data)
@@ -2993,6 +3040,7 @@ gboolean a2dp_cancel(unsigned int id)
 {
 	GSList *ls;
 
+	SETUP_ASSERT_VALID();
 	for (ls = setups; ls != NULL; ls = g_slist_next(ls)) {
 		struct a2dp_setup *setup = ls->data;
 		GSList *l;
@@ -3012,9 +3060,12 @@ gboolean a2dp_cancel(unsigned int id)
 			}
 
 			setup_unref(setup);
+			SETUP_ASSERT_VALID();
 			return TRUE;
 		}
 	}
+
+	SETUP_ASSERT_VALID();
 
 	return FALSE;
 }

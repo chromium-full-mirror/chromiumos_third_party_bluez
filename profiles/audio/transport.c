@@ -792,6 +792,8 @@ static void sink_state_changed(struct btd_service *service,
 		transport_update_playing(transport, TRUE);
 	else
 		transport_update_playing(transport, FALSE);
+
+	SETUP_ASSERT_VALID();
 }
 
 static void source_state_changed(struct btd_service *service,
@@ -805,6 +807,8 @@ static void source_state_changed(struct btd_service *service,
 		transport_update_playing(transport, TRUE);
 	else
 		transport_update_playing(transport, FALSE);
+
+	SETUP_ASSERT_VALID();
 }
 
 static int media_transport_init_source(struct media_transport *transport)

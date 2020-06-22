@@ -51,6 +51,7 @@
 #include "avdtp.h"
 #include "sink.h"
 #include "source.h"
+#include "a2dp.h"
 
 #define AVDTP_PSM 25
 
@@ -792,6 +793,8 @@ static void handle_transport_connect(struct avdtp *session, GIOChannel *io,
 	int sk, buf_size, min_buf_size;
 	GError *err = NULL;
 
+	SETUP_ASSERT_VALID();
+
 	session->pending_open = NULL;
 
 	if (stream->timer) {
@@ -799,18 +802,24 @@ static void handle_transport_connect(struct avdtp *session, GIOChannel *io,
 		stream->timer = 0;
 	}
 
+	SETUP_ASSERT_VALID();
+
 	if (io == NULL) {
 		if (!stream->open_acp && sep->cfm && sep->cfm->open) {
 			struct avdtp_error err;
 			avdtp_error_init(&err, AVDTP_ERRNO, EIO);
+			SETUP_ASSERT_VALID();
 			sep->cfm->open(session, sep, NULL, &err,
 					sep->user_data);
+			SETUP_ASSERT_VALID();
 		}
 		return;
 	}
 
 	if (stream->io == NULL)
 		stream->io = g_io_channel_ref(io);
+
+	SETUP_ASSERT_VALID();
 
 	stream->omtu = omtu;
 	stream->imtu = imtu;
@@ -821,6 +830,7 @@ static void handle_transport_connect(struct avdtp *session, GIOChannel *io,
 
 	bt_io_set(stream->io, &err, BT_IO_OPT_FLUSHABLE, TRUE,
 							BT_IO_OPT_INVALID);
+	SETUP_ASSERT_VALID();
 	if (err != NULL) {
 		error("Enabling flushable packets failed: %s", err->message);
 		g_error_free(err);
@@ -829,11 +839,13 @@ static void handle_transport_connect(struct avdtp *session, GIOChannel *io,
 
 	sk = g_io_channel_unix_get_fd(stream->io);
 	buf_size = get_send_buffer_size(sk);
+	SETUP_ASSERT_VALID();
 	if (buf_size < 0)
 		goto proceed;
 
 	DBG("sk %d, omtu %d, send buffer size %d", sk, omtu, buf_size);
 	min_buf_size = omtu * 2;
+	SETUP_ASSERT_VALID();
 	if (buf_size < min_buf_size) {
 		DBG("send buffer size to be increassed to %d",
 				min_buf_size);
@@ -841,10 +853,15 @@ static void handle_transport_connect(struct avdtp *session, GIOChannel *io,
 	}
 
 proceed:
+	SETUP_ASSERT_VALID();
 	if (!stream->open_acp && sep->cfm && sep->cfm->open)
 		sep->cfm->open(session, sep, stream, NULL, sep->user_data);
 
+	SETUP_ASSERT_VALID();
+
 	avdtp_sep_set_state(session, sep, AVDTP_STATE_OPEN);
+
+	SETUP_ASSERT_VALID();
 
 	stream->io_id = g_io_add_watch(io, G_IO_ERR | G_IO_HUP | G_IO_NVAL,
 					(GIOFunc) transport_cb, stream);
@@ -952,20 +969,24 @@ static void avdtp_sep_set_state(struct avdtp *session,
 	struct avdtp_error err, *err_ptr = NULL;
 	GSList *l;
 
+	SETUP_ASSERT_VALID();
 	if (!stream) {
 		error("Error changing sep state: stream not available");
 		return;
 	}
 
+	SETUP_ASSERT_VALID();
 	if (sep->state == state) {
 		avdtp_error_init(&err, AVDTP_ERRNO, EIO);
 		DBG("stream state change failed: %s", avdtp_strerror(&err));
 		err_ptr = &err;
+		SETUP_ASSERT_VALID();
 	} else {
 		err_ptr = NULL;
 		DBG("stream state changed: %s -> %s",
 				avdtp_statestr(sep->state),
 				avdtp_statestr(state));
+		SETUP_ASSERT_VALID();
 	}
 
 	old_state = sep->state;
@@ -975,9 +996,11 @@ static void avdtp_sep_set_state(struct avdtp *session,
 	case AVDTP_STATE_CONFIGURED:
 		if (sep->info.type == AVDTP_SEP_TYPE_SINK)
 			avdtp_delay_report(session, stream, stream->delay);
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_OPEN:
 		stream->starting = FALSE;
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_STREAMING:
 		if (stream->start_timer) {
@@ -985,6 +1008,7 @@ static void avdtp_sep_set_state(struct avdtp *session,
 			stream->start_timer = 0;
 		}
 		stream->open_acp = FALSE;
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_CLOSING:
 	case AVDTP_STATE_ABORTING:
@@ -992,6 +1016,7 @@ static void avdtp_sep_set_state(struct avdtp *session,
 			g_source_remove(stream->start_timer);
 			stream->start_timer = 0;
 		}
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_IDLE:
 		if (stream->start_timer) {
@@ -1005,8 +1030,10 @@ static void avdtp_sep_set_state(struct avdtp *session,
 		/* Remove pending commands for this stream from the queue */
 		cleanup_queue(session, stream);
 		session->streams = g_slist_remove(session->streams, stream);
+		SETUP_ASSERT_VALID();
 		break;
 	default:
+		SETUP_ASSERT_VALID();
 		break;
 	}
 
@@ -1015,10 +1042,12 @@ static void avdtp_sep_set_state(struct avdtp *session,
 		struct stream_callback *cb = l->data;
 		l = g_slist_next(l);
 		cb->cb(stream, old_state, state, err_ptr, cb->user_data);
+		SETUP_ASSERT_VALID();
 	}
 
 	if (state == AVDTP_STATE_IDLE)
 		stream_free(stream);
+	SETUP_ASSERT_VALID();
 }
 
 static void finalize_discovery(struct avdtp *session, int err)
@@ -3137,9 +3166,15 @@ gboolean avdtp_stream_set_transport(struct avdtp_stream *stream, int fd,
 
 	io = g_io_channel_unix_new(fd);
 
+	SETUP_ASSERT_VALID();
+
 	handle_transport_connect(stream->session, io, imtu, omtu);
 
+	SETUP_ASSERT_VALID();
+
 	g_io_channel_unref(io);
+
+	SETUP_ASSERT_VALID();
 
 	return TRUE;
 }
