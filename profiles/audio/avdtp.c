@@ -51,6 +51,7 @@
 #include "avdtp.h"
 #include "sink.h"
 #include "source.h"
+#include "a2dp.h"
 
 #define AVDTP_PSM 25
 
@@ -841,8 +842,11 @@ static void handle_transport_connect(struct avdtp *session, GIOChannel *io,
 	}
 
 proceed:
+	SETUP_ASSERT_VALID();
 	if (!stream->open_acp && sep->cfm && sep->cfm->open)
 		sep->cfm->open(session, sep, stream, NULL, sep->user_data);
+
+	SETUP_ASSERT_VALID();
 
 	avdtp_sep_set_state(session, sep, AVDTP_STATE_OPEN);
 
@@ -1166,6 +1170,8 @@ static void set_disconnect_timer(struct avdtp *session)
 
 void avdtp_unref(struct avdtp *session)
 {
+	SETUP_ASSERT_VALID();
+
 	if (!session)
 		return;
 
@@ -1173,19 +1179,24 @@ void avdtp_unref(struct avdtp *session)
 
 	DBG("%p: ref=%d", session, session->ref);
 
+	SETUP_ASSERT_VALID();
+
 	if (session->ref > 0)
 		return;
 
 	switch (session->state) {
 	case AVDTP_SESSION_STATE_CONNECTED:
 		set_disconnect_timer(session);
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_SESSION_STATE_CONNECTING:
 		connection_lost(session, ECONNABORTED);
+		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_SESSION_STATE_DISCONNECTED:
 	default:
 		avdtp_free(session);
+		SETUP_ASSERT_VALID();
 		break;
 	}
 }

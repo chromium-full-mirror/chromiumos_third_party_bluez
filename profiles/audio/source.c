@@ -182,14 +182,18 @@ static void stream_setup_complete(struct avdtp *session, struct a2dp_sep *sep,
 {
 	struct source *source = user_data;
 
+	SETUP_ASSERT_VALID();
+
 	source->connect_id = 0;
 
 	if (stream)
 		return;
 
 	avdtp_unref(source->session);
+	SETUP_ASSERT_VALID();
 	source->session = NULL;
 	btd_service_connecting_complete(source->service, err);
+	SETUP_ASSERT_VALID();
 }
 
 static void select_complete(struct avdtp *session, struct a2dp_sep *sep,
