@@ -231,6 +231,11 @@ static void setup_free(struct a2dp_setup *s)
 
 static void setup_unref(struct a2dp_setup *setup)
 {
+	if (!g_slist_find(setups, setup)) {
+		error("Trying to unref a non-existing setup");
+		abort();
+	}
+
 	setup->ref--;
 
 	DBG("%p: ref=%d", setup, setup->ref);
