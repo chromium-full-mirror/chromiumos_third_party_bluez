@@ -400,7 +400,7 @@ bool metrics_send_per_profile_enum(metrics_per_profile_type type,
 		return false;
 	}
 
-	if (sample <= 0 || sample >= max) {
+	if (sample < 0 || sample >= max) {
 		DBG("Invalid sample:%d, max:%d type:%d", sample, max, type);
 		return false;
 	}
