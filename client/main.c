@@ -55,6 +55,11 @@ static DBusConnection *dbus_conn;
 static GDBusProxy *agent_manager;
 static char *auto_register_agent = NULL;
 
+/* Restrict operations for use in restricted shells such as crosh.
+ * This is done to avoid crosh being an avenue to override the deployed
+ * enterprise policies */
+static int restrict_operations = 0;
+
 struct adapter {
 	GDBusProxy *proxy;
 	GDBusProxy *ad_proxy;
@@ -1012,6 +1017,11 @@ static void cmd_power(int argc, char *argv[])
 {
 	dbus_bool_t powered;
 	char *str;
+
+	if (restrict_operations) {
+		bt_shell_printf("Power operations not allowed\n");
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
 
 	if (!parse_argument(argc, argv, NULL, NULL, &powered, NULL))
 		return bt_shell_noninteractive_quit(EXIT_FAILURE);
@@ -2827,17 +2837,21 @@ static const struct bt_shell_menu main_menu = {
 
 static const struct option options[] = {
 	{ "agent",	required_argument, 0, 'a' },
+	{ "restricted",	no_argument, &restrict_operations, 1 },
 	{ 0, 0, 0, 0 }
 };
 
 static const char *agent_option;
+static const char *restricted_option;
 
 static const char **optargs[] = {
-	&agent_option
+	&agent_option,
+	&restricted_option
 };
 
 static const char *help[] = {
-	"Register agent handler: <capability>"
+	"Register agent handler: <capability>",
+	"Enable restricted mode"
 };
 
 static const struct bt_shell_opt opt = {
