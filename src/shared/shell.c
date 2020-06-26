@@ -1119,7 +1119,8 @@ void bt_shell_init(int argc, char **argv, const struct bt_shell_opt *opt)
 				}
 			}
 
-			if (c != opt->options[index - offset].val) {
+			if (!opt->options[index - offset].flag &&
+					c != opt->options[index - offset].val) {
 				usage(argc, argv, opt);
 				exit(EXIT_SUCCESS);
 				return;
