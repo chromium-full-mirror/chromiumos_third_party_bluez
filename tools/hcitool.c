@@ -2500,7 +2500,7 @@ static const char *lescan_help =
 	"\tlescan [--whitelist] scan for address in the whitelist only\n"
 	"\tlescan [--discovery=g|l] enable general or limited discovery"
 		"procedure\n"
-	"\tlescan [--duplicates] don't filter duplicates\n";
+	"\tlescan [--duplicates] don't filter duplicates\n"
 	"\tlescan [--lowduty] scan with 25%% duty\n";
 
 static void cmd_lescan(int dev_id, int argc, char **argv)
