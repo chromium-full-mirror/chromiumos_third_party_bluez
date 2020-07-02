@@ -693,10 +693,6 @@ struct mgmt_rp_remove_adv_monitor {
 /*
  * Begin chromium only op_codes
  */
-#define MGMT_OP_SET_KERNEL_DEBUG			0x0064
-struct mgmt_cp_set_kernel_debug {
-       uint8_t enabled;
-} __packed;
 
 #define MGMT_OP_SET_WAKE_CAPABLE			0x0065
 #define MGMT_SET_WAKE_CAPABLE_SIZE			8
@@ -1030,8 +1026,7 @@ static const char *mgmt_op[] = {
 	"Read Advertisement Monitor Features",
 	"Add Advertisement Patterns Monitor",
 	"Remove Advertisement Monitor",
-	[0x54 ... 0x63] = "",
-	"Set Kernel Debug",
+	[0x54 ... 0x64] = "",
 	"Set Wake Capable",
 };
 
