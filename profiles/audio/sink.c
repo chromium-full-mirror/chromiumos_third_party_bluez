@@ -89,7 +89,6 @@ static void sink_set_state(struct sink *sink, sink_state_t new_state)
 	sink_state_t old_state = sink->state;
 	GSList *l;
 
-	SETUP_ASSERT_VALID();
 	sink->state = new_state;
 
 	DBG("State changed %s: %s -> %s", device_get_path(dev),
@@ -102,18 +101,14 @@ static void sink_set_state(struct sink *sink, sink_state_t new_state)
 			continue;
 
 		cb->cb(service, old_state, new_state, cb->user_data);
-		SETUP_ASSERT_VALID();
 	}
 
-	if (new_state != SINK_STATE_DISCONNECTED) {
-		SETUP_ASSERT_VALID();
+	if (new_state != SINK_STATE_DISCONNECTED)
 		return;
-	}
 
 	if (sink->session) {
 		avdtp_unref(sink->session);
 		sink->session = NULL;
-		SETUP_ASSERT_VALID();
 	}
 }
 
@@ -148,12 +143,8 @@ static void stream_state_changed(struct avdtp_stream *stream,
 	struct btd_service *service = user_data;
 	struct sink *sink = btd_service_get_user_data(service);
 
-	if (err) {
-		SETUP_ASSERT_VALID();
+	if (err)
 		return;
-	}
-
-	SETUP_ASSERT_VALID();
 
 	switch (new_state) {
 	case AVDTP_STATE_IDLE:
@@ -170,22 +161,18 @@ static void stream_state_changed(struct avdtp_stream *stream,
 		}
 		sink->stream = NULL;
 		sink->cb_id = 0;
-		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_OPEN:
 		btd_service_connecting_complete(sink->service, 0);
 		sink_set_state(sink, SINK_STATE_CONNECTED);
-		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_STREAMING:
 		sink_set_state(sink, SINK_STATE_PLAYING);
-		SETUP_ASSERT_VALID();
 		break;
 	case AVDTP_STATE_CONFIGURED:
 	case AVDTP_STATE_CLOSING:
 	case AVDTP_STATE_ABORTING:
 	default:
-		SETUP_ASSERT_VALID();
 		break;
 	}
 
