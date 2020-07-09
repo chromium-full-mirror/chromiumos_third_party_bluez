@@ -7624,9 +7624,6 @@ static void adapter_stop(struct btd_adapter *adapter)
 
 	discovery_cleanup(adapter);
 
-	/* Remove temp devices upon BT OFF/ON */
-	remove_temp_devices(adapter);
-
 	adapter->filtered_discovery = false;
 	adapter->no_scan_restart_delay = false;
 	g_free(adapter->current_discovery_filter);
