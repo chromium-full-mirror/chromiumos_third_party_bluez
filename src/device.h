@@ -142,11 +142,6 @@ void device_store_svc_chng_ccc(struct btd_device *device, uint8_t bdaddr_type,
 								uint16_t value);
 void device_load_svc_chng_ccc(struct btd_device *device, uint16_t *ccc_le,
 							uint16_t *ccc_bredr);
-bool device_get_profile_wake_support(struct btd_device *device);
-void device_set_profile_wake_support(struct btd_device *device,
-				     bool wake_support);
-bool device_get_wake_capable(struct btd_device *device);
-void device_set_wake_capable(struct btd_device *device, bool wake_capable);
 
 typedef void (*disconnect_watch) (struct btd_device *device, gboolean removal,
 					void *user_data);
