@@ -161,7 +161,6 @@ static int hog_probe(struct btd_service *service)
 
 	btd_service_set_user_data(service, dev);
 	device_set_profile_wake_support(device, true);
-	adapter_set_wake_capable(device_get_adapter(device), device, true);
 	return 0;
 }
 
