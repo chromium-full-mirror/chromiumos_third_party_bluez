@@ -80,7 +80,6 @@ struct btd_gatt_database {
 	struct gatt_db_attribute *svc_chngd;
 	struct gatt_db_attribute *svc_chngd_ccc;
 	struct gatt_db_attribute *cli_feat;
-	struct gatt_db_attribute *db_hash;
 	struct gatt_db_attribute *eatt;
 	struct queue *apps;
 	struct queue *profiles;
@@ -1148,31 +1147,6 @@ done:
 	gatt_db_attribute_write_result(attrib, id, ecode);
 }
 
-static void db_hash_read_cb(struct gatt_db_attribute *attrib,
-					unsigned int id, uint16_t offset,
-					uint8_t opcode, struct bt_att *att,
-					void *user_data)
-{
-	struct btd_gatt_database *database = user_data;
-	const uint8_t *hash;
-	struct device_state *state;
-	bdaddr_t bdaddr;
-	uint8_t bdaddr_type;
-
-	DBG("Database Hash read");
-
-	hash = gatt_db_get_hash(database->db);
-
-	gatt_db_attribute_read_result(attrib, id, 0, hash, 16);
-
-	if (!get_dst_info(att, &bdaddr, &bdaddr_type))
-		return;
-
-	state = find_device_state(database, &bdaddr, bdaddr_type);
-	if (state)
-		state->change_aware = true;
-}
-
 static void server_feat_read_cb(struct gatt_db_attribute *attrib,
 					unsigned int id, uint16_t offset,
 					uint8_t opcode, struct bt_att *att,
@@ -1202,7 +1176,7 @@ static void populate_gatt_service(struct btd_gatt_database *database)
 
 	/* Add the GATT service */
 	bt_uuid16_create(&uuid, UUID_GATT);
-	service = gatt_db_add_service(database->db, &uuid, true, 10);
+	service = gatt_db_add_service(database->db, &uuid, true, 8);
 
 	bt_uuid16_create(&uuid, GATT_CHARAC_SERVICE_CHANGED);
 	database->svc_chngd = gatt_db_service_add_characteristic(service, &uuid,
@@ -1219,11 +1193,6 @@ static void populate_gatt_service(struct btd_gatt_database *database)
 				BT_GATT_CHRC_PROP_WRITE,
 				cli_feat_read_cb, cli_feat_write_cb,
 				NULL, database);
-
-	bt_uuid16_create(&uuid, GATT_CHARAC_DB_HASH);
-	database->db_hash = gatt_db_service_add_characteristic(service,
-				&uuid, BT_ATT_PERM_READ, BT_GATT_CHRC_PROP_READ,
-				db_hash_read_cb, NULL, NULL, database);
 
 	/* Only enable EATT if there is a socket listening */
 	if (database->eatt_io) {

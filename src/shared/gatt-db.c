@@ -241,7 +241,7 @@ struct gatt_db *gatt_db_new(void)
 	struct gatt_db *db;
 
 	db = new0(struct gatt_db, 1);
-	db->crypto = bt_crypto_new();
+	db->crypto = NULL;
 	db->services = queue_new();
 	db->notify_list = queue_new();
 	db->next_handle = 0x0001;
