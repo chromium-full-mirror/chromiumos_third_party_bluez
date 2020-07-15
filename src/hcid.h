@@ -47,6 +47,7 @@ struct main_opts {
 	gboolean	pairable;
 	uint32_t	pairto;
 	uint32_t	discovto;
+	uint32_t	tmpto;
 	uint8_t		privacy;
 
 	struct {
