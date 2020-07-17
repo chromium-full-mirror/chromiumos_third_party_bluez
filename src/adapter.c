@@ -2044,14 +2044,6 @@ static void discovering_callback(uint16_t index, uint16_t length,
 	}
 }
 
-static void reset_temp_devices_timeout(struct btd_adapter *adapter)
-{
-	if (adapter->temp_devices_timeout > 0) {
-		g_source_remove(adapter->temp_devices_timeout);
-		adapter->temp_devices_timeout = 0;
-	}
-}
-
 static bool set_discovery_discoverable(struct btd_adapter *adapter, bool enable)
 {
 	if (adapter->discovery_discoverable == enable)
