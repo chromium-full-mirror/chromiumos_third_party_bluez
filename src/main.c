@@ -130,6 +130,7 @@ static const char *controller_options[] = {
 	"LEConnectionLatency",
 	"LEConnectionSupervisionTimeout",
 	"LEAutoconnecttimeout",
+	"EirMaxNameLength",
 	NULL
 };
 
@@ -440,6 +441,10 @@ static void parse_controller_config(GKeyFile *config)
 		  &main_opts.default_params.le_autoconnect_timeout,
 		  0x0001,
 		  0x4000},
+		{ "EirMaxNameLength",
+		  &main_opts.default_params.eir_max_name_len,
+		  0x0001,
+		  0x00EE},
 	};
 	uint16_t i;
 
