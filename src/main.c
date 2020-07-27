@@ -106,6 +106,7 @@ static const char *br_options[] = {
 	"PageTimeout",
 	"MinSniffInterval",
 	"MaxSniffInterval",
+	"EirMaxNameLength",
 	NULL
 };
 
@@ -420,6 +421,11 @@ static void parse_br_config(GKeyFile *config)
 		  sizeof(btd_opts.defaults.br.max_sniff_interval),
 		  0x0001,
 		  0xFFFE},
+		{ "EirMaxNameLength",
+		  &btd_opts.defaults.br.eir_max_name_len,
+		  sizeof(btd_opts.defaults.br.eir_max_name_len),
+		  0x0001,
+		  0x00EE},
 	};
 
 	if (btd_opts.mode == BT_MODE_LE)
