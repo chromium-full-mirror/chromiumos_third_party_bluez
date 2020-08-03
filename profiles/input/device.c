@@ -111,6 +111,7 @@ void input_set_classic_bonded_only(bool state)
 
 static void input_device_enter_reconnect_mode(struct input_device *idev);
 static int connection_disconnect(struct input_device *idev, uint32_t flags);
+static int uhid_disconnect(struct input_device *idev);
 
 static void input_device_free(struct input_device *idev)
 {
@@ -366,6 +367,10 @@ static gboolean intr_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data
 
 	/* Enter the auto-reconnect mode if needed */
 	input_device_enter_reconnect_mode(idev);
+
+	/* If connection abruptly ended, uhid might be not yet disconnected */
+	if (idev->uhid_created)
+		uhid_disconnect(idev);
 
 	return FALSE;
 }
@@ -940,6 +945,28 @@ static int uhid_connadd(struct input_device *idev, struct hidp_connadd_req *req)
 	return err;
 }
 
+static int uhid_disconnect(struct input_device *idev)
+{
+	int err;
+	struct uhid_event ev;
+
+	if (!idev->uhid_created)
+		return 0;
+
+	memset(&ev, 0, sizeof(ev));
+	ev.type = UHID_DESTROY;
+
+	err = bt_uhid_send(idev->uhid, &ev);
+	if (err < 0) {
+		error("bt_uhid_send: %s", strerror(-err));
+		return err;
+	}
+
+	idev->uhid_created = false;
+
+	return err;
+}
+
 static gboolean encrypt_notify(GIOChannel *io, GIOCondition condition,
 								gpointer data)
 {
@@ -1096,7 +1123,7 @@ static int connection_disconnect(struct input_device *idev, uint32_t flags)
 	}
 
 	if (idev->uhid)
-		return 0;
+		return uhid_disconnect(idev);
 	else
 		return ioctl_disconnect(idev, flags);
 }
