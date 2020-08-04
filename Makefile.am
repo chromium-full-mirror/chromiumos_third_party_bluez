@@ -195,7 +195,7 @@ src_bluetoothd_SOURCES = $(bluetoothd_sources) src/main.c
 src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 			gdbus/libgdbus-internal.la \
 			src/libshared-glib.la \
-			-lmetrics-$(BASE_VER) \
+			-lmetrics \
 			@BACKTRACE_LIBS@ @GLIB_LIBS@ @DBUS_LIBS@ -ldl -lrt \
 			$(builtin_ldadd)
 src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
@@ -233,7 +233,7 @@ unit_metrics_unittests_SOURCES = $(bluetoothd_sources) src/metrics_unittests.c
 unit_metrics_unittests_LDADD = lib/libbluetooth-internal.la \
 			gdbus/libgdbus-internal.la \
 			src/libshared-glib.la \
-			-lmetrics-$(BASE_VER) \
+			-lmetrics \
 			@BACKTRACE_LIBS@ @GLIB_LIBS@ @DBUS_LIBS@ -ldl -lrt \
 			$(builtin_ldadd)
 unit_metrics_unittests_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic
