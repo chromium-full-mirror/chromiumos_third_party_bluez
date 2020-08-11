@@ -93,10 +93,3 @@ struct avdtp_stream *a2dp_sep_get_stream(struct a2dp_sep *sep);
 struct btd_device *a2dp_setup_get_device(struct a2dp_setup *setup);
 const char *a2dp_setup_remote_path(struct a2dp_setup *setup);
 struct avdtp *a2dp_avdtp_get(struct btd_device *device);
-
-extern struct a2dp_setup *setup_to_assert;
-void setup_assert_valid();
-#define SETUP_ASSERT_VALID() \
-{ \
-	setup_assert_valid(__FILE__, __func__, __LINE__); \
-}
