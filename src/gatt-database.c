@@ -153,7 +153,6 @@ struct pending_op {
 	unsigned int id;
 	uint16_t offset;
 	uint8_t link_type;
-	uint8_t cccd_value;
 	bool prepare_write;
 	bool has_subsequent_write;
 	struct gatt_db_attribute *attrib;
@@ -184,8 +183,7 @@ struct device_state {
 	struct notify *pending;
 };
 
-typedef uint8_t (*btd_gatt_database_ccc_write_t) (struct btd_device* device,
-							struct pending_op *op,
+typedef uint8_t (*btd_gatt_database_ccc_write_t) (struct pending_op *op,
 							void *user_data);
 typedef void (*btd_gatt_database_destroy_t) (void *data);
 
@@ -318,7 +316,7 @@ static void clear_ccc_state(void *data, void *user_data)
 		return;
 
 	if (ccc_cb->callback)
-		ccc_cb->callback(NULL, NULL, ccc_cb->user_data);
+		ccc_cb->callback(NULL, ccc_cb->user_data);
 }
 
 static void att_disconnected(int err, void *user_data)
@@ -972,7 +970,6 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 					void *user_data)
 {
 	struct btd_gatt_database *database = user_data;
-	struct btd_device *device = att_get_device(att);
 	struct ccc_state *ccc;
 	struct ccc_cb_data *ccc_cb;
 	uint16_t handle, val;
@@ -989,11 +986,6 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 
 	if (offset > 2) {
 		ecode = BT_ATT_ERROR_INVALID_OFFSET;
-		goto done;
-	}
-
-	if (device == NULL) {
-		ecode = BT_ATT_ERROR_UNLIKELY;
 		goto done;
 	}
 
@@ -1029,7 +1021,7 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 			goto done;
 		}
 
-		ecode = ccc_cb->callback(device, op, ccc_cb->user_data);
+		ecode = ccc_cb->callback(op, ccc_cb->user_data);
 		if (ecode)
 			pending_op_free(op);
 	}
@@ -2604,37 +2596,7 @@ static void acquire_notify_setup(DBusMessageIter *iter, void *user_data)
 	dbus_message_iter_close_container(iter, &dict);
 }
 
-static struct pending_op *pending_notify_new(struct btd_device *device,
-							uint8_t cccd_value)
-{
-	struct pending_op *op = new0(struct pending_op, 1);
-	op->device = device;
-	op->cccd_value = cccd_value;
-	return op;
-}
-
-static void notify_setup_cb(DBusMessageIter *iter, void *user_data)
-{
-	struct pending_op *op = user_data;
-	DBusMessageIter dict;
-	// If cccd_value == 0, "StopNotify" is called, which does not take the
-	// cccd_value as an argument. Otherwise, "StartNotify" is called, and it
-	// takes cccd_value as an argument.
-	if (op->cccd_value > 0)
-		dbus_message_iter_append_basic(iter, DBUS_TYPE_BYTE,
-							&op->cccd_value);
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
-					DBUS_TYPE_STRING_AS_STRING
-					DBUS_TYPE_VARIANT_AS_STRING
-					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
-	append_options(&dict, op);
-	dbus_message_iter_close_container(iter, &dict);
-}
-
-static uint8_t ccc_write_cb(struct btd_device* device, struct pending_op *op,
-							void *user_data)
+static uint8_t ccc_write_cb(struct pending_op *op, void *user_data)
 {
 	struct external_chrc *chrc = user_data;
 	DBusMessageIter iter;
@@ -2662,10 +2624,8 @@ static uint8_t ccc_write_cb(struct btd_device* device, struct pending_op *op,
 		 * Send request to stop notifying. This is best-effort
 		 * operation, so simply ignore the return the value.
 		 */
-		g_dbus_proxy_method_call(chrc->proxy, "StopNotify",
-					notify_setup_cb, NULL,
-					pending_notify_new(device, value),
-					pending_op_free);
+		g_dbus_proxy_method_call(chrc->proxy, "StopNotify", NULL,
+							NULL, NULL, NULL);
 		goto done;
 	}
 
@@ -2699,10 +2659,8 @@ static uint8_t ccc_write_cb(struct btd_device* device, struct pending_op *op,
 	 * Always call StartNotify for an incoming enable and ignore the return
 	 * value for now.
 	 */
-	if (g_dbus_proxy_method_call(chrc->proxy, "StartNotify",
-					notify_setup_cb, NULL,
-					pending_notify_new(device, value),
-					pending_op_free) == FALSE)
+	if (g_dbus_proxy_method_call(chrc->proxy, "StartNotify", NULL, NULL,
+						NULL, NULL) == FALSE)
 		return BT_ATT_ERROR_UNLIKELY;
 
 	__sync_fetch_and_add(&chrc->ntfy_cnt, 1);

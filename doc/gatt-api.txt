@@ -210,8 +210,6 @@ Methods		array{byte} ReadValue(dict options)
 			0x01 - notification
 			0x02 - indication
 
-			Possible options: "device": Device path (Server only)
-
 			Possible Errors: org.bluez.Error.Failed
 					 org.bluez.Error.NotPermitted
 					 org.bluez.Error.InProgress
