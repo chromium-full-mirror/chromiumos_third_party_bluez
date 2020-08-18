@@ -73,22 +73,6 @@
 
 #define MEDIA_ENDPOINT_INTERFACE "org.bluez.MediaEndpoint1"
 
-#define SETUP_REF_LOG(setup)                                                   \
-	{                                                                      \
-		if (!setup)                                                    \
-			info("after setup_ref setup %p = NULL", setup);        \
-		else                                                           \
-			info("after    setup_ref   setup %p "                  \
-			     "ref     = %d at %s:%s:%d",                       \
-			     setup, setup->ref, __FILE__, __func__, __LINE__); \
-	}
-
-#define SETUP_UNREF_LOG(setup)                                                 \
-	info("about to setup_unref setup %p ref to be %d at %s:%s:%d", setup,  \
-	     setup->ref - 1, __FILE__, __func__, __LINE__)
-
-struct a2dp_setup *setup_to_assert = NULL;
-
 struct a2dp_sep {
 	struct a2dp_server *server;
 	struct a2dp_endpoint *endpoint;
@@ -175,30 +159,6 @@ struct a2dp_channel {
 static GSList *servers = NULL;
 static GSList *setups = NULL;
 static unsigned int cb_id = 0;
-
-void setup_assert_valid(const char *file, const char *func, int line)
-{
-	bool is_valid;
-	char refstr[24];
-
-	if (!setup_to_assert)
-		return;
-
-	is_valid = g_slist_find(setups, setup_to_assert) != NULL;
-
-	if (is_valid)
-		sprintf(refstr, "ref = %d", setup_to_assert->ref);
-	else
-		sprintf(refstr, "invalid");
-
-	info("Asserting that setup %p is valid at %s:%s:%d (%s)",
-			setup_to_assert, file, func, line, refstr);
-
-	if (!is_valid) {
-		error("Trying to unref a non-existing setup");
-		abort();
-	}
-}
 
 static struct a2dp_setup *setup_ref(struct a2dp_setup *setup)
 {
@@ -301,9 +261,7 @@ static void setup_cb_free(struct a2dp_setup_cb *cb)
 		g_source_remove(cb->source_id);
 
 	setup->cb = g_slist_remove(setup->cb, cb);
-	SETUP_UNREF_LOG(cb->setup);
 	setup_unref(cb->setup);
-	SETUP_ASSERT_VALID();
 	g_free(cb);
 }
 
@@ -322,12 +280,10 @@ static void finalize_setup_errno(struct a2dp_setup *s, int err,
 	va_start(args, cb1);
 	finalize = cb1;
 	setup_ref(s);
-	SETUP_REF_LOG(s);
 	while (finalize != NULL) {
 		finalize(s);
 		finalize = va_arg(args, GSourceFunc);
 	}
-	SETUP_UNREF_LOG(s);
 	setup_unref(s);
 	va_end(args);
 }
@@ -364,8 +320,6 @@ static gboolean finalize_config(gpointer data)
 	for (l = s->cb; l != NULL; ) {
 		struct a2dp_setup_cb *cb = l->data;
 
-		SETUP_ASSERT_VALID();
-
 		l = l->next;
 
 		if (!cb->config_cb)
@@ -373,12 +327,9 @@ static gboolean finalize_config(gpointer data)
 
 		cb->config_cb(s->session, s->sep, stream,
 				error_to_errno(s->err), cb->user_data);
-		SETUP_ASSERT_VALID();
 		setup_cb_free(cb);
-		SETUP_ASSERT_VALID();
 	}
 
-	SETUP_ASSERT_VALID();
 	return FALSE;
 }
 
@@ -588,7 +539,6 @@ done:
 		setup->err = NULL;
 	}
 
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
 
 	return FALSE;
@@ -603,7 +553,6 @@ static void endpoint_setconf_cb(struct a2dp_setup *setup, gboolean ret)
 	}
 
 	auto_config(setup);
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
 }
 
@@ -665,7 +614,6 @@ static gboolean endpoint_setconf_ind(struct avdtp *session,
 		DBG("Source %p: Set_Configuration_Ind", sep);
 
 	setup = a2dp_setup_get(session);
-	SETUP_REF_LOG(setup);
 	if (!session)
 		return FALSE;
 
@@ -705,7 +653,6 @@ static gboolean endpoint_setconf_ind(struct avdtp *session,
 						setup_ref(setup),
 						endpoint_setconf_cb,
 						a2dp_sep->user_data);
-		SETUP_REF_LOG(setup);
 		if (ret == 0) {
 			/* Attempt to reverve discover if there are no remote
 			 * SEPs.
@@ -715,7 +662,6 @@ static gboolean endpoint_setconf_ind(struct avdtp *session,
 			return TRUE;
 		}
 
-		SETUP_UNREF_LOG(setup);
 		setup_unref(setup);
 		setup->err = g_new(struct avdtp_error, 1);
 		avdtp_error_init(setup->err, AVDTP_MEDIA_CODEC,
@@ -793,7 +739,6 @@ static void endpoint_open_cb(struct a2dp_setup *setup, gboolean ret)
 	setup->stream = NULL;
 	finalize_setup_errno(setup, err, finalize_config, NULL);
 done:
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
 }
 
@@ -817,11 +762,9 @@ static void setconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	if (err) {
 		if (setup) {
 			setup_ref(setup);
-			SETUP_REF_LOG(setup);
 			setup->err = err;
 			finalize_config(setup);
 			setup->err = NULL;
-			SETUP_UNREF_LOG(setup);
 			setup_unref(setup);
 		}
 		return;
@@ -859,13 +802,11 @@ static void setconf_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 						setup_ref(setup),
 						endpoint_open_cb,
 						a2dp_sep->user_data);
-		SETUP_REF_LOG(setup);
 		if (err == 0)
 			return;
 
 		setup->stream = NULL;
 		finalize_setup_errno(setup, -EPERM, finalize_config, NULL);
-		SETUP_UNREF_LOG(setup);
 		setup_unref(setup);
 		return;
 	}
@@ -986,7 +927,6 @@ static gboolean open_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 		DBG("Source %p: Open_Ind", sep);
 
 	setup = a2dp_setup_get(session);
-	SETUP_REF_LOG(setup);
 	if (!setup)
 		return FALSE;
 
@@ -1027,13 +967,10 @@ static void open_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 		setup->err = err;
 		if (setup->start)
 			finalize_resume(setup);
-	} else if (setup->chan) {
+	} else if (setup->chan)
 		update_last_used(setup->chan, a2dp_sep, stream);
-		SETUP_ASSERT_VALID();
-	}
 
 	finalize_config(setup);
-	SETUP_ASSERT_VALID();
 
 	return;
 }
@@ -1350,27 +1287,21 @@ static void abort_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	struct a2dp_sep *a2dp_sep = user_data;
 	struct a2dp_setup *setup;
 
-	SETUP_ASSERT_VALID();
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
 		DBG("Sink %p: Abort_Cfm", sep);
 	else
 		DBG("Source %p: Abort_Cfm", sep);
 
 	setup = find_setup_by_session(session);
-	info("abort_cfm on setup %p", setup);
 	if (!setup)
 		return;
 
 	if (setup->reconfigure) {
-		info("abort_cfm calling a2dp_reconfigure");
 		g_timeout_add(RECONFIGURE_TIMEOUT, a2dp_reconfigure, setup);
 		return;
 	}
 
-	info("abort_cfm unref-ing setup %p", setup);
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
-	SETUP_ASSERT_VALID();
 }
 
 static gboolean reconf_ind(struct avdtp *session, struct avdtp_local_sep *sep,
@@ -1715,7 +1646,6 @@ static void reconfig_cb(struct avdtp *session, struct a2dp_sep *sep,
 					DBUS_TYPE_INVALID);
 
 	dbus_message_unref(msg);
-	SETUP_ASSERT_VALID();
 }
 
 static int a2dp_reconfig(struct a2dp_channel *chan, const char *sender,
@@ -1728,7 +1658,6 @@ static int a2dp_reconfig(struct a2dp_channel *chan, const char *sender,
 	int err;
 
 	setup = a2dp_setup_get(chan->session);
-	SETUP_REF_LOG(setup);
 	if (!setup)
 		return -ENOMEM;
 
@@ -2274,9 +2203,6 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 		return;
 	}
 
-	/* Begin spying on setup */
-	setup_to_assert = setup;
-
 	if (err) {
 		error("%s", err->message);
 		goto drop;
@@ -2290,33 +2216,21 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 		goto drop;
 	}
 
-	SETUP_ASSERT_VALID();
-
 	if (!avdtp_stream_set_transport(setup->stream,
 					g_io_channel_unix_get_fd(io),
 					imtu, omtu))
 		goto drop;
-
-	SETUP_ASSERT_VALID();
 
 	g_io_channel_set_close_on_unref(io, FALSE);
 
 	g_io_channel_unref(setup->io);
 	setup->io = NULL;
 
-	/* End spying on setup */
-	setup_to_assert = NULL;
-
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
 
 	return;
 
 drop:
-	/* End spying on setup */
-	setup_to_assert = NULL;
-
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
 	g_io_channel_shutdown(io, TRUE, NULL);
 
@@ -2630,7 +2544,6 @@ static void select_cb(struct a2dp_setup *setup, void *ret, int size)
 
 done:
 	finalize_select(setup);
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
 }
 
@@ -2781,7 +2694,6 @@ unsigned int a2dp_discover(struct avdtp *session, a2dp_discover_cb_t cb,
 	struct a2dp_setup_cb *cb_data;
 
 	setup = a2dp_setup_get(session);
-	SETUP_REF_LOG(setup);
 	if (!setup)
 		return 0;
 
@@ -2815,7 +2727,6 @@ unsigned int a2dp_select_capabilities(struct avdtp *session,
 	}
 
 	setup = a2dp_setup_get(session);
-	SETUP_REF_LOG(setup);
 	if (!setup)
 		return 0;
 
@@ -2842,11 +2753,9 @@ unsigned int a2dp_select_capabilities(struct avdtp *session,
 							setup_ref(setup),
 							select_cb,
 							setup->sep->user_data);
-	SETUP_REF_LOG(setup);
 	if (err == 0)
 		return cb_data->id;
 
-	SETUP_UNREF_LOG(setup);
 	setup_unref(setup);
 
 fail:
@@ -2891,7 +2800,6 @@ unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 	DBG("a2dp_config: selected SEP %p", sep->lsep);
 
 	setup = a2dp_setup_get(session);
-	SETUP_REF_LOG(setup);
 	if (!setup)
 		return 0;
 
@@ -2983,7 +2891,6 @@ unsigned int a2dp_resume(struct avdtp *session, struct a2dp_sep *sep,
 	struct a2dp_setup *setup;
 
 	setup = a2dp_setup_get(session);
-	SETUP_REF_LOG(setup);
 	if (!setup)
 		return 0;
 
@@ -3042,7 +2949,6 @@ unsigned int a2dp_suspend(struct avdtp *session, struct a2dp_sep *sep,
 	struct a2dp_setup *setup;
 
 	setup = a2dp_setup_get(session);
-	SETUP_REF_LOG(setup);
 	if (!setup)
 		return 0;
 
@@ -3097,7 +3003,6 @@ gboolean a2dp_cancel(unsigned int id)
 				continue;
 
 			setup_ref(setup);
-			SETUP_REF_LOG(setup);
 			setup_cb_free(cb);
 
 			if (!setup->cb) {
@@ -3106,7 +3011,6 @@ gboolean a2dp_cancel(unsigned int id)
 					return TRUE;
 			}
 
-			SETUP_UNREF_LOG(setup);
 			setup_unref(setup);
 			return TRUE;
 		}
