@@ -366,6 +366,10 @@ struct avdtp_stream {
 	GSList *caps;
 	GSList *callbacks;
 	struct avdtp_service_capability *codec;
+	void *pending_open_data;	/* Data when the transport channel
+					 * opening is pending
+					 */
+	void (*pending_open_data_destroy)(void *data);
 	guint io_id;		/* Transport GSource ID */
 	guint timer;		/* Waiting for other side to close or open
 				 * the transport channel */
@@ -749,6 +753,15 @@ static void stream_free(void *data)
 
 	g_slist_free_full(stream->callbacks, g_free);
 	g_slist_free_full(stream->caps, g_free);
+
+	/* pending_open_data must have been unref-ed and unset before freeing
+	 * avdtp_stream. Otherwise, it is a reference leak bug.
+	 *
+	 * To learn whether we need the destroy function, we do assert here.
+	 * If we still see assertion failure here, we should destroy the
+	 * pending_open_data instead of asserting it.
+	 */
+	assert(!stream->pending_open_data);
 
 	g_free(stream);
 }
@@ -3173,6 +3186,36 @@ struct avdtp_remote_sep *avdtp_stream_get_remote_sep(
 	}
 
 	return NULL;
+}
+
+void avdtp_stream_set_pending_open_data(struct avdtp_stream *stream, void *data,
+					void (*destroy)(void *))
+{
+	/* It's a bug to set pending_open_data while stream still has the old
+	 * one not cleared. Caller should check this and do the cleanup before
+	 * setting the new one. (We could do destroy and cleanup here on behalf
+	 * of the caller, but it's better to make the caller be aware of and
+	 * responsible for this.)
+	 */
+	assert(!stream->pending_open_data);
+
+	/* Caller must set both data and destroy. */
+	assert(data);
+	assert(destroy);
+
+	stream->pending_open_data = data;
+	stream->pending_open_data_destroy = destroy;
+}
+
+void avdtp_stream_clear_pending_open_data(struct avdtp_stream *stream)
+{
+	stream->pending_open_data = NULL;
+	stream->pending_open_data_destroy = NULL;
+}
+
+void *avdtp_stream_get_pending_open_data(struct avdtp_stream *stream)
+{
+	return stream->pending_open_data;
 }
 
 gboolean avdtp_stream_set_transport(struct avdtp_stream *stream, int fd,
