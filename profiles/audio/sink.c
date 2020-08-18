@@ -185,18 +185,14 @@ static void stream_setup_complete(struct avdtp *session, struct a2dp_sep *sep,
 {
 	struct sink *sink = user_data;
 
-	SETUP_ASSERT_VALID();
-
 	sink->connect_id = 0;
 
 	if (stream)
 		return;
 
 	avdtp_unref(sink->session);
-	SETUP_ASSERT_VALID();
 	sink->session = NULL;
 	btd_service_connecting_complete(sink->service, err);
-	SETUP_ASSERT_VALID();
 }
 
 static void select_complete(struct avdtp *session, struct a2dp_sep *sep,
