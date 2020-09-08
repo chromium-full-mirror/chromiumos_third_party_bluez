@@ -947,6 +947,8 @@ static int refresh_extended_adv(struct btd_adv_client *client,
 
 	if (!mgmt_ret) {
 		error("Failed to request extended advertising parameters");
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, ADV_FAIL_MGMT_SEND,
+				false);
 		return -EINVAL;
 	}
 
@@ -1284,6 +1286,8 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 	adv_data = generate_adv_data(client, &flags, &adv_data_len);
 	if (!adv_data || (adv_data_len > rp->max_adv_data_len)) {
 		error("Advertising data too long or couldn't be generated.");
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT,
+				ADV_FAIL_ADV_DATA_TOO_LONG, false);
 		goto fail;
 	}
 
@@ -1300,6 +1304,8 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 	cp = malloc0(param_len);
 	if (!cp) {
 		error("Couldn't allocate for MGMT!");
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, ADV_FAIL_MGMT_SEND,
+				false);
 		goto fail;
 	}
 
@@ -1324,6 +1330,8 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 
 	if (!mgmt_ret) {
 		error("Failed to add Advertising Data");
+		metrics_send_enum(ENUM_TYPE_ADV_REG_RESULT, ADV_FAIL_MGMT_SEND,
+				  false);
 		goto fail;
 	}
 
