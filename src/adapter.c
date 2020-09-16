@@ -1658,7 +1658,7 @@ static void discovery_remove(struct discovery_client *client)
 	discovery_cleanup(adapter, TEMP_DEV_TIMEOUT);
 }
 
-static void trigger_start_discovery(struct btd_adapter *adapter, guint delay);
+static bool trigger_start_discovery(struct btd_adapter *adapter, guint delay);
 
 static struct discovery_client *discovery_complete(struct btd_adapter *adapter,
 						uint8_t status)
@@ -1847,7 +1847,11 @@ static gboolean start_discovery_timeout(gpointer user_data)
 	return FALSE;
 }
 
-static void trigger_start_discovery(struct btd_adapter *adapter, guint delay)
+/*
+ * Returns true if start discovery is triggered, false otherwise. Start
+ * discovery may not be triggered if discovery is paused by PauseDiscovery.
+ */
+static bool trigger_start_discovery(struct btd_adapter *adapter, guint delay)
 {
 
 	DBG("");
@@ -1866,7 +1870,7 @@ static void trigger_start_discovery(struct btd_adapter *adapter, guint delay)
 	 * This is safe-guard and should actually never trigger.
 	 */
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
-		return;
+		return false;
 
 	if (adapter->discovery_suspended_by_system) {
 		if (!adapter->discovering) {
@@ -1878,11 +1882,12 @@ static void trigger_start_discovery(struct btd_adapter *adapter, guint delay)
 		metrics_start_timer(TIMER_DISCOVERY, timer_data);
 		metrics_send_enum(
 			ENUM_TYPE_DISCOVERY, adapter->discovery_type, false);
-		return;
+		return false;
 	}
 
 	adapter->discovery_idle_timeout = g_timeout_add_seconds(delay,
 					start_discovery_timeout, adapter);
+	return true;
 }
 
 static void suspend_discovery_complete(uint8_t status, uint16_t length,
@@ -2283,9 +2288,14 @@ static int update_discovery_filter(struct btd_adapter *adapter)
 	g_free(adapter->current_discovery_filter);
 	adapter->current_discovery_filter = sd_cp;
 
-	trigger_start_discovery(adapter, 0);
+	/*
+	 * Only return -EINPROGRESS when start discovery is actually triggered.
+	 * This way the caller knows whether it needs to wait for MGMT reply.
+	 */
+	if (trigger_start_discovery(adapter, 0))
+		return -EINPROGRESS;
 
-	return -EINPROGRESS;
+	return 0;
 }
 
 static int discovery_stop(struct discovery_client *client)
