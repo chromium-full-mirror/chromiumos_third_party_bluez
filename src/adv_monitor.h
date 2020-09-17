@@ -33,4 +33,14 @@ void btd_adv_monitor_manager_destroy(struct btd_adv_monitor_manager *manager);
 void btd_adv_monitor_device_remove(struct btd_adv_monitor_manager *manager,
 				   struct btd_device *device);
 
+/* Following functions are the helper functions used for RSSI Filter unit tests
+ * defined in unit/test-adv-monitor.c
+ */
+void *btd_adv_monitor_rssi_test_setup(int8_t high_rssi, uint16_t high_timeout,
+				      int8_t low_rssi, uint16_t low_timeout);
+void btd_adv_monitor_rssi_test_teardown(void *monitor_obj);
+bool btd_adv_monitor_test_device_state(void *monitor_obj, void *device_obj);
+bool btd_adv_monitor_test_rssi(void *monitor_obj, void *device_obj,
+			       int8_t adv_rssi);
+
 #endif /* __ADV_MONITOR_H */

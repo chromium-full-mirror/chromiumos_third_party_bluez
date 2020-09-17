@@ -1210,3 +1210,84 @@ static void adv_monitor_filter_rssi(struct adv_monitor *monitor,
 					      handle_device_lost_timeout, dev);
 	}
 }
+
+/* Creates the dummy adv_monitor object for unit tests */
+void *btd_adv_monitor_rssi_test_setup(int8_t high_rssi, uint16_t high_timeout,
+				      int8_t low_rssi, uint16_t low_timeout)
+{
+	struct adv_monitor *test_monitor = NULL;
+
+	test_monitor = g_new0(struct adv_monitor, 1);
+	if (!test_monitor)
+		return NULL;
+
+	test_monitor->app = g_new0(struct adv_monitor_app, 1);
+	if (!test_monitor->app)
+		goto app_failed;
+
+	test_monitor->app->manager = g_new0(struct btd_adv_monitor_manager, 1);
+	if (!test_monitor->app->manager)
+		goto manager_failed;
+
+	test_monitor->high_rssi = high_rssi;
+	test_monitor->high_rssi_timeout = high_timeout;
+	test_monitor->low_rssi = low_rssi;
+	test_monitor->low_rssi_timeout = low_timeout;
+	test_monitor->devices = queue_new();
+
+	return test_monitor;
+
+manager_failed:
+	g_free(test_monitor->app);
+
+app_failed:
+	g_free(test_monitor);
+
+	return NULL;
+}
+
+/* Cleanup after unit test is done */
+void btd_adv_monitor_rssi_test_teardown(void *monitor_obj)
+{
+	struct adv_monitor *monitor = monitor_obj;
+
+	if (!monitor)
+		return;
+
+	queue_destroy(monitor->devices, monitor_device_free);
+	g_free(monitor->app->manager);
+	g_free(monitor->app);
+	g_free(monitor);
+}
+
+/* Returns the current state of device - found/lost, used in unit tests */
+bool btd_adv_monitor_test_device_state(void *monitor_obj, void *device_obj)
+{
+	struct adv_monitor *monitor = monitor_obj;
+	struct btd_device *device = device_obj;
+	struct adv_monitor_device *dev = NULL;
+
+	if (!monitor || !device)
+		return false;
+
+	dev = queue_find(monitor->devices, monitor_device_match, device);
+	if (!dev)
+		return false;
+
+	return dev->device_found;
+}
+
+/* Helper function for the RSSI Filter unit tests */
+bool btd_adv_monitor_test_rssi(void *monitor_obj, void *device_obj,
+			       int8_t adv_rssi)
+{
+	struct adv_monitor *monitor = monitor_obj;
+	struct btd_device *device = device_obj;
+
+	if (!monitor || !device)
+		return false;
+
+	adv_monitor_filter_rssi(monitor, device, adv_rssi);
+
+	return btd_adv_monitor_test_device_state(monitor, device);
+}

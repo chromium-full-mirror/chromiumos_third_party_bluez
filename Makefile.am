@@ -544,6 +544,15 @@ unit_test_gattrib_LDADD = lib/libbluetooth-internal.la \
 			src/libshared-glib.la \
 			$(GLIB_LIBS) $(DBUS_LIBS) -ldl -lrt
 
+unit_tests += unit/test-adv-monitor
+
+unit_test_adv_monitor_SOURCES = unit/test-adv-monitor.c \
+				src/adv_monitor.h src/adv_monitor.c \
+				src/device.h src/device.c \
+				src/log.h src/log.c
+unit_test_adv_monitor_LDADD = gdbus/libgdbus-internal.la \
+				src/libshared-glib.la $(GLIB_LIBS) $(DBUS_LIBS)
+
 if MIDI
 unit_tests += unit/test-midi
 unit_test_midi_CPPFLAGS = $(AM_CPPFLAGS) $(ALSA_CFLAGS) -DMIDI_TEST
