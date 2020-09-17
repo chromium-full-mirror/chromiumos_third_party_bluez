@@ -133,6 +133,7 @@ static const char *controller_options[] = {
 	"EirMaxNameLength",
 	"AdvMonAllowlistScanDuration",
 	"AdvMonNoFilterScanDuration",
+	"EnableAdvMonInterleaveScan",
 	NULL
 };
 
@@ -456,6 +457,10 @@ static void parse_controller_config(GKeyFile *config)
 		  &main_opts.default_params.advmon_no_filter_scan_duration,
 		  1,
 		  10000},
+		{ "EnableAdvMonInterleaveScan",
+		  &main_opts.default_params.enable_advmon_interleave_scan,
+		  0,
+		  1},
 	};
 	uint16_t i;
 
@@ -721,6 +726,7 @@ static void init_defaults(void)
 	main_opts.default_params.num_entries = 0;
 	main_opts.default_params.br_page_scan_type = 0xFFFF;
 	main_opts.default_params.br_scan_type = 0xFFFF;
+	main_opts.default_params.enable_advmon_interleave_scan = 0xFFFF;
 
 	if (sscanf(VERSION, "%hhu.%hhu", &major, &minor) != 2)
 		return;
