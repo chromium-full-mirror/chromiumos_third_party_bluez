@@ -20,15 +20,27 @@
 #ifndef __ADV_MONITOR_H
 #define __ADV_MONITOR_H
 
+#include <glib.h>
+
+#include "src/shared/ad.h"
+
 struct mgmt;
 struct btd_device;
 struct btd_adapter;
 struct btd_adv_monitor_manager;
+struct btd_adv_monitor_pattern;
 
 struct btd_adv_monitor_manager *btd_adv_monitor_manager_create(
 						struct btd_adapter *adapter,
 						struct mgmt *mgmt);
 void btd_adv_monitor_manager_destroy(struct btd_adv_monitor_manager *manager);
+
+GSList *btd_adv_monitor_content_filter(struct btd_adv_monitor_manager *manager,
+					const uint8_t *eir, uint8_t eir_len);
+
+void btd_adv_monitor_notify_monitors(struct btd_adv_monitor_manager *manager,
+					struct btd_device *device, int8_t rssi,
+					GSList *matched_monitors);
 
 void btd_adv_monitor_device_remove(struct btd_adv_monitor_manager *manager,
 				   struct btd_device *device);
@@ -42,5 +54,12 @@ void btd_adv_monitor_rssi_test_teardown(void *monitor_obj);
 bool btd_adv_monitor_test_device_state(void *monitor_obj, void *device_obj);
 bool btd_adv_monitor_test_rssi(void *monitor_obj, void *device_obj,
 			       int8_t adv_rssi);
+struct btd_adv_monitor_pattern *btd_adv_monitor_test_pattern_create(
+	uint8_t ad_type, uint8_t offset, uint8_t length, const uint8_t *value);
+void btd_adv_monitor_test_pattern_destroy(
+				struct btd_adv_monitor_pattern *pattern);
+bool btd_adv_monitor_pattern_match(
+	const uint8_t *eir, uint8_t eir_len,
+	const struct btd_adv_monitor_pattern *pattern);
 
 #endif /* __ADV_MONITOR_H */
