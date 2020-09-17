@@ -40,6 +40,8 @@
 		if (type == TEST_RSSI_FILTER) {				\
 			test.rssi_filter_test_data = (void *)&data;	\
 			test.rssi_filter_test_data->test_info = &test;	\
+		} else if (type == TEST_CONTENT_FILTER) {		\
+			test.content_filter_test_data = (void *)&data;	\
 		}							\
 		tester_add(name, &test, setup_fn, test_fn, teardown_fn);\
 	} while (0)
@@ -94,6 +96,22 @@ struct rssi_filter_test {
 	} test_steps[];
 };
 
+struct content_filter_test {
+	void *advmon_pattern;		/* btd_adv_monitor_pattern */
+
+	bool expected_match;
+
+	const struct {
+		uint8_t ad_type;
+		uint8_t offset;
+		uint8_t length;
+		uint8_t value[BT_AD_MAX_DATA_LEN];
+	} pattern;
+
+	uint8_t eir_len;
+	uint8_t eir[];
+};
+
 /* Parent data structure to hold the test data and information,
  * used by tester_* functions and callbacks.
  */
@@ -103,6 +121,7 @@ struct test_data {
 
 	union {
 		struct rssi_filter_test *rssi_filter_test_data;
+		struct content_filter_test *content_filter_test_data;
 	};
 };
 
@@ -209,6 +228,62 @@ static struct rssi_filter_test rssi_data_5 = {
 		{         -70, 2, RESULT_DEVICE_LOST},
 		END_OF_RSSI_TEST,
 	},
+};
+
+/* Content Filter Test 1:
+ * The valid EIR data contains the given pattern whose content is a UUID16 AD
+ * data.
+ */
+static struct content_filter_test content_data_1 = {
+	.expected_match = true,
+	.pattern = {0x03, 0x02, 0x02, {0x09, 0x18} },
+	.eir_len = 20,
+	.eir = {0x02, 0x01, 0x02,				// flags
+		0x06, 0xff, 0x96, 0xfd, 0xab, 0xcd, 0xef,	// Mfr. Data
+		0x05, 0x03, 0x0d, 0x18, 0x09, 0x18,		// 16-bit UUIDs
+		0x05, 0x16, 0x0d, 0x18, 0x12, 0x34},		// Service Data
+};
+
+/* Content Filter Test 2:
+ * The valid EIR data does not match the given pattern whose content is a UUID16
+ * AD data.
+ */
+static struct content_filter_test content_data_2 = {
+	.expected_match = false,
+	.pattern = {0x03, 0x02, 0x02, {0x0d, 0x18} },
+	.eir_len = 20,
+	.eir = {0x02, 0x01, 0x02,				// flags
+		0x06, 0xff, 0x96, 0xfd, 0xab, 0xcd, 0xef,	// Mfr. Data
+		0x05, 0x03, 0x0d, 0x18, 0x09, 0x18,		// 16-bit UUIDs
+		0x05, 0x16, 0x0d, 0x18, 0x12, 0x34},		// Service Data
+};
+
+/* Content Filter Test 3:
+ * The valid EIR data does not have the given pattern whose content is a UUID32
+ * AD data.
+ */
+static struct content_filter_test content_data_3 = {
+	.expected_match = false,
+	.pattern = {0x05, 0x00, 0x04, {0x09, 0x18, 0x00, 0x00} },
+	.eir_len = 20,
+	.eir = {0x02, 0x01, 0x02,				// flags
+		0x06, 0xff, 0x96, 0xfd, 0xab, 0xcd, 0xef,	// Mfr. Data
+		0x05, 0x03, 0x0d, 0x18, 0x09, 0x18,		// 16-bit UUIDs
+		0x05, 0x16, 0x0d, 0x18, 0x12, 0x34},		// Service Data
+};
+
+/* Content Filter Test 4:
+ * The valid EIR data does not match the given pattern whose content is a
+ * UUID16 AD data due to invalid starting position of matching.
+ */
+static struct content_filter_test content_data_4 = {
+	.expected_match = false,
+	.pattern = {0x03, 0x02, 0x02, {0x09, 0x18} },
+	.eir_len = 20,
+	.eir = {0x02, 0x01, 0x02,				// flags
+		0x06, 0xff, 0x96, 0xfd, 0xab, 0xcd, 0xef,	// Mfr. Data
+		0x03, 0x03, 0x09, 0x18,				// 16-bit UUIDs
+		0x05, 0x16, 0x0d, 0x18, 0x12, 0x34},		// Service Data
 };
 
 /* Initialize the data required for RSSI Filter test */
@@ -343,6 +418,60 @@ static gboolean test_rssi_filter(gpointer data)
 	return FALSE;
 }
 
+/* Initialize the data required for Content Filter test */
+static void setup_content_filter_test(gpointer data)
+{
+	struct content_filter_test *test = data;
+	struct btd_adv_monitor_pattern *pattern = NULL;
+
+	pattern = btd_adv_monitor_test_pattern_create(test->pattern.ad_type,
+							test->pattern.offset,
+							test->pattern.length,
+							test->pattern.value);
+	if (!pattern) {
+		tester_setup_failed();
+		return;
+	}
+
+	test->advmon_pattern = pattern;
+	tester_setup_complete();
+}
+
+/* Cleanup after the Content Filter test is done */
+static void teardown_content_filter_test(gpointer data)
+{
+	struct content_filter_test *test = data;
+
+	if (!test)
+		tester_teardown_complete();
+
+	btd_adv_monitor_test_pattern_destroy(test->advmon_pattern);
+	test->advmon_pattern = NULL;
+
+	tester_teardown_complete();
+}
+
+/* Execute the sub-steps of Content Filter test */
+static void test_content_filter(gpointer data)
+{
+	struct content_filter_test *test = data;
+	struct btd_adv_monitor_pattern *pattern = test->advmon_pattern;
+
+	if (!pattern) {
+		tester_test_abort();
+		return;
+	}
+
+	if (btd_adv_monitor_pattern_match(test->eir, test->eir_len,
+						test->advmon_pattern) ==
+		test->expected_match) {
+		tester_test_passed();
+		return;
+	}
+
+	tester_test_failed();
+}
+
 /* Handler function to prepare for a test */
 static void setup_handler(gconstpointer data)
 {
@@ -350,6 +479,8 @@ static void setup_handler(gconstpointer data)
 
 	if (test->test_type == TEST_RSSI_FILTER)
 		setup_rssi_filter_test(test->rssi_filter_test_data);
+	else if (test->test_type == TEST_CONTENT_FILTER)
+		setup_content_filter_test(test->content_filter_test_data);
 }
 
 /* Handler function to cleanup after the test is done */
@@ -359,6 +490,8 @@ static void teardown_handler(gconstpointer data)
 
 	if (test->test_type == TEST_RSSI_FILTER)
 		teardown_rssi_filter_test(test->rssi_filter_test_data);
+	else if (test->test_type == TEST_CONTENT_FILTER)
+		teardown_content_filter_test(test->content_filter_test_data);
 }
 
 /* Handler function to execute a test with the given data set */
@@ -368,6 +501,8 @@ static void test_handler(gconstpointer data)
 
 	if (test->test_type == TEST_RSSI_FILTER)
 		test_rssi_filter(test->rssi_filter_test_data);
+	else if (test->test_type == TEST_CONTENT_FILTER)
+		test_content_filter(test->content_filter_test_data);
 }
 
 int main(int argc, char *argv[])
@@ -385,6 +520,15 @@ int main(int argc, char *argv[])
 	define_test("/advmon/rssi/4", TEST_RSSI_FILTER, rssi_data_4,
 		    setup_handler, test_handler, teardown_handler);
 	define_test("/advmon/rssi/5", TEST_RSSI_FILTER, rssi_data_5,
+		    setup_handler, test_handler, teardown_handler);
+
+	define_test("/advmon/content/1", TEST_CONTENT_FILTER, content_data_1,
+		    setup_handler, test_handler, teardown_handler);
+	define_test("/advmon/content/2", TEST_CONTENT_FILTER, content_data_2,
+		    setup_handler, test_handler, teardown_handler);
+	define_test("/advmon/content/3", TEST_CONTENT_FILTER, content_data_3,
+		    setup_handler, test_handler, teardown_handler);
+	define_test("/advmon/content/4", TEST_CONTENT_FILTER, content_data_4,
 		    setup_handler, test_handler, teardown_handler);
 
 	return tester_run();
