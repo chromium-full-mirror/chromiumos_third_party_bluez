@@ -3723,6 +3723,7 @@ static void avrcp_volume_changed(struct avrcp *session,
 	int8_t volume;
 
 	volume = pdu->params[1] & 0x7F;
+	DBG("Volume: %d", volume);
 
 	/* Always attempt to update the transport volume */
 	media_transport_update_device_volume(session->dev, volume);
@@ -3845,6 +3846,7 @@ static gboolean avrcp_handle_event(struct avctp *conn, uint8_t code,
 	struct avrcp_header *pdu = (void *) operands;
 	uint8_t event;
 
+	DBG("");
 	if (!pdu)
 		return FALSE;
 
@@ -4474,6 +4476,7 @@ static gboolean avrcp_handle_set_volume(struct avctp *conn, uint8_t code,
 	struct avrcp_header *pdu = (void *) operands;
 	int8_t volume;
 
+	DBG("");
 	if (code == AVC_CTYPE_REJECTED || code == AVC_CTYPE_NOT_IMPLEMENTED ||
 								pdu == NULL)
 		return FALSE;
@@ -4547,6 +4550,7 @@ int avrcp_set_volume(struct btd_device *dev, int8_t volume, bool notify)
 	uint8_t buf[AVRCP_HEADER_LENGTH + 1];
 	struct avrcp_header *pdu = (void *) buf;
 
+	DBG("Volume: %d", volume);
 	if (volume < 0)
 		return -EINVAL;
 
@@ -4577,6 +4581,7 @@ int avrcp_set_volume(struct btd_device *dev, int8_t volume, bool notify)
 	pdu->params[0] = volume;
 	pdu->params_len = htons(1);
 
+	DBG("Send absolute volume to peer: %d", volume);
 	return avctp_send_vendordep_req(session->conn,
 					AVC_CTYPE_CONTROL, AVC_SUBUNIT_PANEL,
 					buf, sizeof(buf),

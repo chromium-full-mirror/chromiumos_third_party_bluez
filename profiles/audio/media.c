@@ -482,6 +482,7 @@ static gboolean set_configuration(struct media_endpoint *endpoint,
 	struct media_transport *transport;
 	int8_t init_volume;
 
+	DBG("");
 	transport = find_device_transport(endpoint, device);
 
 	if (transport != NULL)
@@ -1234,6 +1235,7 @@ static void set_volume(int8_t volume, struct btd_device *dev, void *user_data)
 {
 	struct media_player *mp = user_data;
 
+	DBG("Set media volume: %d %d", mp->volume, volume);
 	if (mp->volume == volume)
 		return;
 

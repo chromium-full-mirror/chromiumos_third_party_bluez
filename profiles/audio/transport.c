@@ -659,6 +659,7 @@ static void set_volume(const GDBusPropertyTable *property,
 	int8_t volume;
 	bool notify;
 
+	DBG("");
 	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_UINT16)
 		goto error;
 
@@ -672,6 +673,7 @@ static void set_volume(const GDBusPropertyTable *property,
 	if (a2dp->volume == volume)
 		return;
 
+	DBG("Set A2DP volume: %d", volume);
 	a2dp->volume = volume;
 
 	notify = transport->source_watch ? true : false;
@@ -941,6 +943,7 @@ void media_transport_update_volume(struct media_transport *transport,
 {
 	struct a2dp_transport *a2dp = transport->data;
 
+	DBG("Update volume: %d %d", a2dp->volume, volume);
 	if (volume < 0)
 		return;
 
@@ -950,6 +953,7 @@ void media_transport_update_volume(struct media_transport *transport,
 
 	a2dp->volume = volume;
 
+	DBG("Emit volume property change: %d", volume);
 	g_dbus_emit_property_changed(btd_get_dbus_connection(),
 					transport->path,
 					MEDIA_TRANSPORT_INTERFACE, "Volume");
@@ -980,6 +984,7 @@ void media_transport_update_device_volume(struct btd_device *dev,
 {
 	GSList *l;
 
+	DBG("Volume: %d", volume);
 	if (dev == NULL || volume < 0)
 		return;
 
