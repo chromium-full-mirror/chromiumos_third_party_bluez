@@ -365,8 +365,6 @@ struct avdtp_stream {
 	GSList *caps;
 	GSList *callbacks;
 	struct avdtp_service_capability *codec;
-	void *pending_open_data;	/* Data when the transport channel
-					 * opening is pending */
 	guint io_id;		/* Transport GSource ID */
 	guint timer;		/* Waiting for other side to close or open
 				 * the transport channel */
@@ -727,11 +725,6 @@ static void stream_free(void *data)
 
 	g_slist_free_full(stream->callbacks, g_free);
 	g_slist_free_full(stream->caps, g_free);
-
-	/* pending_open_data must have been unref-ed and unset before freeing
-	 * avdtp_stream. Otherwise, it is a reference leak bug.
-	 */
-	assert(!stream->pending_open_data);
 
 	g_free(stream);
 }
@@ -3138,16 +3131,6 @@ struct avdtp_remote_sep *avdtp_stream_get_remote_sep(
 	}
 
 	return NULL;
-}
-
-void avdtp_stream_set_pending_open_data(struct avdtp_stream *stream, void *data)
-{
-	stream->pending_open_data = data;
-}
-
-void *avdtp_stream_get_pending_open_data(struct avdtp_stream *stream)
-{
-	return stream->pending_open_data;
 }
 
 gboolean avdtp_stream_set_transport(struct avdtp_stream *stream, int fd,
