@@ -444,7 +444,7 @@ static struct pattern *parse_pattern(char *parameter_list[])
 	}
 
 	pat->start_pos = atoi(parameter_list[0]);
-	pat->ad_data_type = atoi(parameter_list[1]);
+	pat->ad_data_type = strtol(parameter_list[1], NULL, 16);
 	pat->content_len = str2bytearray(parameter_list[2], pat->content);
 	if (pat->content_len == 0) {
 		free_pattern(pat);
@@ -551,7 +551,7 @@ static void print_adv_monitor(struct adv_monitor *adv_monitor)
 			bt_shell_printf("\tpattern %d:\n", idx);
 			bt_shell_printf("\t\tstart position: %hhu\n",
 							pattern->start_pos);
-			bt_shell_printf("\t\tAD data type: %hhu\n",
+			bt_shell_printf("\t\tAD data type: 0x%02x\n",
 							pattern->ad_data_type);
 			print_bytearray("\t\tcontent: ", pattern->content,
 							pattern->content_len);

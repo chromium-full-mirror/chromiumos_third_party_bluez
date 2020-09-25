@@ -2748,6 +2748,8 @@ static void print_add_or_pattern_with_rssi_usage(void)
 						RSSI_DEFAULT_HIGH_TIMEOUT);
 	bt_shell_printf("pattern format:\n"
 			"\t<start_position> <ad_data_type> <content_of_pattern>\n");
+	bt_shell_printf("Note: both ad_data_type and content_of_pattern are "
+			"hex string\n");
 	bt_shell_printf("e.g.\n"
 			"\tadd-or-pattern-rssi -10, ,10 1 2 01ab55\n");
 	bt_shell_printf("or\n"
@@ -2758,6 +2760,8 @@ static void print_add_or_pattern_usage(void)
 {
 	bt_shell_printf("pattern format:\n"
 			"\t<start_position> <ad_data_type> <content_of_pattern>\n");
+	bt_shell_printf("Note: both ad_data_type and content_of_pattern are "
+			"hex string\n");
 	bt_shell_printf("e.g.\n"
 			"\tadd-or-pattern 1 2 01ab55 3 4 23cd66\n");
 }
