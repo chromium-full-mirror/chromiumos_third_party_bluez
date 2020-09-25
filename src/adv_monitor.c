@@ -1199,7 +1199,7 @@ bool btd_adv_monitor_pattern_match(
 		idx += field_len + 1;
 
 		/* Do not continue filtering if got incorrect length */
-		if (idx >= eir_len)
+		if (idx > eir_len)
 			break;
 
 		data = &eir[2];
@@ -1212,9 +1212,6 @@ bool btd_adv_monitor_pattern_match(
 			continue;
 
 		if (data_len < pattern->offset + pattern->length)
-			continue;
-
-		if (pattern->offset + pattern->length > BT_AD_MAX_DATA_LEN)
 			continue;
 
 		if (!memcmp(data + pattern->offset, pattern->value,
