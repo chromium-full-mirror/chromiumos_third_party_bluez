@@ -945,6 +945,7 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 	char itemstr[20]; /* 5x3 (data) + 4 (continuation) + 1 (null) */
 	int i, err;
 	GError *gerr = NULL;
+	GIOChannel *io = NULL;
 
 	destroy_gatt_req(req);
 
@@ -990,7 +991,13 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 	memset(&ev, 0, sizeof(ev));
 	ev.type = UHID_CREATE;
 
-	bt_io_get(g_attrib_get_channel(hog->attrib), &gerr,
+	io = g_attrib_get_channel(hog->attrib);
+	if (!io) {
+		error("Get channel failed");
+		return;
+	}
+
+	bt_io_get(io, &gerr,
 			BT_IO_OPT_SOURCE, ev.u.create.phys,
 			BT_IO_OPT_DEST, ev.u.create.uniq,
 			BT_IO_OPT_INVALID);
