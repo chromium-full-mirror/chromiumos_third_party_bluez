@@ -38,6 +38,7 @@
 #include "src/shared/att.h"
 #include "src/shared/gatt-db.h"
 #include "src/shared/gatt-server.h"
+#include "src/shared/memtrack.h"
 #include "log.h"
 #include "error.h"
 #include "hcid.h"
@@ -588,6 +589,8 @@ static void gatt_database_free(void *data)
 {
 	struct btd_gatt_database *database = data;
 
+	memtrack_assert_alloc_valid(database);
+
 	if (database->le_io) {
 		g_io_channel_shutdown(database->le_io, FALSE, NULL);
 		g_io_channel_unref(database->le_io);
@@ -618,6 +621,7 @@ static void gatt_database_free(void *data)
 
 	btd_adapter_unref(database->adapter);
 	free(database);
+	memtrack_remove_alloc(database);
 }
 
 static void connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
@@ -3687,6 +3691,7 @@ struct btd_gatt_database *btd_gatt_database_new(struct btd_adapter *adapter)
 		return NULL;
 
 	database = new0(struct btd_gatt_database, 1);
+	memtrack_add_alloc(database);
 	database->adapter = btd_adapter_ref(adapter);
 	database->db = gatt_db_new();
 	database->records = queue_new();
