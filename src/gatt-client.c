@@ -48,7 +48,6 @@
 #include "src/shared/gatt-db.h"
 #include "src/shared/gatt-client.h"
 #include "src/shared/util.h"
-#include "src/shared/memtrack.h"
 #include "gatt-client.h"
 #include "dbus-common.h"
 
@@ -789,7 +788,6 @@ static gboolean characteristic_value_exists(const GDBusPropertyTable *property,
 	struct characteristic *chrc = data;
 	gboolean ret;
 
-	memtrack_assert_alloc_valid(chrc);
 	gatt_db_attribute_read(chrc->attr, 0, 0, NULL, read_check_cb, &ret);
 
 	return ret;
@@ -1772,8 +1770,6 @@ static void characteristic_free(void *data)
 {
 	struct characteristic *chrc = data;
 
-	memtrack_assert_alloc_valid(chrc);
-
 	/* List should be empty here */
 	queue_destroy(chrc->descs, NULL);
 
@@ -1791,7 +1787,6 @@ static void characteristic_free(void *data)
 
 	g_free(chrc->path);
 	free(chrc);
-	memtrack_remove_alloc(chrc);
 }
 
 static struct characteristic *characteristic_create(
@@ -1802,7 +1797,6 @@ static struct characteristic *characteristic_create(
 	bt_uuid_t uuid;
 
 	chrc = new0(struct characteristic, 1);
-	memtrack_add_alloc(chrc);
 	chrc->descs = queue_new();
 	chrc->notify_clients = queue_new();
 	chrc->service = service;
