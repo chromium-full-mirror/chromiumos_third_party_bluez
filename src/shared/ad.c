@@ -42,6 +42,8 @@ struct bt_ad {
 	struct queue *solicit_uuids;
 	struct queue *service_data;
 	struct queue *data;
+
+	bool use_accept_list;
 };
 
 struct bt_ad *bt_ad_new(void)
@@ -55,6 +57,8 @@ struct bt_ad *bt_ad_new(void)
 	ad->service_data = queue_new();
 	ad->data = queue_new();
 	ad->appearance = UINT16_MAX;
+
+	ad->use_accept_list = false;
 
 	return bt_ad_ref(ad);
 }
@@ -933,8 +937,14 @@ static uint8_t type_blacklist[] = {
 	BT_AD_MANUFACTURER_DATA,
 };
 
+const static uint8_t type_accept_list[] = {
+	BT_AD_NAME_SHORT,
+	BT_AD_SERVICE_DATA16,
+};
+
 bool bt_ad_add_data(struct bt_ad *ad, uint8_t type, void *data, size_t len)
 {
+	bool accept = false;
 	size_t i;
 
 	if (!ad)
@@ -943,9 +953,17 @@ bool bt_ad_add_data(struct bt_ad *ad, uint8_t type, void *data, size_t len)
 	if (len > (BT_AD_MAX_DATA_LEN - 2))
 		return false;
 
-	for (i = 0; i < sizeof(type_blacklist); i++) {
-		if (type == type_blacklist[i])
+	if (ad->use_accept_list) {
+		for (i = 0; i < ARRAY_SIZE(type_accept_list); i++)
+			if (type == type_accept_list[i])
+				accept = true;
+		if (!accept)
 			return false;
+	} else {
+		for (i = 0; i < sizeof(type_blacklist); i++) {
+			if (type == type_blacklist[i])
+				return false;
+		}
 	}
 
 	return ad_replace_data(ad, type, data, len);
@@ -1006,4 +1024,9 @@ void bt_ad_clear_data(struct bt_ad *ad)
 		return;
 
 	queue_remove_all(ad->data, NULL, NULL, data_destroy);
+}
+
+void bt_ad_use_accept_types(struct bt_ad *ad)
+{
+	ad->use_accept_list = true;
 }

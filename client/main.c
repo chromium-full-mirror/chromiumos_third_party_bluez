@@ -2503,6 +2503,11 @@ static void cmd_advertise_data(int argc, char *argv[])
 	ad_advertise_data(dbus_conn, argc, argv);
 }
 
+static void cmd_scan_rsp_data(int argc, char *argv[])
+{
+	ad_scan_rsp_data(dbus_conn, argc, argv);
+}
+
 static void cmd_advertise_discoverable(int argc, char *argv[])
 {
 	dbus_bool_t discoverable;
@@ -2669,6 +2674,11 @@ static void ad_clear_data(void)
 	ad_disable_data(dbus_conn);
 }
 
+static void ad_clear_scan_rsp_data(void)
+{
+	ad_disable_scan_rsp_data(dbus_conn);
+}
+
 static void ad_clear_tx_power(void)
 {
 	dbus_bool_t powered = false;
@@ -2712,6 +2722,7 @@ static const struct clear_entry ad_clear[] = {
 	{ "service",		ad_clear_service },
 	{ "manufacturer",	ad_clear_manufacturer },
 	{ "data",		ad_clear_data },
+	{ "scan-rsp-data",	ad_clear_scan_rsp_data },
 	{ "tx-power",		ad_clear_tx_power },
 	{ "name",		ad_clear_name },
 	{ "appearance",		ad_clear_appearance },
@@ -2828,6 +2839,8 @@ static const struct bt_shell_menu advertise_menu = {
 			"Set/Get advertise manufacturer data" },
 	{ "data", "[type] [data=xx xx ...]", cmd_advertise_data,
 			"Set/Get advertise data" },
+	{ "scan-rsp-data", "[type] [data=xx xx ...]", cmd_scan_rsp_data,
+			"Set/Get Scan Response data" },
 	{ "discoverable", "[on/off]", cmd_advertise_discoverable,
 			"Set/Get advertise discoverable" },
 	{ "discoverable-timeout", "[seconds]",

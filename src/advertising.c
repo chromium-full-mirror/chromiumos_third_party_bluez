@@ -644,21 +644,16 @@ static bool parse_timeout(DBusMessageIter *iter,
 	return true;
 }
 
-static bool parse_data(DBusMessageIter *iter, struct btd_adv_client *client)
+static bool parse_ad_fields(DBusMessageIter *iter, struct bt_ad *ad)
 {
 	DBusMessageIter entries;
-
-	if (!iter) {
-		bt_ad_clear_data(client->data);
-		return true;
-	}
 
 	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_ARRAY)
 		return false;
 
 	dbus_message_iter_recurse(iter, &entries);
 
-	bt_ad_clear_data(client->data);
+	bt_ad_clear_data(ad);
 
 	while (dbus_message_iter_get_arg_type(&entries)
 						== DBUS_TYPE_DICT_ENTRY) {
@@ -689,7 +684,7 @@ static bool parse_data(DBusMessageIter *iter, struct btd_adv_client *client)
 
 		DBG("Adding Data for type 0x%02x len %u", type, len);
 
-		if (!bt_ad_add_data(client->data, type, data, len))
+		if (!bt_ad_add_data(ad, type, data, len))
 			goto fail;
 
 		dbus_message_iter_next(&entries);
@@ -698,8 +693,21 @@ static bool parse_data(DBusMessageIter *iter, struct btd_adv_client *client)
 	return true;
 
 fail:
-	bt_ad_clear_data(client->data);
+	bt_ad_clear_data(ad);
 	return false;
+}
+
+static bool parse_data(DBusMessageIter *iter, struct btd_adv_client *client)
+{
+	return parse_ad_fields(iter, client->data);
+}
+
+static bool parse_scan_response_data(DBusMessageIter *iter,
+					struct btd_adv_client *client)
+{
+	bt_ad_use_accept_types(client->scan);
+
+	return parse_ad_fields(iter, client->scan);
 }
 
 static bool set_flags(struct btd_adv_client *client, uint8_t flags)
@@ -799,18 +807,15 @@ static uint8_t *generate_scan_rsp(struct btd_adv_client *client,
 	struct btd_adv_manager *manager = client->manager;
 	const char *name;
 
-	if (!(*flags & MGMT_ADV_FLAG_LOCAL_NAME) && !client->name) {
-		*len = 0;
-		return NULL;
+	if ((*flags & MGMT_ADV_FLAG_LOCAL_NAME) || client->name) {
+		*flags &= ~MGMT_ADV_FLAG_LOCAL_NAME;
+
+		name = client->name;
+		if (!name)
+			name = btd_adapter_get_name(manager->adapter);
+
+		bt_ad_add_name(client->scan, name);
 	}
-
-	*flags &= ~MGMT_ADV_FLAG_LOCAL_NAME;
-
-	name = client->name;
-	if (!name)
-		name = btd_adapter_get_name(manager->adapter);
-
-	bt_ad_add_name(client->scan, name);
 
 	return bt_ad_generate(client->scan, len);
 }
@@ -1141,6 +1146,7 @@ static struct adv_parser {
 	{ "Duration", parse_duration },
 	{ "Timeout", parse_timeout },
 	{ "Data", parse_data },
+	{ "ScanResponseData", parse_scan_response_data },
 	{ "Discoverable", parse_discoverable },
 	{ "DiscoverableTimeout", parse_discoverable_timeout },
 	{ "SecondaryChannel", parse_secondary },
@@ -1273,7 +1279,8 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 	}
 
 	scan_rsp = generate_scan_rsp(client, &flags, &scan_rsp_len);
-	if (!scan_rsp && scan_rsp_len) {
+	if (!scan_rsp && scan_rsp_len ||
+		scan_rsp_len > client->manager->max_adv_len) {
 		error("Scan data couldn't be generated.");
 		goto fail;
 	}

@@ -60,6 +60,11 @@ struct data {
 	struct ad_data data;
 };
 
+struct scan_rsp_data {
+	uint8_t type;
+	struct ad_data data;
+};
+
 static struct ad {
 	bool registered;
 	char *type;
@@ -74,6 +79,7 @@ static struct ad {
 	struct service_data service;
 	struct manufacturer_data manufacturer;
 	struct data data;
+	struct scan_rsp_data scan_rsp_data;
 	bool discoverable;
 	bool tx_power;
 	bool name;
@@ -170,6 +176,13 @@ static void print_ad(void)
 	if (ad.data.data.len) {
 		bt_shell_printf("Data Type: 0x%02x\n", ad.data.type);
 		bt_shell_hexdump(ad.data.data.data, ad.data.data.len);
+	}
+
+	if (ad.scan_rsp_data.data.len) {
+		bt_shell_printf("Scan Response Data Type: 0x%02x\n",
+				ad.scan_rsp_data.type);
+		bt_shell_hexdump(ad.scan_rsp_data.data.data,
+					ad.scan_rsp_data.data.len);
 	}
 
 	bt_shell_printf("Tx Power: %s\n", ad.tx_power ? "on" : "off");
@@ -412,6 +425,29 @@ static gboolean get_data(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean scan_rsp_data_exists(const GDBusPropertyTable *property,
+					void *data)
+{
+	return ad.scan_rsp_data.type != 0;
+}
+
+static gboolean get_scan_rsp_data(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *user_data)
+{
+	DBusMessageIter dict;
+	struct ad_data *data = &ad.scan_rsp_data.data;
+	uint8_t *val = data->data;
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "{yv}", &dict);
+
+	g_dbus_dict_append_basic_array(&dict, DBUS_TYPE_BYTE,
+					&ad.scan_rsp_data.type, DBUS_TYPE_BYTE,
+					&val, data->len);
+
+	dbus_message_iter_close_container(iter, &dict);
+
+	return TRUE;
+}
 static gboolean discoverable_exists(const GDBusPropertyTable *property,
 							void *data)
 {
@@ -464,6 +500,8 @@ static const GDBusPropertyTable ad_props[] = {
 	{ "ManufacturerData", "a{qv}", get_manufacturer_data, NULL,
 						manufacturer_data_exists },
 	{ "Data", "a{yv}", get_data, NULL, data_exists },
+	{ "ScanResponseData", "a{yv}", get_scan_rsp_data, NULL,
+						scan_rsp_data_exists },
 	{ "Discoverable", "b", get_discoverable, NULL, discoverable_exists },
 	{ "DiscoverableTimeout", "q", get_discoverable_timeout, NULL,
 						discoverable_timeout_exits },
@@ -614,6 +652,12 @@ static bool ad_add_data(struct ad_data *data, int argc, char *argv[])
 
 		val = strtol(argv[i], &endptr, 0);
 		if (!endptr || *endptr != '\0' || val > UINT8_MAX) {
+			if (!endptr)
+				bt_shell_printf("Invalid endptr");
+			else if (*endptr != '\0')
+				bt_shell_printf("Invalid *endptr %c", *endptr);
+			else if (val > UINT8_MAX)
+				bt_shell_printf("Invlid val");
 			bt_shell_printf("Invalid value at index %d\n", i);
 			return false;
 		}
@@ -764,6 +808,54 @@ void ad_disable_data(DBusConnection *conn)
 
 	ad_clear_data();
 	g_dbus_emit_property_changed(conn, AD_PATH, AD_IFACE, "Data");
+
+	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
+}
+
+void ad_scan_rsp_data(DBusConnection *conn, int argc, char *argv[])
+{
+	char *endptr = NULL;
+	long int val;
+	struct ad_data data;
+
+	if (argc < 2 || !strlen(argv[1])) {
+		if (ad.manufacturer.data.len) {
+			bt_shell_printf("Type: 0x%02x\n",
+					ad.scan_rsp_data.type);
+			bt_shell_hexdump(ad.scan_rsp_data.data.data,
+						ad.scan_rsp_data.data.len);
+		}
+
+		return bt_shell_noninteractive_quit(EXIT_SUCCESS);
+	}
+
+	val = strtol(argv[1], &endptr, 0);
+	if (!endptr || *endptr != '\0' || val > UINT8_MAX) {
+		bt_shell_printf("Invalid type\n");
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (!ad_add_data(&data, argc - 2, argv + 2))
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+
+	ad_clear_data();
+	ad.scan_rsp_data.type = val;
+	ad.scan_rsp_data.data = data;
+
+	g_dbus_emit_property_changed(conn, AD_PATH, AD_IFACE,
+					"ScanResponseData");
+
+	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
+}
+
+void ad_disable_scan_rsp_data(DBusConnection *conn)
+{
+	if (!ad.scan_rsp_data.type && !ad.scan_rsp_data.data.len)
+		return bt_shell_noninteractive_quit(EXIT_SUCCESS);
+
+	ad_clear_data();
+	g_dbus_emit_property_changed(conn, AD_PATH, AD_IFACE,
+					"ScanResponseData");
 
 	return bt_shell_noninteractive_quit(EXIT_SUCCESS);
 }
