@@ -926,10 +926,16 @@ static gboolean open_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	else
 		DBG("Source %p: Open_Ind", sep);
 
+	if (avdtp_stream_get_pending_open_data(stream)) {
+		warn("Pending open data already exists");
+		return FALSE;
+	}
+
 	setup = a2dp_setup_get(session);
 	if (!setup)
 		return FALSE;
 
+	avdtp_stream_set_pending_open_data(stream, setup);
 	setup->stream = stream;
 
 	if (!err && setup->chan)
@@ -1285,14 +1291,13 @@ static void abort_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 			void *user_data)
 {
 	struct a2dp_sep *a2dp_sep = user_data;
-	struct a2dp_setup *setup;
+	struct a2dp_setup *setup = avdtp_stream_get_pending_open_data(stream);
 
 	if (a2dp_sep->type == AVDTP_SEP_TYPE_SINK)
 		DBG("Sink %p: Abort_Cfm", sep);
 	else
 		DBG("Source %p: Abort_Cfm", sep);
 
-	setup = find_setup_by_session(session);
 	if (!setup)
 		return;
 
@@ -1302,6 +1307,7 @@ static void abort_cfm(struct avdtp *session, struct avdtp_local_sep *sep,
 	}
 
 	setup_unref(setup);
+	avdtp_stream_set_pending_open_data(stream, NULL);
 }
 
 static gboolean reconf_ind(struct avdtp *session, struct avdtp_local_sep *sep,
@@ -2194,11 +2200,12 @@ fail:
 
 static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 {
-	struct a2dp_setup *setup = user_data;
+	struct avdtp_stream *stream = user_data;
+	struct a2dp_setup *setup = avdtp_stream_get_pending_open_data(stream);
 	uint16_t omtu, imtu;
 
-	if (!g_slist_find(setups, setup)) {
-		warn("bt_io_accept: setup %p no longer valid", setup);
+	if (!setup) {
+		warn("transport_cb: pending open data does not exist");
 		g_io_channel_shutdown(io, TRUE, NULL);
 		return;
 	}
@@ -2216,8 +2223,7 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 		goto drop;
 	}
 
-	if (!avdtp_stream_set_transport(setup->stream,
-					g_io_channel_unix_get_fd(io),
+	if (!avdtp_stream_set_transport(stream, g_io_channel_unix_get_fd(io),
 					imtu, omtu))
 		goto drop;
 
@@ -2227,6 +2233,7 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 	setup->io = NULL;
 
 	setup_unref(setup);
+	avdtp_stream_set_pending_open_data(stream, NULL);
 
 	return;
 
@@ -2275,7 +2282,8 @@ static void confirm_cb(GIOChannel *io, gpointer data)
 			goto drop;
 		}
 
-		if (!bt_io_accept(io, transport_cb, setup, NULL, &err)) {
+		if (!bt_io_accept(io, transport_cb, setup->stream, NULL,
+					&err)) {
 			error("bt_io_accept: %s", err->message);
 			g_error_free(err);
 			goto drop;
