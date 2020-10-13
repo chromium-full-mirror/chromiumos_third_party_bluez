@@ -790,6 +790,14 @@ static gboolean characteristic_value_exists(const GDBusPropertyTable *property,
 	gboolean ret;
 
 	memtrack_assert_alloc_valid(chrc);
+
+	/* Simulate repopulating chrc->attr to make sure that chrc->attr is
+	 * still a valid memory.
+	 */
+	if (!gatt_db_get_attribute(chrc->service->client->db,
+				   chrc->value_handle))
+		return false;
+
 	gatt_db_attribute_read(chrc->attr, 0, 0, NULL, read_check_cb, &ret);
 
 	return ret;
