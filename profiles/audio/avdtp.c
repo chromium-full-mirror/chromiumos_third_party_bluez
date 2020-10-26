@@ -3515,6 +3515,7 @@ int avdtp_set_configuration(struct avdtp *session,
 		session->streams = g_slist_append(session->streams, new_stream);
 		if (stream)
 			*stream = new_stream;
+		session->dc_timeout = DISCONNECT_TIMEOUT;
 	}
 
 	g_free(req);
