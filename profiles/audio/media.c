@@ -84,6 +84,7 @@ struct media_adapter {
 
 struct endpoint_request {
 	struct media_endpoint	*endpoint;
+	struct media_transport	*transport;
 	DBusMessage		*msg;
 	DBusPendingCall		*call;
 	media_endpoint_cb_t	cb;
@@ -311,6 +312,15 @@ static void endpoint_reply(DBusPendingCall *call, void *user_data)
 			return;
 		}
 
+		if (dbus_message_is_method_call(request->msg,
+					MEDIA_ENDPOINT_INTERFACE,
+					"SetConfiguration")) {
+			if (request->transport == NULL)
+				error("Expected to destroy transport");
+			else
+				media_transport_destroy(request->transport);
+		}
+
 		dbus_error_free(&err);
 		goto done;
 	}
@@ -350,6 +360,7 @@ done:
 
 static gboolean media_endpoint_async_call(DBusMessage *msg,
 					struct media_endpoint *endpoint,
+					struct media_transport *transport,
 					media_endpoint_cb_t cb,
 					void *user_data,
 					GDestroyNotify destroy)
@@ -371,6 +382,7 @@ static gboolean media_endpoint_async_call(DBusMessage *msg,
 									NULL);
 
 	request->endpoint = endpoint;
+	request->transport = transport;
 	request->msg = msg;
 	request->cb = cb;
 	request->destroy = destroy;
@@ -406,7 +418,8 @@ static gboolean select_configuration(struct media_endpoint *endpoint,
 					&capabilities, length,
 					DBUS_TYPE_INVALID);
 
-	return media_endpoint_async_call(msg, endpoint, cb, user_data, destroy);
+	return media_endpoint_async_call(msg, endpoint, NULL,
+						cb, user_data, destroy);
 }
 
 static int transport_device_cmp(gconstpointer data, gconstpointer user_data)
@@ -515,7 +528,8 @@ static gboolean set_configuration(struct media_endpoint *endpoint,
 
 	g_dbus_get_properties(conn, path, "org.bluez.MediaTransport1", &iter);
 
-	return media_endpoint_async_call(msg, endpoint, cb, user_data, destroy);
+	return media_endpoint_async_call(msg, endpoint, transport,
+						cb, user_data, destroy);
 }
 
 static void release_endpoint(struct media_endpoint *endpoint)
