@@ -1774,8 +1774,8 @@ static int adapter_set_advertising_intervals(struct btd_adv_manager *manager,
 
 	if (params[0].value == 0 && params[1].value == 0) {
 		btd_info(manager->mgmt_index, "Reset Advertising Intervals.");
-		params[0].value = main_opts.default_params.le_min_adv_interval;
-		params[1].value = main_opts.default_params.le_max_adv_interval;
+		params[0].value = btd_opts.defaults.le.min_adv_interval;
+		params[1].value = btd_opts.defaults.le.max_adv_interval;
 	} else if (params[0].value < 0x0020 || params[0].value > 0x4000 ||
 			params[1].value < 0x0020 || params[1].value > 0x4000) {
 		btd_debug(manager->mgmt_index,
