@@ -43,4 +43,10 @@ struct vendor_evt {
 	bool evt_fixed;
 };
 
+struct vendor_ext_subevent {
+	uint8_t subevent_id;
+	uint8_t length;
+	void (*func)(uint8_t subevent_id, const void *data, uint8_t size);
+};
+
 void vendor_event(uint16_t manufacturer, const void *data, uint8_t size);
