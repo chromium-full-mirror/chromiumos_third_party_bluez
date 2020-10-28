@@ -273,7 +273,7 @@ bluetoothd_sources = $(builtin_sources) \
 			src/bluetooth.ver \
 			src/log.h src/log.c \
 			src/backtrace.h src/backtrace.c \
-			src/rfkill.c src/hcid.h src/sdpd.h \
+			src/rfkill.c src/btd.h src/sdpd.h \
 			src/sdpd-server.c src/sdpd-request.c \
 			src/sdpd-service.c src/sdpd-database.c \
 			src/attrib-server.h src/attrib-server.c \

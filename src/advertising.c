@@ -32,7 +32,7 @@
 #include "lib/bluetooth.h"
 #include "lib/mgmt.h"
 #include "lib/sdp.h"
-#include "hcid.h"
+#include "btd.h"
 
 #include "adapter.h"
 #include "dbus-common.h"

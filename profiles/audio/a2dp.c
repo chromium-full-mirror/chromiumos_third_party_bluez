@@ -43,7 +43,7 @@
 
 #include "gdbus/gdbus.h"
 
-#include "src/hcid.h"
+#include "src/btd.h"
 #include "src/plugin.h"
 #include "src/adapter.h"
 #include "src/device.h"

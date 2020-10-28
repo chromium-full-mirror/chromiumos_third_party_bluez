@@ -41,7 +41,7 @@
 
 #include "log.h"
 #include "adapter.h"
-#include "hcid.h"
+#include "btd.h"
 
 enum rfkill_type {
 	RFKILL_TYPE_ALL = 0,

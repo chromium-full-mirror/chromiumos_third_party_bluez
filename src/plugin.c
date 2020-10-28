@@ -37,7 +37,7 @@
 #include "btio/btio.h"
 #include "src/plugin.h"
 #include "src/log.h"
-#include "src/hcid.h"
+#include "src/btd.h"
 
 static GSList *plugins = NULL;
 

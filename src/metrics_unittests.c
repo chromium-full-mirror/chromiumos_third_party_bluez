@@ -17,7 +17,7 @@
 #include "device.h"
 #include "advertising.h"
 #include "metrics.h"
-#include "hcid.h"
+#include "btd.h"
 
 #define ASSERT_TRUE(x) do { \
 	if(!(x)) { \
@@ -38,7 +38,7 @@
 /* Dummy variable and functions which are needed to compile without messing with
  * the rest of source files of bluetoothd.
  */
-struct main_opts main_opts;
+struct btd_opts btd_opts;
 void btd_exit(void) {}
 GKeyFile *btd_get_main_conf(void) {return NULL;}
 
