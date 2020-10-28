@@ -29,6 +29,7 @@
 typedef void (*mgmt_destroy_func_t)(void *user_data);
 
 struct mgmt;
+struct mgmt_tlv_list;
 
 struct mgmt *mgmt_new(int fd);
 struct mgmt *mgmt_new_default(void);
@@ -52,6 +53,14 @@ unsigned int mgmt_send_with_timeout(
 			mgmt_request_func_t callback,
 			void *user_data, mgmt_destroy_func_t destroy,
 			int timeout_seconds);
+struct mgmt_tlv_list *mgmt_tlv_list_new(void);
+void mgmt_tlv_list_free(struct mgmt_tlv_list *tlv_list);
+bool mgmt_tlv_add(struct mgmt_tlv_list *tlv_list, uint16_t type, uint8_t length,
+								void *value);
+unsigned int mgmt_send_tlv(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
+				struct mgmt_tlv_list *tlv_list,
+				mgmt_request_func_t callback,
+				void *user_data, mgmt_destroy_func_t destroy);
 unsigned int mgmt_send(struct mgmt *mgmt, uint16_t opcode, uint16_t index,
 				uint16_t length, const void *param,
 				mgmt_request_func_t callback,
