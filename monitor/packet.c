@@ -13209,6 +13209,22 @@ static void mgmt_add_adv_monitor_patterns_rsp(const void *data, uint16_t size)
 	print_field("Handle: %d", handle);
 }
 
+static void mgmt_remove_adv_monitor_patterns_cmd(const void *data,
+								uint16_t size)
+{
+	uint16_t handle = get_le16(data);
+
+	print_field("Handle: %d", handle);
+}
+
+static void mgmt_remove_adv_monitor_patterns_rsp(const void *data,
+								uint16_t size)
+{
+	uint16_t handle = get_le16(data);
+
+	print_field("Handle: %d", handle);
+}
+
 struct mgmt_data {
 	uint16_t opcode;
 	const char *str;
@@ -13440,6 +13456,9 @@ static const struct mgmt_data mgmt_command_table[] = {
 	{ 0x0052, "Add Advertisement Monitor",
 				mgmt_add_adv_monitor_patterns_cmd, 1, false,
 				mgmt_add_adv_monitor_patterns_rsp, 2, true},
+	{ 0x0053, "Remove Advertisement Monitor",
+				mgmt_remove_adv_monitor_patterns_cmd, 2, true,
+				mgmt_remove_adv_monitor_patterns_rsp, 2, true},
 	{ 0x0054, "Add Ext Adv Params",
 				mgmt_add_ext_adv_params_cmd, 20, false,
 				mgmt_add_ext_adv_params_rsp, 2, true },
@@ -13852,6 +13871,13 @@ static void mgmt_adv_monitor_added_evt(const void *data, uint16_t size)
 	print_field("Handle: %d", handle);
 }
 
+static void mgmt_adv_monitor_removed_evt(const void *data, uint16_t size)
+{
+	uint16_t handle = get_le16(data);
+
+	print_field("Handle: %d", handle);
+}
+
 static void mgmt_controller_suspend_evt(const void *data, uint16_t size)
 {
 	uint8_t state = get_u8(data);
@@ -13981,6 +14007,8 @@ static const struct mgmt_data mgmt_event_table[] = {
 			mgmt_device_flags_changed_evt, 15, true },
 	{ 0x002b, "Advertisement Monitor Added",
 			mgmt_adv_monitor_added_evt, 2, true },
+	{ 0x002c, "Advertisement Monitor Added",
+			mgmt_adv_monitor_removed_evt, 2, true },
 	{ 0x002d, "Controller Suspended",
 			mgmt_controller_suspend_evt, 1, true },
 	{ 0x002e, "Controller Resumed",
