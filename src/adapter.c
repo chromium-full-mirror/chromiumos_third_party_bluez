@@ -1620,8 +1620,10 @@ static void discovery_free(void *user_data)
 		client->discovery_filter = NULL;
 	}
 
-	if (client->msg)
+	if (client->msg) {
 		dbus_message_unref(client->msg);
+		client->msg = NULL;
+	}
 
 	g_free(client->owner);
 	g_free(client);
@@ -6115,6 +6117,19 @@ static void free_service_auth(gpointer data, gpointer user_data)
 
 static void remove_discovery_list(struct btd_adapter *adapter)
 {
+	DBusMessage *msg;
+
+	if (adapter->client) {
+		msg = adapter->client->msg;
+		if (msg) {
+			g_dbus_send_message(dbus_conn, btd_error_busy(msg));
+			dbus_message_unref(msg);
+			adapter->client->msg = NULL;
+		}
+
+		adapter->client = NULL;
+	}
+
 	g_slist_free_full(adapter->set_filter_list, discovery_free);
 	adapter->set_filter_list = NULL;
 
