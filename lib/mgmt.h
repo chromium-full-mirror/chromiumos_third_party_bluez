@@ -715,6 +715,10 @@ struct mgmt_rp_remove_adv_monitor {
 	uint16_t monitor_handle;
 } __packed;
 
+#define MGMT_OP_ADD_EXT_ADV_PARAMS		0x0054
+
+#define MGMT_OP_ADD_EXT_ADV_DATA		0x0055
+
 struct mgmt_adv_rssi_thresholds {
 	int8_t   high_threshold;
 	uint16_t high_threshold_timeout;
