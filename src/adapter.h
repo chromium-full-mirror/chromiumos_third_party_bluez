@@ -251,7 +251,7 @@ enum kernel_features {
 	KERNEL_EXP_FEATURES		= 1 << 3,
 	KERNEL_HAS_RESUME_EVT		= 1 << 4,
 	KERNEL_HAS_EXT_ADV_ADD_CMDS	= 1 << 5,
-	// 1 << 6 is already definded in upstream
+	KERNEL_HAS_CONTROLLER_CAP_CMD	= 1 << 6,
 	KERNEL_ADV_MONITOR_CMDS		= 1 << 7,
 };
 
