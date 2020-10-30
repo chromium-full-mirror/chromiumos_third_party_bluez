@@ -36,7 +36,6 @@
 #include "src/shared/att.h"
 #include "src/shared/gatt-db.h"
 #include "src/shared/crypto.h"
-#include "src/shared/memtrack.h"
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -188,14 +187,11 @@ static void attribute_destroy(struct gatt_db_attribute *attribute)
 	if (!attribute)
 		return;
 
-	memtrack_assert_alloc_valid(attribute);
-
 	queue_destroy(attribute->pending_reads, pending_read_free);
 	queue_destroy(attribute->pending_writes, pending_write_free);
 
 	free(attribute->value);
 	free(attribute);
-	memtrack_remove_alloc(attribute);
 }
 
 static struct gatt_db_attribute *new_attribute(struct gatt_db_service *service,
@@ -207,7 +203,6 @@ static struct gatt_db_attribute *new_attribute(struct gatt_db_service *service,
 	struct gatt_db_attribute *attribute;
 
 	attribute = new0(struct gatt_db_attribute, 1);
-	memtrack_add_alloc(attribute);
 
 	attribute->service = service;
 	attribute->handle = handle;
@@ -246,7 +241,6 @@ struct gatt_db *gatt_db_new(void)
 	struct gatt_db *db;
 
 	db = new0(struct gatt_db, 1);
-	memtrack_add_alloc(db);
 	db->crypto = bt_crypto_new();
 	db->services = queue_new();
 	db->notify_list = queue_new();
@@ -405,8 +399,6 @@ static void gatt_db_service_destroy(void *data)
 	struct gatt_db_service *service = data;
 	int i;
 
-	memtrack_assert_alloc_valid(service);
-
 	if (service->active)
 		notify_service_changed(service->db, service, false);
 
@@ -415,15 +407,12 @@ static void gatt_db_service_destroy(void *data)
 
 	free(service->attributes);
 	free(service);
-	memtrack_remove_alloc(service);
 }
 
 static void gatt_db_destroy(struct gatt_db *db)
 {
 	if (!db)
 		return;
-
-	memtrack_assert_alloc_valid(db);
 
 	bt_crypto_unref(db->crypto);
 
@@ -439,7 +428,6 @@ static void gatt_db_destroy(struct gatt_db *db)
 
 	queue_destroy(db->services, gatt_db_service_destroy);
 	free(db);
-	memtrack_remove_alloc(db);
 }
 
 void gatt_db_unref(struct gatt_db *db)
@@ -512,7 +500,6 @@ static struct gatt_db_service *gatt_db_service_create(const bt_uuid_t *uuid,
 		return NULL;
 
 	service = new0(struct gatt_db_service, 1);
-	memtrack_add_alloc(service);
 	service->attributes = new0(struct gatt_db_attribute *, num_handles);
 
 	if (primary)
@@ -1835,12 +1822,7 @@ static bool read_timeout(void *user_data)
 static uint8_t attribute_authorize(struct gatt_db_attribute *attrib,
 					uint8_t opcode, struct bt_att *att)
 {
-	struct gatt_db *db;
-
-	memtrack_assert_alloc_valid(attrib);
-	memtrack_assert_alloc_valid(attrib->service);
-	db = attrib->service->db;
-	memtrack_assert_alloc_valid(db);
+	struct gatt_db *db = attrib->service->db;
 
 	if (!db->authorize)
 		return 0;
@@ -1853,8 +1835,6 @@ bool gatt_db_attribute_read(struct gatt_db_attribute *attrib, uint16_t offset,
 				gatt_db_attribute_read_t func, void *user_data)
 {
 	uint8_t *value;
-
-	memtrack_assert_alloc_valid(attrib);
 
 	if (!attrib || !func)
 		return false;
