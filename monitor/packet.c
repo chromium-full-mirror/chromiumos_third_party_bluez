@@ -11817,26 +11817,6 @@ static void mgmt_print_adv_flags(uint32_t flags)
 							" (0x%8.8x)", mask);
 }
 
-static const struct bitfield_data mgmt_adv_params_table[] = {
-	{  0, "Use Duration parameter"	},
-	{  1, "Use Timeout parameter"	},
-	{  2, "Use Interval parameters"	},
-	{  3, "Use TX Power parameter"	},
-	{ }
-};
-
-static void mgmt_print_adv_params(uint16_t flags)
-{
-	uint32_t mask;
-
-	print_field("Enabled parameters: 0x%4.4x", flags);
-
-	mask = print_bitfield(2, flags, mgmt_adv_params_table);
-	if (mask)
-		print_text(COLOR_UNKNOWN_ADV_FLAG, "  Unknown advertising param"
-							" (0x%8.8x)", mask);
-}
-
 static void mgmt_print_store_hint(uint8_t hint)
 {
 	const char *str;
@@ -13079,55 +13059,6 @@ static void mgmt_set_device_flags_rsp(const void *data, uint16_t size)
 
 	mgmt_print_address(data, type);
 }
-static void mgmt_add_ext_adv_params_cmd(const void *data, uint16_t size)
-{
-	uint8_t instance = get_u8(data);
-	uint32_t flags = get_le32(data + 1);
-	uint16_t params = get_le16(data + 5);
-	uint16_t duration = get_le16(data + 7);
-	uint16_t timeout = get_le16(data + 9);
-	uint8_t *min_interval = (uint8_t *)(data + 11);
-	uint8_t *max_interval = (uint8_t *)(data + 15);
-	int8_t tx_power = get_s8(data + 19);
-
-	print_field("Instance: %u", instance);
-	mgmt_print_adv_flags(flags);
-	mgmt_print_adv_params(params);
-	print_field("Duration: %u", duration);
-	print_field("Timeout: %u", timeout);
-	print_ext_slot_625("Min advertising interval", min_interval);
-	print_ext_slot_625("Max advertising interval", max_interval);
-	print_power_level(tx_power, NULL);
-}
-
-static void mgmt_add_ext_adv_params_rsp(const void *data, uint16_t size)
-{
-	uint8_t instance = get_u8(data);
-	int8_t tx_power = get_s8(data + 1);
-
-	print_field("Instance: %u", instance);
-	print_power_level(tx_power, NULL);
-}
-
-static void mgmt_add_ext_adv_data_cmd(const void *data, uint16_t size)
-{
-	uint8_t instance = get_u8(data);
-	uint8_t adv_data_len = get_u8(data + 1);
-	uint8_t scan_rsp_len = get_u8(data + 2);
-
-	print_field("Instance: %u", instance);
-	print_field("Advertising data length: %u", adv_data_len);
-	print_eir(data + 3, adv_data_len, false);
-	print_field("Scan response length: %u", scan_rsp_len);
-	print_eir(data + 3 + adv_data_len, scan_rsp_len, false);
-}
-
-static void mgmt_add_ext_adv_data_rsp(const void *data, uint16_t size)
-{
-	uint8_t instance = get_u8(data);
-
-	print_field("Instance: %u", instance);
-}
 
 static const struct bitfield_data mgmt_adv_monitor_features_table[] = {
 	{ 1, "OR Patterns"	},
@@ -13490,12 +13421,6 @@ static const struct mgmt_data mgmt_command_table[] = {
 	{ 0x0053, "Remove Advertisement Monitor",
 				mgmt_remove_adv_monitor_patterns_cmd, 2, true,
 				mgmt_remove_adv_monitor_patterns_rsp, 2, true},
-	{ 0x0054, "Add Ext Adv Params",
-				mgmt_add_ext_adv_params_cmd, 20, false,
-				mgmt_add_ext_adv_params_rsp, 2, true },
-	{ 0x0055, "Add Ext Adv Data",
-				mgmt_add_ext_adv_data_cmd, 3, false,
-				mgmt_add_ext_adv_data_rsp, 1, true },
 	{ 0x0056, "Add Advertisement Monitor With RSSI",
 				mgmt_add_adv_monitor_patterns_rssi_cmd, 8,
 									false,
