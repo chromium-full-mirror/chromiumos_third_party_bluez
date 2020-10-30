@@ -788,19 +788,8 @@ static gboolean characteristic_value_exists(const GDBusPropertyTable *property,
 {
 	struct characteristic *chrc = data;
 	gboolean ret;
-	struct gatt_db_attribute *attr;
 
 	memtrack_assert_alloc_valid(chrc);
-
-	/* Simulate repopulating chrc->attr to make sure that chrc->attr is
-	 * still a valid memory.
-	 */
-	attr = gatt_db_get_attribute(chrc->service->client->db,
-				     chrc->value_handle);
-	info("%s: attr = %p, chrc->attr = %p", __func__, attr, chrc->attr);
-	if (!attr)
-		return false;
-
 	gatt_db_attribute_read(chrc->attr, 0, 0, NULL, read_check_cb, &ret);
 
 	return ret;
