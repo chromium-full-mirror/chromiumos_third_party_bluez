@@ -218,6 +218,8 @@ static gboolean descriptor_value_exists(const GDBusPropertyTable *property,
 	struct descriptor *desc = data;
 	gboolean ret;
 
+	desc->attr = gatt_db_get_attribute(desc->chrc->service->client->db,
+					   desc->chrc->value_handle);
 	gatt_db_attribute_read(desc->attr, 0, 0, NULL, read_check_cb, &ret);
 
 	return ret;
@@ -788,6 +790,8 @@ static gboolean characteristic_value_exists(const GDBusPropertyTable *property,
 	struct characteristic *chrc = data;
 	gboolean ret;
 
+	chrc->attr = gatt_db_get_attribute(chrc->service->client->db,
+					   chrc->value_handle);
 	gatt_db_attribute_read(chrc->attr, 0, 0, NULL, read_check_cb, &ret);
 
 	return ret;
