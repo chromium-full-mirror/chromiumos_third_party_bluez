@@ -511,20 +511,16 @@ int main(int argc, char *argv[])
 
 	__btd_log_init("*", 0);
 
-	/* TODO: Commenting these tests since they are time sensitive and
-	 * causing failure on some builds. Please see crbug:1131070
-	 *
-	 * define_test("/advmon/rssi/1", TEST_RSSI_FILTER, rssi_data_1,
-	 *     setup_handler, test_handler, teardown_handler);
-	 * define_test("/advmon/rssi/2", TEST_RSSI_FILTER, rssi_data_2,
-	 *     setup_handler, test_handler, teardown_handler);
-	 * define_test("/advmon/rssi/3", TEST_RSSI_FILTER, rssi_data_3,
-	 *     setup_handler, test_handler, teardown_handler);
-	 * define_test("/advmon/rssi/4", TEST_RSSI_FILTER, rssi_data_4,
-	 *     setup_handler, test_handler, teardown_handler);
-	 * define_test("/advmon/rssi/5", TEST_RSSI_FILTER, rssi_data_5,
-	 *     setup_handler, test_handler, teardown_handler);
-	 */
+	define_test("/advmon/rssi/1", TEST_RSSI_FILTER, rssi_data_1,
+		    setup_handler, test_handler, teardown_handler);
+	define_test("/advmon/rssi/2", TEST_RSSI_FILTER, rssi_data_2,
+		    setup_handler, test_handler, teardown_handler);
+	define_test("/advmon/rssi/3", TEST_RSSI_FILTER, rssi_data_3,
+		    setup_handler, test_handler, teardown_handler);
+	define_test("/advmon/rssi/4", TEST_RSSI_FILTER, rssi_data_4,
+		    setup_handler, test_handler, teardown_handler);
+	define_test("/advmon/rssi/5", TEST_RSSI_FILTER, rssi_data_5,
+		    setup_handler, test_handler, teardown_handler);
 
 	define_test("/advmon/content/1", TEST_CONTENT_FILTER, content_data_1,
 		    setup_handler, test_handler, teardown_handler);
