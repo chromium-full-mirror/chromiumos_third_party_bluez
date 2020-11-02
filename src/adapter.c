@@ -7470,15 +7470,6 @@ static void update_found_devices(struct btd_adapter *adapter,
 	bool name_known, discoverable;
 	char addr[18];
 	bool duplicate = false;
-	GSList *matched_monitors;
-
-	/* During the background scanning, update the device only when the data
-	 * match at least one Adv monitor
-	 */
-	matched_monitors = btd_adv_monitor_content_filter(
-				adapter->adv_monitor_manager, data, data_len);
-	if (!adapter->discovering && !matched_monitors)
-		return;
 
 	memset(&eir_data, 0, sizeof(eir_data));
 	eir_parse(&eir_data, data, data_len);
@@ -7520,22 +7511,18 @@ static void update_found_devices(struct btd_adapter *adapter,
 		device_store_cached_name(dev, eir_data.name);
 
 	/*
-	 * Only skip devices that are not connected, are temporary, and there
-	 * is no active discovery session ongoing and no matched Adv monitors
+	 * Only skip devices that are not connected, are temporary and there
+	 * is no active discovery session ongoing.
 	 */
-	if (!btd_device_is_connected(dev) &&
-		(device_is_temporary(dev) && !adapter->discovery_list) &&
-		!matched_monitors) {
+	if (!btd_device_is_connected(dev) && (device_is_temporary(dev) &&
+						 !adapter->discovery_list)) {
 		eir_data_free(&eir_data);
 		return;
 	}
 
-	/* If there is no matched Adv monitors, don't continue if not
-	 * discoverable or if active discovery filter don't match.
-	 */
-	if (!matched_monitors && (!discoverable ||
-		(adapter->filtered_discovery && !is_filter_match(
-				adapter->discovery_list, &eir_data, rssi)))) {
+	/* Don't continue if not discoverable or if filter don't match */
+	if (!discoverable || (adapter->filtered_discovery &&
+	    !is_filter_match(adapter->discovery_list, &eir_data, rssi))) {
 		eir_data_free(&eir_data);
 		return;
 	}
@@ -7592,14 +7579,6 @@ static void update_found_devices(struct btd_adapter *adapter,
 		device_set_flags(dev, eir_data.flags);
 
 	eir_data_free(&eir_data);
-
-	/* After the device is updated, notify the matched Adv monitors */
-	if (matched_monitors) {
-		btd_adv_monitor_notify_monitors(adapter->adv_monitor_manager,
-						dev, rssi, matched_monitors);
-		g_slist_free(matched_monitors);
-		matched_monitors = NULL;
-	}
 
 	/*
 	 * Only if at least one client has requested discovery, maintain
