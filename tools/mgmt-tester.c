@@ -7220,7 +7220,7 @@ static const struct generic_data add_ext_advertising_fail_4 = {
 
 static const uint8_t set_ext_adv_data_uuid[] = {
 	/* handle */
-	0x00,
+	0x01,
 	/* complete data */
 	0x03,
 	/* controller should not fragment */
@@ -7252,7 +7252,7 @@ static const struct generic_data add_ext_advertising_success_1 = {
 };
 
 static const uint8_t set_ext_adv_data_test1[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x07,				/* adv data len */
@@ -7280,7 +7280,7 @@ static const struct generic_data add_ext_advertising_success_pwron_data = {
 static const char set_ext_adv_on_set_adv_enable_param[] = {
 	0x01,		/* Enable */
 	0x01,		/* No of sets */
-	0x00,		/* Handle */
+	0x01,		/* Handle */
 	0x00, 0x00,		/* Duration */
 	0x00,		/* Max events */
 };
@@ -7352,7 +7352,7 @@ static const struct generic_data add_ext_advertising_success_6 = {
 };
 
 static const uint8_t set_ext_scan_rsp_uuid[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x0a,			/* scan rsp data len */
@@ -7385,7 +7385,7 @@ static const struct generic_data add_ext_advertising_success_7 = {
 };
 
 static uint8_t set_connectable_on_ext_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x13, 0x00, 			/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08, 0x00,		/* max_interval */
@@ -7416,7 +7416,7 @@ static const struct generic_data add_ext_advertising_success_8 = {
 };
 
 static const uint8_t set_ext_adv_data_general_discov[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x0c,			/* adv data len */
@@ -7435,7 +7435,7 @@ static const uint8_t set_ext_adv_data_general_discov[] = {
 };
 
 static const uint8_t set_ext_adv_data_limited_discov[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x0c,			/* adv data len */
@@ -7450,7 +7450,7 @@ static const uint8_t set_ext_adv_data_limited_discov[] = {
 };
 
 static const uint8_t set_ext_adv_data_uuid_txpwr[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x0c,			/* adv data len */
@@ -7521,7 +7521,7 @@ static const struct generic_data add_ext_advertising_success_12 = {
 };
 
 static uint8_t set_connectable_off_scan_ext_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x12, 0x00,				/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08,	0x00,		/* max_interval */
@@ -7552,7 +7552,7 @@ static const struct generic_data add_ext_advertising_success_13 = {
 };
 
 static uint8_t set_connectable_off_ext_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x10, 0x00, 			/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08, 0x00,		/* max_interval */
@@ -7694,7 +7694,7 @@ static const struct generic_data remove_ext_advertising_success_2 = {
 };
 
 static const uint8_t set_ext_adv_data_test2[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x07,				/* adv data len */
@@ -7801,7 +7801,7 @@ static const struct generic_data add_ext_advertising_scrsp_appear_null = {
 };
 
 static const uint8_t ext_scan_rsp_data_empty[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x01, /* scan rsp data len */
@@ -7826,7 +7826,7 @@ static const struct generic_data add_ext_advertising_no_name_set = {
 };
 
 static const uint8_t set_ext_scan_rsp_data_name_fits_in_scrsp[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x0c, /* Scan rsp data len */
@@ -7855,7 +7855,7 @@ static const struct generic_data add_ext_advertising_name_fits_in_scrsp = {
 };
 
 static const uint8_t set_ext_scan_rsp_data_shortened_name_fits[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x0d, /* Scan rsp data len */
@@ -7885,7 +7885,7 @@ static const struct generic_data add_ext_advertising_shortened_name_in_scrsp = {
 };
 
 static const uint8_t set_ext_scan_rsp_data_param_name_data_ok[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x1e, /* Scan rsp data len */
@@ -7930,7 +7930,7 @@ static const struct generic_data add_ext_advertising_name_data_inv = {
 };
 
 static const uint8_t set_ext_scan_rsp_data_name_data_appear[] = {
-	0x00,				/* handle */
+	0x01,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x1e, /* Scan rsp data len */
@@ -7980,7 +7980,7 @@ static const uint8_t add_advertising_1m_param_uuid[] = {
 };
 
 static uint8_t set_connectable_off_ext_1m_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x00, 0x00, 			/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08, 0x00,		/* max_interval */
@@ -8028,7 +8028,7 @@ static const uint8_t add_advertising_2m_param_uuid[] = {
 };
 
 static uint8_t set_connectable_off_ext_2m_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x00, 0x00, 			/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08, 0x00,		/* max_interval */
@@ -8076,7 +8076,7 @@ static const uint8_t add_advertising_coded_param_uuid[] = {
 };
 
 static uint8_t set_connectable_off_ext_coded_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x00, 0x00, 			/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08, 0x00,		/* max_interval */
@@ -8127,7 +8127,7 @@ static const uint8_t add_advertising_param_scanrsp_1m[] = {
 };
 
 static uint8_t set_connectable_off_scan_ext_pdu_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x02, 0x00,				/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08,	0x00,		/* max_interval */
@@ -8158,7 +8158,7 @@ static const struct generic_data add_ext_advertising_success_scannable = {
 };
 
 static uint8_t set_connectable_on_ext_pdu_adv_param[] = {
-	0x00,					/* Handle */
+	0x01,					/* Handle */
 	0x01, 0x00,				/* Event type */
 	0x00, 0x08, 0x00,		/* min_interval */
 	0x00, 0x08,	0x00,		/* max_interval */
