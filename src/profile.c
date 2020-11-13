@@ -613,6 +613,8 @@
 		</attribute>						\
 	</record>"
 
+#define NEARBY_UUID "a82efa21-ae5c-3dde-9bbc-f16da7b16c5a"
+
 struct ext_io;
 
 struct ext_profile {
@@ -1393,6 +1395,9 @@ static int ext_adapter_probe(struct btd_profile *p,
 
 	ext->records = g_slist_append(ext->records, rec);
 
+	if (strcmp(ext->uuid, NEARBY_UUID) == 0)
+		btd_adapter_set_keep_connectable(adapter, true);
+
 	return 0;
 }
 
@@ -1442,6 +1447,9 @@ static void ext_adapter_remove(struct btd_profile *p,
 		ext->servers = g_slist_remove(ext->servers, server);
 		ext_io_destroy(server);
 	}
+
+	if (strcmp(ext->uuid, NEARBY_UUID) == 0)
+		btd_adapter_set_keep_connectable(adapter, false);
 }
 
 static int ext_device_probe(struct btd_service *service)
