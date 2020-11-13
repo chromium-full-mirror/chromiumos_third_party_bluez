@@ -150,6 +150,8 @@ static time_t metrics_last_chip_lost_time;
 /* Time of the last system resume from suspend */
 static time_t last_system_resume_time;
 
+static bool keep_connectable = false;
+
 struct link_key_info {
 	bdaddr_t bdaddr;
 	unsigned char key[16];
@@ -774,7 +776,7 @@ static bool set_discoverable(struct btd_adapter *adapter, uint8_t mode,
 	if (btd_has_kernel_features(KERNEL_CONN_CONTROL)) {
 		if (mode)
 			set_mode(adapter, MGMT_OP_SET_CONNECTABLE, mode);
-		else
+		else if (!keep_connectable)
 			/* This also disables discoverable so we're done */
 			return set_mode(adapter, MGMT_OP_SET_CONNECTABLE,
 									mode);
@@ -3094,7 +3096,7 @@ static void property_set_mode(struct btd_adapter *adapter, uint32_t setting,
 			if (mode) {
 				set_mode(adapter, MGMT_OP_SET_CONNECTABLE,
 									mode);
-			} else {
+			} else if (!keep_connectable) {
 				opcode = MGMT_OP_SET_CONNECTABLE;
 				param = &mode;
 				len = sizeof(mode);
@@ -10821,4 +10823,17 @@ bool btd_le_connect_before_pairing(void)
 bool btd_has_kernel_features(uint32_t features)
 {
 	return (kernel_features & features) ? true : false;
+}
+
+void btd_adapter_set_keep_connectable(struct btd_adapter *adapter,
+						bool connectable)
+{
+	GList *list;
+
+	DBG("setting keep_connectable = %d", connectable);
+
+	keep_connectable = connectable;
+
+	set_mode(adapter, MGMT_OP_SET_CONNECTABLE,
+			keep_connectable ? 0x01 : 0x00);
 }
