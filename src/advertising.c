@@ -1395,7 +1395,7 @@ static DBusMessage *parse_advertisement(struct btd_adv_client *client)
 
 	if (client->min_interval > client->max_interval) {
 		/* Min interval must not be bigger than max interval */
-		error("MinInterval must be less than MaxInterval (%lu > %lu)",
+		error("MinInterval must be less than MaxInterval (%u > %u)",
 				client->min_interval, client->max_interval);
 		goto fail;
 	}
@@ -1778,9 +1778,8 @@ static int adapter_set_advertising_intervals(struct btd_adv_manager *manager,
 		params[1].value = btd_opts.defaults.le.max_adv_interval;
 	} else if (params[0].value < 0x0020 || params[0].value > 0x4000 ||
 			params[1].value < 0x0020 || params[1].value > 0x4000) {
-		btd_debug(manager->mgmt_index,
-				"Invalid intervals provided 0x%04x, 0x%04x",
-				min_interval_ms, max_interval_ms);
+		DBG("Invalid intervals provided 0x%04x, 0x%04x",
+					min_interval_ms, max_interval_ms);
 		reply = btd_error_invalid_args(msg);
 		g_dbus_send_message(btd_get_dbus_connection(), reply);
 		return false;
