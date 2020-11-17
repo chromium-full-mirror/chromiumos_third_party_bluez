@@ -2528,7 +2528,7 @@ static bool parse_pathloss(DBusMessageIter *value,
 	return true;
 }
 
-static bool parse_transport(DBusMessageIter *value,
+static bool parse_transport(DBusMessageIter *value, 
 					struct discovery_filter *filter)
 {
 	char *transport_str;
@@ -5202,14 +5202,6 @@ static void load_default_system_params(struct btd_adapter *adapter)
 		params[i].entry.type = 0x001b;
 		params[i].entry.length = sizeof(params[i].u16);
 		params[i].u16 = main_opts.default_params.le_autoconnect_timeout;
-		++i;
-		len += sizeof(params[i].u16);
-	}
-
-	if (main_opts.default_params.eir_max_name_len) {
-		params[i].entry.type = 0x001c;
-		params[i].entry.length = sizeof(params[i].u16);
-		params[i].u16 = main_opts.default_params.eir_max_name_len;
 		++i;
 		len += sizeof(params[i].u16);
 	}

@@ -87,7 +87,6 @@ struct main_opts {
 		uint16_t	le_conn_latency;
 		uint16_t	le_conn_lsto;
 		uint16_t	le_autoconnect_timeout;
-		uint16_t	eir_max_name_len;
 	} default_params;
 
 
