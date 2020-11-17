@@ -88,10 +88,6 @@ struct main_opts {
 		uint16_t	le_conn_lsto;
 		uint16_t	le_autoconnect_timeout;
 		uint16_t	eir_max_name_len;
-
-		uint16_t	advmon_allowlist_scan_duration;
-		uint16_t	advmon_no_filter_scan_duration;
-		uint16_t	enable_advmon_interleave_scan;
 	} default_params;
 
 
