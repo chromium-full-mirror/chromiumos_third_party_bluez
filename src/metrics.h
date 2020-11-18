@@ -41,6 +41,20 @@
 #define H_NAME_BATTERY_PROBE_RESULT "BlueZ.PerProfile.Battery.ProbingResult"
 #define H_NAME_BATTERY_CONN_RESULT "BlueZ.PerProfile.Battery.ConnectionResult"
 
+#define H_NAME_ADVMON_NUM_MONITOR "BlueZ.AdvertisementMonitor.NumOfMonitors"
+#define H_NAME_ADVMON_SW_PATTERN_ADV_PER_MINUTE                                \
+	"BlueZ.AdvertisementMonitor.SW.FilterPatternAdvsPerMinute"
+#define H_NAME_ADVMON_SW_ADD_RESULT                                            \
+	"BlueZ.AdvertisementMonitor.SW.Add.Result"
+#define H_NAME_ADVMON_SW_REMOVE_RESULT                                         \
+	"BlueZ.AdvertisementMonitor.SW.Remove.Result"
+#define H_NAME_ADVMON_MSFT_PATTERN_ADV_PER_MINUTE                              \
+	"BlueZ.AdvertisementMonitor.MSFT.FilterPatternAdvsPerMinute"
+#define H_NAME_ADVMON_MSFT_ADD_RESULT                                          \
+	"BlueZ.AdvertisementMonitor.MSFT.Add.Result"
+#define H_NAME_ADVMON_MSFT_REMOVE_RESULT                                       \
+	"BlueZ.AdvertisementMonitor.MSFT.Remove.Result"
+
 /* The lower and upper bounds of number of registered advertisements. */
 #define NUM_ADV_MAX 6
 #define NUM_ADV_MIN 0
@@ -51,6 +65,7 @@
 
 struct btd_adapter;
 struct btd_device;
+struct btd_adv_monitor_manager;
 
 /* BlueZ metrics does not take ownership of these pointers, so there is no need
  * to free the memory when bringing down.
@@ -72,6 +87,22 @@ typedef enum {
 	TIMER_CHIP_LOST2,
 } metrics_timer_type;
 
+struct metrics_periodic_timer;
+typedef int (*metric_periodic_timer_update_func_t)(int current, void *data,
+							void *user_data);
+typedef int (*metric_periodic_timer_report_func_t)(int current, void *data);
+
+enum metrics_periodic_timer_type {
+	PERIODIC_TIMER_NUM_MONITOR = 1,
+	PERIODIC_TIMER_SW_PATTERN_ADV_PER_MINUTE = 2,
+	PERIODIC_TIMER_MSFT_PATTERN_ADV_PER_MINUTE = 3,
+};
+
+enum metrics_advmon_enum_type {
+	ADD_ADVMON_RESULT = 1,
+	REMOVE_ADVMON_RESULT,
+};
+
 typedef enum {
 	ENUM_TYPE_DISCOVERY = 1,
 	ENUM_TYPE_FOUND_DEVICE,
@@ -79,6 +110,10 @@ typedef enum {
 	ENUM_TYPE_DISCONN_REASON,
 	ENUM_TYPE_PAIR_RESULT,
 	ENUM_TYPE_CONN_RESULT,
+	ENUM_TYPE_ADVMON_SW_ADD_RESULT,
+	ENUM_TYPE_ADVMON_SW_REMOVE_RESULT,
+	ENUM_TYPE_ADVMON_MSFT_ADD_RESULT,
+	ENUM_TYPE_ADVMON_MSFT_REMOVE_RESULT,
 } metrics_send_enum_type;
 
 typedef enum {
@@ -223,6 +258,15 @@ typedef enum {
 	PROFILE_CONN_END = 8,
 } metrics_profile_conn_result;
 
+enum metrics_advmon_result {
+	ADVMON_RESULT_SUCCEED = 0,
+	ADVMON_RESULT_UNKNOWN_ERROR = 1,
+	ADVMON_RESULT_BAD_PARAM = 2,
+	ADVMON_RESULT_NO_RESOURCE = 3,
+	ADVMON_RESULT_BUSY = 4,
+	ADVMON_RESULT_END = 5,
+};
+
 /* Corresponding methods to C Metrics Library */
 bool metrics_init(void);
 void metrics_deinit(void);
@@ -240,5 +284,22 @@ void metrics_cancel_timer(metrics_timer_type type,
 			struct metrics_timer_data data);
 bool metrics_stop_timer(metrics_timer_type type,
 			struct metrics_timer_data data);
+
+/* Methods to manage periodic_timer which emit sample every few seconds */
+struct metrics_periodic_timer *metrics_start_periodic_timer(
+				enum metrics_periodic_timer_type type,
+				int active_period, int idle_period,
+				int init_value, void *data,
+				metric_periodic_timer_update_func_t on_update,
+				metric_periodic_timer_report_func_t on_report);
+bool metrics_stop_periodic_timer(struct metrics_periodic_timer *timer);
+bool metrics_update_periodic_timer_value(struct metrics_periodic_timer *timer,
+							void *user_data);
+bool metrics_advmon_start_tracking(struct btd_adv_monitor_manager *manager);
+bool metrics_advmon_stop_tracking(struct btd_adv_monitor_manager *manager);
+bool metrics_advmon_update_frequency(struct btd_adv_monitor_manager *manager,
+								int value);
+bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
+				enum metrics_advmon_enum_type type, int sample);
 
 #endif  // BLUEZ_METRICS_H_

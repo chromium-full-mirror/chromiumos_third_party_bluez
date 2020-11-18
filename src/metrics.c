@@ -15,6 +15,8 @@
 #include "lib/uuid.h"
 #include "log.h"
 #include "metrics/c_metrics_library.h"
+#include "src/adv_monitor.h"
+#include "src/shared/queue.h"
 
 /* The default value of number of buckets used in Count histogram. */
 #define DEFAULT_BUCKETS_NUM	50
@@ -30,14 +32,35 @@
 #define BLUEZ_DISCOVERY_TYPE_DUAL (BLUEZ_DISCOVERY_TYPE_BREDR | \
 					BLUEZ_DISCOVERY_TYPE_LE)
 
+#define ADV_MON_ACTIVE_DURATION		60   // 1 minute
+#define ADV_MON_IDLE_DURATION		300  // 5 minutes
+#define ADV_MON_MAX_NUM_OF_MONITOR	32
+#define ADV_MON_MAX_ADV_PER_MINUTE	1000 // somewhat arbitrary number
+
 struct metrics_timer {
 	metrics_timer_type type;
 	struct timespec start;
 	struct metrics_timer_data data;
 };
 
+struct metrics_periodic_timer {
+	enum metrics_periodic_timer_type type;
+	int active_period;
+	int idle_period;
+	int init_value;
+	void *user_data;
+	metric_periodic_timer_update_func_t on_update;
+	metric_periodic_timer_report_func_t on_report;
+	guint timer;
+	int value;
+	bool active;
+};
+
 static CMetricsLibrary lib = NULL;
 static GSList *timers = NULL;
+static struct queue *periodic_timers;
+
+static void metrics_free_periodic_timer(void *user_data);
 
 static int metrics_timer_match(gconstpointer a, gconstpointer b)
 {
@@ -227,6 +250,22 @@ static metrics_profile_conn_result convert_profile_conn_result(int sample)
 	}
 }
 
+static enum metrics_advmon_result convert_advmon_result(int sample)
+{
+	switch (sample) {
+	case MGMT_STATUS_SUCCESS:
+		return ADVMON_RESULT_SUCCEED;
+	case MGMT_STATUS_INVALID_PARAMS:
+		return ADVMON_RESULT_BAD_PARAM;
+	case MGMT_STATUS_NO_RESOURCES:
+		return ADVMON_RESULT_NO_RESOURCE;
+	case MGMT_STATUS_BUSY:
+		return ADVMON_RESULT_BUSY;
+	default:
+		return ADVMON_RESULT_UNKNOWN_ERROR;
+	}
+}
+
 bool metrics_init(void)
 {
 	if (lib)
@@ -240,12 +279,20 @@ bool metrics_init(void)
 	if (!timers)
 		return false;
 
+	periodic_timers = queue_new();
+	if (!periodic_timers)
+		return false;
+
 	return true;
 }
 
 void metrics_deinit(void)
 {
 	g_slist_free_full(timers, g_free);
+	if (periodic_timers) {
+		queue_destroy(periodic_timers, metrics_free_periodic_timer);
+		periodic_timers = NULL;
+	}
 
 	if (lib) {
 		CMetricsLibraryDelete(lib);
@@ -324,6 +371,26 @@ bool metrics_send_enum(metrics_send_enum_type type, int sample,
 		histogram = H_NAME_CONN_RESULT;
 		max = CONN_FAIL_END;
 		min = 1;
+		break;
+	case ENUM_TYPE_ADVMON_SW_ADD_RESULT:
+		histogram = H_NAME_ADVMON_SW_ADD_RESULT;
+		sample = convert_advmon_result(sample);
+		max = ADVMON_RESULT_END;
+		break;
+	case ENUM_TYPE_ADVMON_SW_REMOVE_RESULT:
+		histogram = H_NAME_ADVMON_SW_REMOVE_RESULT;
+		sample = convert_advmon_result(sample);
+		max = ADVMON_RESULT_END;
+		break;
+	case ENUM_TYPE_ADVMON_MSFT_ADD_RESULT:
+		histogram = H_NAME_ADVMON_MSFT_ADD_RESULT;
+		sample = convert_advmon_result(sample);
+		max = ADVMON_RESULT_END;
+		break;
+	case ENUM_TYPE_ADVMON_MSFT_REMOVE_RESULT:
+		histogram = H_NAME_ADVMON_MSFT_REMOVE_RESULT;
+		sample = convert_advmon_result(sample);
+		max = ADVMON_RESULT_END;
 		break;
 	default:
 		DBG("Invalid enum type:%d", type);
@@ -560,4 +627,294 @@ failed:
 	g_free(timer);
 	g_free(t);
 	return emitted;
+}
+
+static bool metrics_periodic_timer_report(enum metrics_periodic_timer_type type,
+						int value)
+{
+	const char *name = NULL;
+	int min_val, max_val;
+	int bucket_num = DEFAULT_BUCKETS_NUM;
+
+	switch (type) {
+	case PERIODIC_TIMER_NUM_MONITOR:
+		name = H_NAME_ADVMON_NUM_MONITOR;
+		min_val = 0;
+		max_val = ADV_MON_MAX_NUM_OF_MONITOR;
+		// Undocumented behavior seems to prevent tracking count
+		// histograms with bucket_num greater than max_val + 1.
+		// This is the value they used in EXACT_LINEAR histogram.
+		bucket_num = max_val + 1;
+		break;
+	case PERIODIC_TIMER_SW_PATTERN_ADV_PER_MINUTE:
+		name = H_NAME_ADVMON_SW_PATTERN_ADV_PER_MINUTE;
+		min_val = 0;
+		max_val = ADV_MON_MAX_ADV_PER_MINUTE;
+		break;
+	case PERIODIC_TIMER_MSFT_PATTERN_ADV_PER_MINUTE:
+		name = H_NAME_ADVMON_MSFT_PATTERN_ADV_PER_MINUTE;
+		min_val = 0;
+		max_val = ADV_MON_MAX_ADV_PER_MINUTE;
+		break;
+	default:
+		DBG("Invalid enum type: %d", type);
+		return false;
+	}
+
+	return metrics_send(name, value, min_val, max_val, bucket_num);
+}
+
+static gboolean metrics_periodic_timer_timeout(void *user_data)
+{
+	struct metrics_periodic_timer *timer = user_data;
+	int next_period;
+
+	if (timer->active) {
+		if (timer->on_report)
+			timer->value = timer->on_report(timer->value,
+							timer->user_data);
+		metrics_periodic_timer_report(timer->type, timer->value);
+		next_period = timer->idle_period;
+	} else {
+		timer->value = timer->init_value;
+		next_period = timer->active_period;
+	}
+
+	timer->active = !timer->active;
+	timer->timer = g_timeout_add_seconds(next_period,
+						metrics_periodic_timer_timeout,
+						timer);
+
+	return FALSE;
+}
+
+struct metrics_periodic_timer *metrics_start_periodic_timer(
+				enum metrics_periodic_timer_type type,
+				int active_period, int idle_period,
+				int init_value, void *user_data,
+				metric_periodic_timer_update_func_t on_update,
+				metric_periodic_timer_report_func_t on_report)
+{
+	struct metrics_periodic_timer *timer;
+
+	timer = g_new0(struct metrics_periodic_timer, 1);
+	if (!timer)
+		return NULL;
+
+	if (!queue_push_tail(periodic_timers, timer)) {
+		g_free(timer);
+		return NULL;
+	}
+
+	timer->type = type;
+	timer->active_period = active_period;
+	timer->idle_period = idle_period;
+	timer->user_data = user_data;
+	timer->init_value = init_value;
+	timer->on_update = on_update;
+	timer->on_report = on_report;
+	timer->value = init_value;
+	timer->active = true;
+	timer->timer = g_timeout_add_seconds(active_period,
+						metrics_periodic_timer_timeout,
+						timer);
+
+	return timer;
+}
+
+static void metrics_free_periodic_timer(void *user_data)
+{
+	struct metrics_periodic_timer *timer = user_data;
+
+	if (timer->timer)
+		g_source_remove(timer->timer);
+
+	g_free(timer);
+}
+
+bool metrics_stop_periodic_timer(struct metrics_periodic_timer *timer)
+{
+	if (!timer || !queue_remove(periodic_timers, timer))
+		return false;
+
+	metrics_free_periodic_timer(timer);
+	return true;
+}
+
+bool metrics_update_periodic_timer_value(struct metrics_periodic_timer *timer,
+								void *user_data)
+{
+	if (!timer || !timer->on_update || !timer->active)
+		return false;
+
+	timer->value = timer->on_update(timer->value, timer->user_data,
+								user_data);
+	return true;
+}
+
+static struct metrics_periodic_timer *metrics_get_periodic_timer(
+					enum metrics_periodic_timer_type type,
+					void *user_data)
+{
+	const struct queue_entry *e;
+	GSList *l;
+
+	if (!lib)
+		return NULL;
+
+	for (e = queue_get_entries(periodic_timers); e; e = e->next) {
+		struct metrics_periodic_timer *timer = e->data;
+
+		if (timer->type == type && timer->user_data == user_data)
+			return timer;
+	}
+
+	return NULL;
+}
+
+static enum metrics_periodic_timer_type metrics_get_advmon_type(
+					struct btd_adv_monitor_manager *manager)
+{
+	// TODO(b/169584341): plumbing to adv_monitor.c
+	bool is_msft_supported = true;
+
+	if (is_msft_supported)
+		return PERIODIC_TIMER_MSFT_PATTERN_ADV_PER_MINUTE;
+
+	return PERIODIC_TIMER_SW_PATTERN_ADV_PER_MINUTE;
+}
+
+static int metrics_update_adv_count(int current, void *data, void *user_data)
+{
+	return current + GPOINTER_TO_INT(user_data);
+}
+
+static int metrics_get_number_of_monitors(int current, void *user_data)
+{
+	// TODO(b/169584341): get the number of monitors from adv_monitor.c
+	return 1;
+}
+
+static struct metrics_periodic_timer *metrics_advmon_start_tracking_internal(
+					enum metrics_periodic_timer_type type,
+					struct btd_adv_monitor_manager *manager)
+{
+	struct metrics_periodic_timer *exist_timer;
+	metric_periodic_timer_update_func_t on_update = NULL;
+	metric_periodic_timer_report_func_t on_report = NULL;
+
+	exist_timer = metrics_get_periodic_timer(type, manager);
+	if (exist_timer)
+		return NULL;
+
+	switch (type) {
+	case PERIODIC_TIMER_SW_PATTERN_ADV_PER_MINUTE:
+	case PERIODIC_TIMER_MSFT_PATTERN_ADV_PER_MINUTE:
+		on_update = metrics_update_adv_count;
+		break;
+	case PERIODIC_TIMER_NUM_MONITOR:
+		on_report = metrics_get_number_of_monitors;
+		break;
+	default:
+		DBG("Invalid enum type: %d", type);
+		return NULL;
+	}
+
+	return metrics_start_periodic_timer(type, ADV_MON_ACTIVE_DURATION,
+					ADV_MON_IDLE_DURATION, 0, manager,
+					on_update, on_report);
+}
+
+bool metrics_advmon_start_tracking(struct btd_adv_monitor_manager *manager)
+{
+	struct metrics_periodic_timer *adv_count_timer;
+	struct metrics_periodic_timer *mon_count_timer;
+	enum metrics_periodic_timer_type type;
+
+	if (!manager)
+		return false;
+
+	type = metrics_get_advmon_type(manager);
+	adv_count_timer = metrics_advmon_start_tracking_internal(type, manager);
+	if (!adv_count_timer)
+		return false;
+
+	mon_count_timer = metrics_advmon_start_tracking_internal(
+					PERIODIC_TIMER_NUM_MONITOR, manager);
+	if (!mon_count_timer) {
+		metrics_stop_periodic_timer(adv_count_timer);
+		return false;
+	}
+
+	return true;
+}
+
+bool metrics_advmon_stop_tracking(struct btd_adv_monitor_manager *manager)
+{
+	struct metrics_periodic_timer *adv_count_timer;
+	struct metrics_periodic_timer *mon_count_timer;
+	enum metrics_periodic_timer_type type;
+
+	if (!manager)
+		return false;
+
+	type = metrics_get_advmon_type(manager);
+	adv_count_timer = metrics_get_periodic_timer(type, manager);
+	if (!metrics_stop_periodic_timer(adv_count_timer))
+		return false;
+
+	mon_count_timer = metrics_get_periodic_timer(
+					PERIODIC_TIMER_NUM_MONITOR, manager);
+	if (!metrics_stop_periodic_timer(mon_count_timer))
+		return false;
+
+	return true;
+}
+
+bool metrics_advmon_update_frequency(struct btd_adv_monitor_manager *manager,
+								int value)
+{
+	struct metrics_periodic_timer *timer;
+	enum metrics_periodic_timer_type type;
+
+	if (!manager)
+		return false;
+
+	type = metrics_get_advmon_type(manager);
+	timer = metrics_get_periodic_timer(type, manager);
+	if (!metrics_update_periodic_timer_value(timer, GINT_TO_POINTER(value)))
+		return false;
+
+	return true;
+}
+
+bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
+				enum metrics_advmon_enum_type type, int sample)
+{
+	// TODO(b/169584341): plumbing to adv_monitor.c
+	bool is_msft_supported = true;
+	metrics_send_enum_type send_type;
+
+	if (!manager)
+		return false;
+
+	switch (type) {
+	case ADD_ADVMON_RESULT:
+		if (is_msft_supported)
+			send_type = ENUM_TYPE_ADVMON_MSFT_ADD_RESULT;
+		else
+			send_type = ENUM_TYPE_ADVMON_SW_ADD_RESULT;
+		break;
+	case REMOVE_ADVMON_RESULT:
+		if (is_msft_supported)
+			send_type = ENUM_TYPE_ADVMON_MSFT_REMOVE_RESULT;
+		else
+			send_type = ENUM_TYPE_ADVMON_SW_REMOVE_RESULT;
+		break;
+	default:
+		DBG("Invalid enum type: %d", type);
+		return false;
+	}
+
+	return metrics_send_enum(send_type, sample, true);
 }
