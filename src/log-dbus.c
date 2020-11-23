@@ -24,6 +24,9 @@
 
 static GDBusClient *client;
 
+static struct mgmt *mgmt = NULL;
+static unsigned char current_bluez_debug_level = 0;
+
 static void update_bluez_debug(DBusMessageIter *iter)
 {
 	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_BYTE) {
@@ -31,10 +34,19 @@ static void update_bluez_debug(DBusMessageIter *iter)
 		return;
 	}
 
-	unsigned char level;
-	dbus_message_iter_get_basic(iter, &level);
+	unsigned char val;
+	dbus_message_iter_get_basic(iter, &val);
+	if (val > 1) {
+		error("Unexpected BlueZ debug level %u", val);
+		return;
+	}
 
-	btd_set_debug_level(level);
+	if (current_bluez_debug_level == val)
+		return;
+
+	current_bluez_debug_level = val;
+	info("BlueZ log level is set to %d", val);
+	btd_set_debug_enabled(val);
 }
 
 static void handle_property_changed(GDBusProxy *proxy, const char *name,
