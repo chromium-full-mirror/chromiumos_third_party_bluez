@@ -296,7 +296,6 @@ bluetoothd_sources = $(builtin_sources) \
 			src/dbus-common.c src/dbus-common.h \
 			src/eir.h src/eir.c \
 			src/metrics.h src/metrics.c \
-			src/log-dbus.h src/log-dbus.c \
 			src/adv_monitor.h src/adv_monitor.c
 src_bluetoothd_SOURCES = $(bluetoothd_sources) src/main.c
 src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
