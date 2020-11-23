@@ -1,9 +1,44 @@
-BlueZ Chromium Device Plugin API description
+BlueZ Chromium Plugin API description
 ***********************************
 
 Service		org.bluez
-Interface	org.chromium.BluetoothDevice
+Interface	org.chromium.Bluetooth
 Object path	[variable prefix]/{hci0,hci1,...}
+
+Chromium Bluetooth Interface
+============================
+
+Properties	boolean SupportsLEServices [readonly]
+
+			Whether or not LE is supported in this version of BlueZ and kernel. Should
+			now be true for all supported kernel versions.
+
+		boolean SupportsConnInfo [readonly]
+
+			Whether or not the GetConnInfo() API is supported in this version of BlueZ
+			and kernel. Should now be true for all supported kernel versions.
+
+Chromium Debug Interface
+========================
+
+Service		org.chromium.Bluetooth
+Interface	org.chromium.Bluetooth.Debug
+Object path	/org/chromium/Bluetooth
+
+Properties	byte BluezLevel
+
+			Get the Bluez debug Level
+
+		byte KernelLevel
+
+			Get the kernel debug Level
+
+Chromium BluetoothDevice Interface
+==================================
+
+Service		org.bluez
+Interface	org.chromium.BluetoothDevice
+Object path	[variable prefix]/{hci0,hci1,...}/dev_XX_XX_XX_XX_XX_XX
 
 Methods		(uint16_t, uint16_t, uint16_t) GetConnInfo()
 
@@ -52,15 +87,3 @@ Methods		(uint16_t, uint16_t, uint16_t) GetConnInfo()
 					org.bluez.Error.DoesNotExist
 					org.bluez.Error.NotSupported
 					org.bluez.Error.InvalidArguments
-
-
-Properties	boolean SupportsLEServices [readonly]
-
-			Whether or not LE is supported in this version of BlueZ and kernel. Should
-			now be true for all supported kernel versions.
-
-		boolean SupportsConnInfo [readonly]
-
-			Whether or not the GetConnInfo() API is supported in this version of BlueZ
-			and kernel. Should now be true for all supported kernel versions.
-
