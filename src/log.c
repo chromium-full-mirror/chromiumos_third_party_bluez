@@ -46,6 +46,10 @@
 #include "log.h"
 
 #define LOG_IDENT "bluetoothd"
+#define MAX_BLUEZ_DEBUG_LEVEL 2
+
+static unsigned char current_bluez_debug_level = 0;
+static bool level_set_by_flag = false;
 
 static void monitor_log(uint16_t index, int priority,
 					const char *format, va_list ap)
@@ -144,8 +148,11 @@ void btd_info(uint16_t index, const char *format, ...)
 	va_end(ap);
 }
 
-void btd_debug(uint16_t index, const char *format, ...)
+void btd_debug(uint16_t index, uint8_t level, const char *format, ...)
 {
+	if (level > current_bluez_debug_level)
+		return;
+
 	va_list ap;
 
 	va_start(ap, format);
@@ -189,6 +196,11 @@ void __btd_enable_debug(struct btd_debug_desc *start,
 		if (is_enabled(desc))
 			desc->flags |= BTD_DEBUG_FLAG_PRINT;
 	}
+
+	if (enabled) {
+		current_bluez_debug_level = 1;
+		level_set_by_flag = true;
+	}
 }
 
 void __btd_toggle_debug(void)
@@ -225,4 +237,33 @@ void __btd_log_cleanup(void)
 	bt_log_close();
 
 	g_strfreev(enabled);
+}
+
+void btd_set_debug_level(uint8_t level)
+{
+	struct btd_debug_desc *desc;
+
+	if (current_bluez_debug_level == level)
+		return;
+
+	if (level > MAX_BLUEZ_DEBUG_LEVEL) {
+		error("Unexpected BlueZ debug level %u", level);
+		return;
+	}
+
+	if (level_set_by_flag) {
+		error("Debug level was set by flag parameter - cannot change");
+		return;
+	}
+
+	if (level) {
+		for (desc = __start___debug; desc < __stop___debug; desc++)
+			desc->flags |= BTD_DEBUG_FLAG_PRINT;
+	} else {
+		for (desc = __start___debug; desc < __stop___debug; desc++)
+			desc->flags &= (~BTD_DEBUG_FLAG_PRINT);
+	}
+
+	current_bluez_debug_level = level;
+	info("BlueZ log level is set to %d", level);
 }
