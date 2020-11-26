@@ -1249,18 +1249,16 @@ static gboolean dev_property_get_uuids(const GDBusPropertyTable *property,
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 				DBUS_TYPE_STRING_AS_STRING, &entry);
 
-	if (dev->bredr_state.svc_resolved || dev->le_state.svc_resolved) {
-		for (l = dev->uuids; l != NULL; l = l->next)
-			dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
-                                                        &l->data);
-	}
+	if (dev->bredr_state.svc_resolved || dev->le_state.svc_resolved)
+		l = dev->uuids;
+	else if (dev->eir_uuids)
+		l = dev->eir_uuids;
+	else
+		l = dev->uuids;
 
-	for (l = dev->eir_uuids; l != NULL; l = l->next) {
-		if (g_slist_find_custom(dev->uuids, l->data, bt_uuid_strcmp))
-			continue;
+	for (; l != NULL; l = l->next)
 		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
 							&l->data);
-	}
 
 	dbus_message_iter_close_container(iter, &entry);
 
@@ -2022,6 +2020,9 @@ void device_add_eir_uuids(struct btd_device *dev, GSList *uuids)
 {
 	GSList *l;
 	bool added = false;
+
+	if (dev->bredr_state.svc_resolved || dev->le_state.svc_resolved)
+		return;
 
 	for (l = uuids; l != NULL; l = l->next) {
 		const char *str = l->data;
@@ -2837,6 +2838,9 @@ static void device_svc_resolved(struct btd_device *dev, uint8_t browse_type,
 	 */
 	if (state->connected)
 		device_set_svc_refreshed(dev, true);
+
+	g_slist_free_full(dev->eir_uuids, g_free);
+	dev->eir_uuids = NULL;
 
 	if (dev->pending_paired) {
 		g_dbus_emit_property_changed(dbus_conn, dev->path,

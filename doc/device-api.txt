@@ -217,8 +217,7 @@ Properties	string Address [readonly]
 		array{string} UUIDs [readonly, optional]
 
 			List of 128-bit UUIDs that represents the available
-			remote services, including discovered services and
-			services in extended inquiry response.
+			remote services.
 
 		boolean Paired [readonly]
 
