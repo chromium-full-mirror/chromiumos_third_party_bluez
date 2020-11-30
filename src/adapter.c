@@ -82,6 +82,7 @@
 #include "adv_monitor.h"
 #include "eir.h"
 #include "metrics.h"
+#include "battery.h"
 
 #define MODE_OFF		0x00
 #define MODE_CONNECTABLE	0x01
@@ -297,6 +298,8 @@ struct btd_adapter {
 	struct btd_adv_manager *adv_manager;
 
 	struct btd_adv_monitor_manager *adv_monitor_manager;
+
+	struct btd_battery_provider_manager *battery_provider_manager;
 
 	gboolean initialized;
 
@@ -7174,6 +7177,9 @@ static void adapter_remove(struct btd_adapter *adapter)
 	btd_adv_monitor_manager_destroy(adapter->adv_monitor_manager);
 	adapter->adv_monitor_manager = NULL;
 
+	btd_battery_provider_manager_destroy(adapter->battery_provider_manager);
+	adapter->battery_provider_manager = NULL;
+
 	g_slist_free(adapter->pin_callbacks);
 	adapter->pin_callbacks = NULL;
 
@@ -9497,6 +9503,11 @@ static int adapter_register(struct btd_adapter *adapter)
 			btd_info(adapter->dev_id, "Adv Monitor Manager "
 					"skipped, LE unavailable");
 		}
+	}
+
+	if (g_dbus_get_flags() & G_DBUS_FLAG_ENABLE_EXPERIMENTAL) {
+		adapter->battery_provider_manager =
+			btd_battery_provider_manager_create(adapter);
 	}
 
 	db = btd_gatt_database_get_db(adapter->database);
