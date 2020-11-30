@@ -47,4 +47,12 @@ void btd_adv_monitor_notify_monitors(struct btd_adv_monitor_manager *manager,
 void btd_adv_monitor_device_remove(struct btd_adv_monitor_manager *manager,
 				   struct btd_device *device);
 
+bool btd_adv_monitor_get_offload_support(
+				struct btd_adv_monitor_manager *manager);
+
+int btd_adv_monitor_get_monitor_count(struct btd_adv_monitor_manager *manager);
+
+void btd_adv_monitor_notify_active_scan(struct btd_adv_monitor_manager *manager,
+					bool enabled);
+
 #endif /* __ADV_MONITOR_H */

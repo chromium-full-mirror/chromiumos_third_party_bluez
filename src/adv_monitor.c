@@ -37,6 +37,7 @@
 #include "dbus-common.h"
 #include "device.h"
 #include "log.h"
+#include "metrics.h"
 #include "src/error.h"
 #include "src/shared/mgmt.h"
 #include "src/shared/queue.h"
@@ -69,6 +70,7 @@ struct btd_adv_monitor_manager {
 	uint32_t enabled_features;	/* MGMT_ADV_MONITOR_FEATURE_MASK_* */
 	uint16_t max_num_monitors;
 	uint8_t max_num_patterns;
+	bool active_scanning;
 
 	struct queue *apps;	/* apps who registered for Adv monitoring */
 	struct queue *merged_patterns;
@@ -227,6 +229,23 @@ static void app_reply_msg(struct adv_monitor_app *app, DBusMessage *reply)
 	g_dbus_send_message(btd_get_dbus_connection(), reply);
 	dbus_message_unref(app->reg);
 	app->reg = NULL;
+}
+
+/* Starts or stops metrics tracking */
+static void adv_monitor_update_tracking(struct btd_adv_monitor_manager *manager)
+{
+	if (!manager) {
+		error("Manager is NULL, failed to update monitor count");
+		return;
+	}
+
+	/* It's okay to start/stop an already started/stopped tracker */
+	if (!manager->active_scanning &&
+	    btd_adv_monitor_get_monitor_count(manager) > 0) {
+		metrics_advmon_start_tracking(manager);
+	} else {
+		metrics_advmon_stop_tracking(manager);
+	}
 }
 
 /* Frees a pattern */
@@ -1021,6 +1040,9 @@ static void remove_adv_monitor_cb(uint8_t status, uint16_t length,
 {
 	const struct mgmt_rp_remove_adv_monitor *rp = param;
 	struct adv_monitor_merged_pattern *merged_pattern = user_data;
+	struct btd_adv_monitor_manager *manager = merged_pattern->manager;
+
+	metrics_send_advmon_enum(manager, REMOVE_ADVMON_RESULT, status);
 
 	if (status != MGMT_STATUS_SUCCESS || !param) {
 		error("Failed to Remove Adv Monitor with status 0x%02x",
@@ -1038,8 +1060,10 @@ static void remove_adv_monitor_cb(uint8_t status, uint16_t length,
 
 	merged_pattern_process_next_step(merged_pattern);
 
-	if (merged_pattern->current_state == MERGED_PATTERN_STATE_STABLE)
+	if (merged_pattern->current_state == MERGED_PATTERN_STATE_STABLE) {
 		merged_pattern_free(merged_pattern);
+		adv_monitor_update_tracking(manager);
+	}
 
 	return;
 
@@ -1073,6 +1097,9 @@ static void add_adv_patterns_monitor_cb(uint8_t status, uint16_t length,
 	struct adv_monitor_merged_pattern *merged_pattern = user_data;
 	uint16_t adapter_id = merged_pattern->manager->adapter_id;
 
+	metrics_send_advmon_enum(merged_pattern->manager, ADD_ADVMON_RESULT,
+									status);
+
 	if (status != MGMT_STATUS_SUCCESS || !param) {
 		btd_error(adapter_id,
 				"Failed to Add Adv Patterns Monitor with status"
@@ -1096,6 +1123,7 @@ static void add_adv_patterns_monitor_cb(uint8_t status, uint16_t length,
 		return;
 
 	queue_foreach(merged_pattern->monitors, monitor_state_active, NULL);
+	adv_monitor_update_tracking(merged_pattern->manager);
 
 	return;
 
@@ -1536,6 +1564,8 @@ static void adv_monitor_removed_callback(uint16_t index, uint16_t length,
 	/* Traverse the merged_patterns to find matching pattern */
 	queue_foreach(manager->merged_patterns, remove_merged_pattern, &handle);
 
+	adv_monitor_update_tracking(manager);
+
 	DBG("Adv Monitor removed event with handle 0x%04x processed",
 		ev->monitor_handle);
 }
@@ -1574,6 +1604,8 @@ static void manager_free(struct btd_adv_monitor_manager *manager)
 
 	queue_destroy(manager->apps, app_destroy);
 	queue_destroy(manager->merged_patterns, merged_pattern_free);
+
+	metrics_advmon_stop_tracking(manager);
 
 	free(manager);
 }
@@ -1739,6 +1771,8 @@ struct queue *btd_adv_monitor_content_filter(
 	info.matched_monitors = NULL;
 
 	queue_foreach(manager->apps, adv_match_per_app, &info);
+
+	metrics_advmon_update_frequency(manager, 1);
 
 	return info.matched_monitors;
 }
@@ -2034,4 +2068,48 @@ static void adv_monitor_filter_rssi(struct adv_monitor *monitor,
 					    handle_device_lost_timeout, dev,
 					    NULL);
 	}
+}
+
+bool btd_adv_monitor_get_offload_support(
+					struct btd_adv_monitor_manager *manager)
+{
+	if (!manager) {
+		error("Manager is NULL, get offload support failed");
+		return false;
+	}
+
+	return !!(manager->enabled_features &
+				MGMT_ADV_MONITOR_FEATURE_MASK_OR_PATTERNS);
+}
+
+int btd_adv_monitor_get_monitor_count(struct btd_adv_monitor_manager *manager)
+{
+	if (!manager) {
+		error("Manager is NULL, get monitor count failed");
+		return 0;
+	}
+
+	return queue_length(manager->merged_patterns);
+}
+
+/* Invoke this function whenever active scan is enabled/disabled. This will
+ * handle when to stop and continue tracking the number of received adv metrics.
+ */
+void btd_adv_monitor_notify_active_scan(struct btd_adv_monitor_manager *manager,
+					bool enabled)
+{
+	if (!manager) {
+		error("Manager is NULL, notify active scan failed");
+		return;
+	}
+
+	if (manager->active_scanning == enabled) {
+		btd_warn(manager->adapter_id,
+			"active scanning status is already %d", enabled);
+		return;
+	}
+
+	manager->active_scanning = enabled;
+
+	adv_monitor_update_tracking(manager);
 }
