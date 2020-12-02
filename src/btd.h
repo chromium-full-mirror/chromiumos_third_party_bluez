@@ -61,8 +61,6 @@ struct btd_br_defaults {
 
 	uint16_t	min_sniff_interval;
 	uint16_t	max_sniff_interval;
-
-	uint16_t	eir_max_name_len;
 };
 
 struct btd_le_defaults {

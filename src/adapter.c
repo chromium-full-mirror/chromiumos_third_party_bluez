@@ -4938,12 +4938,6 @@ static bool load_bredr_defaults(struct btd_adapter *adapter,
 			return false;
 	}
 
-	if (defaults->eir_max_name_len) {
-		if (!mgmt_tlv_add_fixed(list, 0x001c,
-					&defaults->eir_max_name_len))
-			return false;
-	}
-
 	return true;
 }
 
