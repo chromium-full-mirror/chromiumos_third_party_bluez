@@ -163,7 +163,7 @@ static const struct group_table {
 	const char **options;
 } valid_groups[] = {
 	{ "General",	supported_options },
-	{ "BREDR",	br_options },
+	{ "BR",		br_options },
 	{ "LE",		le_options },
 	{ "Policy",	policy_options },
 	{ "GATT",	gatt_options },
@@ -423,7 +423,6 @@ static void parse_br_config(GKeyFile *config)
 		  0xFFFE},
 		{ "EirMaxNameLength",
 		  &btd_opts.defaults.br.eir_max_name_len,
-		  sizeof(btd_opts.defaults.br.eir_max_name_len),
 		  0x0001,
 		  0x00EE},
 	};
