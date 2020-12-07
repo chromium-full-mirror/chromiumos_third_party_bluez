@@ -57,18 +57,21 @@
 
 struct reconnect_data {
 	struct btd_device *dev;
-	bool reconnect;
+	bool on_timeout;
+	bool on_resume;
 	GSList *services;
 	guint timer;
 	bool active;
 	unsigned int attempt;
-	bool on_resume;
+	bool mark_on_suspend;
 };
 
 static const char *default_reconnect[] = {
-			HSP_AG_UUID, HFP_AG_UUID, A2DP_SOURCE_UUID,
-			A2DP_SINK_UUID, NULL };
+			HSP_AG_UUID, HFP_AG_UUID, A2DP_SOURCE_UUID, NULL };
 static char **reconnect_uuids = NULL;
+
+static const char *default_reconnect_resume[] = { A2DP_SINK_UUID, NULL };
+static char **reconnect_resume_uuids = NULL;
 
 static const size_t default_attempts = 7;
 static size_t reconnect_attempts = 0;
@@ -564,19 +567,29 @@ static void reconnect_reset(struct reconnect_data *reconnect)
 	}
 }
 
-static bool reconnect_match(const char *uuid)
+static bool reconnect_match_internal(const char *uuid, char **matchlist)
 {
 	char **str;
 
-	if (!reconnect_uuids)
+	if (!matchlist)
 		return false;
 
-	for (str = reconnect_uuids; *str; str++) {
+	for (str = matchlist; *str; str++) {
 		if (!bt_uuid_strcmp(uuid, *str))
 			return true;
 	}
 
 	return false;
+}
+
+static bool reconnect_match(const char *uuid)
+{
+	return reconnect_match_internal(uuid, reconnect_uuids);
+}
+
+static bool reconnect_resume_match(const char *uuid)
+{
+	return reconnect_match_internal(uuid, reconnect_resume_uuids);
 }
 
 static struct reconnect_data *reconnect_add(struct btd_service *service)
@@ -700,10 +713,15 @@ static void service_cb(struct btd_service *service,
 	 * be the first profile that's connected so we might have an
 	 * entry but with the reconnect flag set to false.
 	 */
-	if (!reconnect->reconnect)
-		reconnect->reconnect = reconnect_match(profile->remote_uuid);
+	if (!reconnect->on_timeout)
+		reconnect->on_timeout = reconnect_match(profile->remote_uuid);
 
-	DBG("Added %s reconnect %u", profile->name, reconnect->reconnect);
+	if (!reconnect->on_resume)
+		reconnect->on_resume =
+			reconnect_resume_match(profile->remote_uuid);
+
+	DBG("Added %s reconnect on timeout(%u), resume(%u)",
+		profile->name, reconnect->on_timeout, reconnect->on_resume);
 }
 
 static gboolean reconnect_timeout(gpointer data)
@@ -717,7 +735,7 @@ static gboolean reconnect_timeout(gpointer data)
 	reconnect->timer = 0;
 
 	/* Mark any reconnect on resume as handled */
-	reconnect->on_resume = false;
+	reconnect->mark_on_suspend = false;
 
 	err = btd_device_connect_services(reconnect->dev, reconnect->services);
 	if (err < 0) {
@@ -763,7 +781,7 @@ static void disconnect_cb(struct btd_device *dev, uint8_t reason)
 		return;
 
 	reconnect = reconnect_find(dev);
-	if (!reconnect || !reconnect->reconnect)
+	if (!reconnect || !(reconnect->on_timeout || reconnect->on_resume))
 		return;
 
 	reconnect_reset(reconnect);
@@ -772,11 +790,11 @@ static void disconnect_cb(struct btd_device *dev, uint8_t reason)
 
 	switch (reason) {
 	case MGMT_DEV_DISCONN_LOCAL_HOST_SUSPEND:
-		if (btd_device_get_service(dev, A2DP_SINK_UUID)) {
+		if (reconnect->on_resume) {
 			DBG("%s configured to reconnect on resume",
 				device_get_path(dev));
 
-			reconnect->on_resume = true;
+			reconnect->mark_on_suspend = true;
 
 			/* If the kernel supports resume events, it is
 			 * preferable to set the reconnect timer there as it is
@@ -787,7 +805,8 @@ static void disconnect_cb(struct btd_device *dev, uint8_t reason)
 		}
 		break;
 	case MGMT_DEV_DISCONN_TIMEOUT:
-		reconnect_set_timer(reconnect, -1);
+		if (reconnect->on_timeout)
+			reconnect_set_timer(reconnect, -1);
 		break;
 	default:
 		DBG("Developer error. Reason = %d", reason);
@@ -803,7 +822,7 @@ static void policy_adapter_resume(struct btd_adapter *adapter)
 	for (l = reconnects; l; l = g_slist_next(l)) {
 		struct reconnect_data *reconnect = l->data;
 
-		if (reconnect->on_resume &&
+		if (reconnect->mark_on_suspend &&
 		    device_get_adapter(reconnect->dev) == adapter) {
 			reconnect_set_timer(reconnect, resume_delay);
 		}
@@ -817,7 +836,7 @@ static void conn_fail_cb(struct btd_device *dev, uint8_t status)
 	DBG("status %u", status);
 
 	reconnect = reconnect_find(dev);
-	if (!reconnect || !reconnect->reconnect)
+	if (!reconnect || !(reconnect->on_timeout || reconnect->on_resume))
 		return;
 
 	if (!reconnect->active)
@@ -858,6 +877,7 @@ static int policy_init(void)
 {
 	GError *gerr = NULL;
 	GKeyFile *conf;
+	bool has_reconnect_uuids;
 
 	service_id = btd_service_add_state_cb(service_cb, NULL);
 
@@ -905,6 +925,15 @@ static int policy_init(void)
 	auto_enable = g_key_file_get_boolean(conf, "Policy", "AutoEnable",
 									NULL);
 
+	reconnect_resume_uuids = g_key_file_get_string_list(
+		conf, "Policy", "ReconnectResumeUUIDs", NULL, &gerr);
+
+	if (gerr) {
+		g_clear_error(&gerr);
+		reconnect_resume_uuids =
+			g_strdupv((char **)default_reconnect_resume);
+	}
+
 	resume_delay = g_key_file_get_integer(
 			conf, "Policy", "ResumeDelay", &gerr);
 
@@ -913,7 +942,11 @@ static int policy_init(void)
 		resume_delay = default_resume_delay;
 	}
 done:
-	if (reconnect_uuids && reconnect_uuids[0] && reconnect_attempts) {
+	has_reconnect_uuids =
+		(reconnect_uuids && reconnect_uuids[0]) ||
+		(reconnect_resume_uuids && reconnect_resume_uuids[0]);
+
+	if (reconnect_attempts && has_reconnect_uuids) {
 		btd_add_disconnect_cb(disconnect_cb);
 		btd_add_conn_fail_cb(conn_fail_cb);
 	}
@@ -930,6 +963,9 @@ static void policy_exit(void)
 
 	if (reconnect_uuids)
 		g_strfreev(reconnect_uuids);
+
+	if (reconnect_resume_uuids)
+		g_strfreev(reconnect_resume_uuids);
 
 	g_free(reconnect_intervals);
 
