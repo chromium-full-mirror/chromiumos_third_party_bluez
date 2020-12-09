@@ -22,6 +22,7 @@ AC_C_RESTRICT
 AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_CC_PIE
+AC_PROG_CXX
 AC_PROG_INSTALL
 AC_PROG_MKDIR_P
 
@@ -192,6 +193,10 @@ AM_CONDITIONAL(TOOLS, test "${enable_tools}" != "no")
 AC_ARG_ENABLE(monitor, AC_HELP_STRING([--disable-monitor],
 		[disable Bluetooth monitor]), [enable_monitor=${enableval}])
 AM_CONDITIONAL(MONITOR, test "${enable_monitor}" != "no")
+
+AC_ARG_ENABLE(fuzzer, AC_HELP_STRING([--enable-fuzzer],
+		[enable fuzzer]), [enable_fuzzer=${enableval}])
+AM_CONDITIONAL(FUZZER, test "${enable_fuzzer}" = "yes")
 
 AC_ARG_ENABLE(udev, AC_HELP_STRING([--disable-udev],
 		[disable udev device support]), [enable_udev=${enableval}])

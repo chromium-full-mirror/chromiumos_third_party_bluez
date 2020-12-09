@@ -336,6 +336,7 @@ include Makefile.tools
 include Makefile.obexd
 include android/Makefile.am
 include Makefile.mesh
+include Makefile.fuzzer
 
 unit_tests += unit/metrics_unittests
 unit_metrics_unittests_SOURCES = $(bluetoothd_sources) src/metrics_unittests.c

@@ -1,0 +1,16 @@
+if FUZZER
+
+noinst_PROGRAMS += fuzzer/bluez_pattern_match_fuzzer
+
+fuzzer_bluez_pattern_match_fuzzer_SOURCES = fuzzer/bluez_pattern_match_fuzzer.cc
+
+fuzzer_bluez_pattern_match_fuzzer_CXXFLAGS = -fsanitize=address \
+					     -fsanitize=fuzzer-no-link
+
+fuzzer_bluez_pattern_match_fuzzer_LDADD = lib/libbluetooth-internal.la \
+					  src/libshared-glib.la
+
+fuzzer_bluez_pattern_match_fuzzer_LDFLAGS = -fsanitize=address \
+					    -fsanitize=fuzzer
+
+endif
