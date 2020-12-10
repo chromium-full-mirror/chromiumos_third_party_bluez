@@ -2345,7 +2345,6 @@ static int discovery_stop(struct discovery_client *client)
 	 * metric timer immediately.
 	 */
 	if (adapter->discovery_suspended_by_system) {
-		discovery_remove(client);
 		adapter->discovering = false;
 		g_dbus_emit_property_changed(dbus_conn, adapter->path,
 			ADAPTER_INTERFACE, "Discovering");
