@@ -2811,18 +2811,9 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 static DBusMessage *pause_discovery(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
-	DBusMessageIter iter;
-	dbus_bool_t system_suspend_resume;
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
-
-	dbus_message_iter_init(msg, &iter);
-	dbus_message_iter_get_basic(&iter, &system_suspend_resume);
-	// Update the |system_suspended| flag only if this request is related to
-	// system suspend/resume.
-	if (system_suspend_resume == TRUE)
-		adapter->system_suspended = true;
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
@@ -2838,20 +2829,9 @@ static DBusMessage *pause_discovery(DBusConnection *conn,
 static DBusMessage *unpause_discovery(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
-	DBusMessageIter iter;
-	dbus_bool_t system_suspend_resume;
 	struct btd_adapter *adapter = user_data;
 	const char *sender = dbus_message_get_sender(msg);
 	DBG("sender %s", sender);
-
-	dbus_message_iter_init(msg, &iter);
-	dbus_message_iter_get_basic(&iter, &system_suspend_resume);
-	// Update the |system_suspended| flag only if this request is related to
-	// system suspend/resume.
-	if (system_suspend_resume == TRUE) {
-		adapter->system_suspended = false;
-		time(&last_system_resume_time);
-	}
 
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return btd_error_not_ready(msg);
@@ -4208,12 +4188,8 @@ static const GDBusMethodTable adapter_methods[] = {
 				GDBUS_ARGS({ "properties", "a{sv}" }), NULL,
 				set_discovery_filter) },
 	{ GDBUS_ASYNC_METHOD("StopDiscovery", NULL, NULL, stop_discovery) },
-	{ GDBUS_METHOD("PauseDiscovery",
-				GDBUS_ARGS({"system_suspend_resume", "b"}),
-				NULL, pause_discovery) },
-	{ GDBUS_METHOD("UnpauseDiscovery",
-				GDBUS_ARGS({"system_suspend_resume", "b"}),
-				NULL, unpause_discovery) },
+	{ GDBUS_METHOD("PauseDiscovery", NULL, NULL, pause_discovery) },
+	{ GDBUS_METHOD("UnpauseDiscovery", NULL, NULL, unpause_discovery) },
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
 			GDBUS_ARGS({ "device", "o" }), NULL, remove_device) },
 	{ GDBUS_METHOD("GetDiscoveryFilters", NULL,

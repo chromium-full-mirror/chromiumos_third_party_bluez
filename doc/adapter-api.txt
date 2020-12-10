@@ -37,20 +37,18 @@ Methods		void StartDiscovery()
 					 org.bluez.Error.Failed
 					 org.bluez.Error.NotAuthorized
 
-		void PauseDiscovery(boolean system_suspend_resume)
+		void PauseDiscovery()
 
-			This pauses all device discovery sessions. The
-			parameter system_suspend_resume indicates whether the
-			request is related to system suspend/resume.
+			This pauses all device discovery sessions and should
+			only be called on system suspend.
 
 			Possible errors: org.bluez.Error.NotReady
 					 org.bluez.Error.Busy
 
-		void UnpauseDiscovery(boolean system_suspend_resume)
+		void UnpauseDiscovery()
 
-			This unpauses all device discovery sessions. The
-			parameter system_suspend_resume indicates whether the
-			request is related to system suspend/resume.
+			This unpauses all device discovery sessions and should
+			only be called on system resume.
 
 			Possible errors: org.bluez.Error.NotReady
 					 org.bluez.Error.Failed
