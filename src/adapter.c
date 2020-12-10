@@ -262,12 +262,6 @@ struct btd_adapter {
          * Pause/UnpauseDiscovery.
          * indicates whether the system is going to suspend */
 	bool system_suspended;
-	/*
-	 * indicates whether discovery is suspended by system.
-	 * Clients notify bluez on system suspend with pause_discovery()
-	 * and on system resume with unpause_discovery().
-	 */
-	bool discovery_suspended_by_system;
 	uint8_t discovery_type;		/* current active discovery type */
 	uint8_t discovery_enable;	/* discovery enabled/disabled */
 	bool discovery_suspended;	/* discovery has been suspended */
@@ -1904,19 +1898,6 @@ static void trigger_start_discovery(struct btd_adapter *adapter, guint delay)
 	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
 		return;
 
-	if (adapter->discovery_suspended_by_system) {
-		if (!adapter->discovering) {
-			adapter->discovering = true;
-			g_dbus_emit_property_changed(dbus_conn, adapter->path,
-				ADAPTER_INTERFACE, "Discovering");
-		}
-		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
-		metrics_start_timer(TIMER_DISCOVERY, timer_data);
-		metrics_send_enum(
-			ENUM_TYPE_DISCOVERY, adapter->discovery_type, false);
-		return;
-	}
-
 	adapter->discovery_idle_timeout = g_timeout_add_seconds(delay,
 					start_discovery_timeout, adapter);
 }
@@ -1931,6 +1912,7 @@ static void suspend_discovery_complete(uint8_t status, uint16_t length,
 	if (status == MGMT_STATUS_SUCCESS) {
 		adapter->discovery_type = 0x00;
 		adapter->discovery_enable = 0x00;
+		return;
 	}
 }
 
@@ -1940,8 +1922,6 @@ static void suspend_discovery(struct btd_adapter *adapter)
 
 	DBG("");
 
-	if (adapter->discovery_suspended)
-		return;
 	adapter->discovery_suspended = true;
 
 	/*
@@ -1972,12 +1952,10 @@ static void suspend_discovery(struct btd_adapter *adapter)
 				suspend_discovery_complete, adapter, NULL);
 }
 
-static void resume_discovery(struct btd_adapter *adapter, guint delay)
+static void resume_discovery(struct btd_adapter *adapter)
 {
 	DBG("");
 
-	if (!adapter->discovery_suspended)
-		return;
 	adapter->discovery_suspended = false;
 
 	/*
@@ -1992,7 +1970,7 @@ static void resume_discovery(struct btd_adapter *adapter, guint delay)
 	 * idle time for a normal discovery. So just trigger the default
 	 * restart procedure.
 	 */
-	trigger_start_discovery(adapter, delay);
+	trigger_start_discovery(adapter, IDLE_DISCOV_TIMEOUT);
 }
 
 static void discovering_callback(uint16_t index, uint16_t length,
@@ -2338,20 +2316,6 @@ static int discovery_stop(struct discovery_client *client)
 
 	if (adapter->discovery_discoverable)
 		set_discovery_discoverable(adapter, false);
-
-	/*
-	 * This is a StopDiscovery() call while discovery is suspended due to
-	 * system suspend. Skip mgmt to kernel, update bluez state and stop
-	 * metric timer immediately.
-	 */
-	if (adapter->discovery_suspended_by_system) {
-		adapter->discovering = false;
-		g_dbus_emit_property_changed(dbus_conn, adapter->path,
-			ADAPTER_INTERFACE, "Discovering");
-		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
-		metrics_stop_timer(TIMER_DISCOVERY, timer_data);
-		return 0;
-	}
 
 	/*
 	 * In the idle phase of a discovery, there is no need to stop it
@@ -2806,42 +2770,6 @@ static DBusMessage *stop_discovery(DBusConnection *conn,
 	default:
 		return btd_error_failed(msg, strerror(-err));
 	}
-}
-
-static DBusMessage *pause_discovery(DBusConnection *conn,
-					DBusMessage *msg, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-	const char *sender = dbus_message_get_sender(msg);
-	DBG("sender %s", sender);
-
-	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
-		return btd_error_not_ready(msg);
-
-	if (adapter->discovery_suspended_by_system)
-		return btd_error_busy(msg);
-
-	adapter->discovery_suspended_by_system = true;
-	suspend_discovery(adapter);
-	return dbus_message_new_method_return(msg);
-}
-
-static DBusMessage *unpause_discovery(DBusConnection *conn,
-					DBusMessage *msg, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-	const char *sender = dbus_message_get_sender(msg);
-	DBG("sender %s", sender);
-
-	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
-		return btd_error_not_ready(msg);
-
-	if (!adapter->discovery_suspended_by_system)
-		return btd_error_failed(msg, "Discovery not paused");
-
-	adapter->discovery_suspended_by_system = false;
-	resume_discovery(adapter, 0);
-	return dbus_message_new_method_return(msg);
 }
 
 static gboolean property_get_address(const GDBusPropertyTable *property,
@@ -4188,8 +4116,6 @@ static const GDBusMethodTable adapter_methods[] = {
 				GDBUS_ARGS({ "properties", "a{sv}" }), NULL,
 				set_discovery_filter) },
 	{ GDBUS_ASYNC_METHOD("StopDiscovery", NULL, NULL, stop_discovery) },
-	{ GDBUS_METHOD("PauseDiscovery", NULL, NULL, pause_discovery) },
-	{ GDBUS_METHOD("UnpauseDiscovery", NULL, NULL, unpause_discovery) },
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
 			GDBUS_ARGS({ "device", "o" }), NULL, remove_device) },
 	{ GDBUS_METHOD("GetDiscoveryFilters", NULL,
@@ -8437,7 +8363,7 @@ static void bonding_complete(struct btd_adapter *adapter,
 	if (device != NULL)
 		device_bonding_complete(device, addr_type, status);
 
-	resume_discovery(adapter, IDLE_DISCOV_TIMEOUT);
+	resume_discovery(adapter);
 
 	check_oob_bonding_complete(adapter, bdaddr, status);
 }
