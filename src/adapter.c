@@ -9778,7 +9778,7 @@ static void controller_resume_callback(uint16_t index, uint16_t length,
 		return;
 	}
 
-	info("Controller resume with wake event 0x%x", ev->wake_reason);
+	DBG("Controller resume with wake event 0x%x", ev->wake_reason);
 
 	controller_resume_notify(adapter);
 }
