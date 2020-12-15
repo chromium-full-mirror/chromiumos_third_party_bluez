@@ -305,19 +305,20 @@ static char *get_log_rotation_path(struct btsnoop *btsnoop)
 	return alloc_and_concat(btsnoop->log_path, ".old");
 }
 
-static size_t btsnoop_compress(const void *data, size_t size)
+static size_t btsnoop_compress(void)
 {
-	size_t written = 0;
-	if (compress_src_size + size > COMPRESS_SRC_MAX) {
-		unsigned int compress_dst_size = COMPRESS_DST_MAX;
-		BZ2_bzBuffToBuffCompress(compress_dst, &compress_dst_size,
-				compress_src, compress_src_size, 1, 0, 0);
-		compress_src_size = 0;
-		written = compress_dst_size;
-	}
+	unsigned int compress_dst_size = COMPRESS_DST_MAX;
+
+	BZ2_bzBuffToBuffCompress(compress_dst, &compress_dst_size,
+			compress_src, compress_src_size, 1, 0, 0);
+	compress_src_size = 0;
+	return compress_dst_size;
+}
+
+static void btsnoop_append_to_compress(const void *data, size_t size)
+{
 	memcpy(compress_src + compress_src_size, data, size);
 	compress_src_size += size;
-	return written;
 }
 
 static ssize_t write_header_and_ctrls(struct btsnoop *btsnoop)
@@ -358,23 +359,10 @@ static ssize_t write_header_and_ctrls(struct btsnoop *btsnoop)
 
 	ssize_t written;
 	if (btsnoop->compress) {
-		/* reuse compress_src, temporarily store whatever data there */
-		void *src_copy = malloc(compress_src_size);
-		if (!src_copy) {
-			free(buffer);
-			return -ENOMEM;
-		}
+		size_t compressed_size;
 
-		memcpy(src_copy, compress_src, compress_src_size);
-
-		unsigned int compressed_size = COMPRESS_DST_MAX;
-		memcpy(compress_src, buffer, header_ctrl_total_size);
-		BZ2_bzBuffToBuffCompress(compress_dst, &compressed_size,
-					compress_src, header_ctrl_total_size,
-					1, 0, 0);
-
-		memcpy(compress_src, src_copy, compress_src_size);
-		free(src_copy);
+		btsnoop_append_to_compress(buffer, header_ctrl_total_size);
+		compressed_size = btsnoop_compress();
 		written = write(btsnoop->fd, compress_dst, compressed_size);
 	} else {
 		written = write(btsnoop->fd, buffer, header_ctrl_total_size);
@@ -406,6 +394,58 @@ bool btsnoop_rotate_logs(struct btsnoop *btsnoop)
 	return true;
 }
 
+static ssize_t btsnoop_write_to_log(struct btsnoop *btsnoop, const void *data,
+								size_t size)
+{
+	struct stat st;
+	int fd = btsnoop->fd;
+	ssize_t written = 0;
+
+	/* if no size limit is specified, skip these several checks */
+	if (btsnoop->file_size_limit <= 0)
+		goto check_file_size_limit_done;
+
+	if (fstat(fd, &st) < 0)
+		return -errno;
+
+	if ((uint32_t)st.st_size + size >= btsnoop->file_size_limit) {
+		if (!btsnoop->rotate)
+			return -ENOSPC;
+
+		if (!btsnoop_rotate_logs(btsnoop))
+			return -errno;
+
+		written = write_header_and_ctrls(btsnoop);
+		if (written < 0)
+			return written;
+	}
+
+check_file_size_limit_done:
+	written += write(fd, data, size);
+
+	if (btsnoop->rotate && btsnoop->compress) {
+		ctrl_list_since_last_write_to_file = ctrl_copy_list(
+				ctrl_list_since_last_write_to_file, ctrl_list);
+	}
+
+	return written;
+}
+
+ssize_t btsnoop_flush_compression_buffer(struct btsnoop *btsnoop)
+{
+	size_t compressed_size = btsnoop_compress();
+	void *temp = malloc(compressed_size);
+	ssize_t result;
+
+	if (!temp)
+		return -ENOMEM;
+
+	memcpy(temp, compress_dst, compressed_size);
+	result = btsnoop_write_to_log(btsnoop, temp, compressed_size);
+	free(temp);
+	return result;
+}
+
 /*
  * If successful, return the size of bytes written to file (0 is possible when
  * the data is only written into the compression buffer and not to file).
@@ -414,70 +454,16 @@ bool btsnoop_rotate_logs(struct btsnoop *btsnoop)
 static ssize_t write_and_possibly_compress(struct btsnoop *btsnoop,
 						const void *data, size_t size)
 {
-	struct stat st;
-	int fd = btsnoop->fd;
-	void *compressed_data = NULL;
 	ssize_t written = 0;
-	ssize_t return_value;
 
-	if (fd < 0)
-		return -errno;
+	if (!btsnoop->compress)
+		return btsnoop_write_to_log(btsnoop, data, size);
 
-	if (btsnoop->compress) {
-		size_t compressed_size = btsnoop_compress(data, size);
-		if (compressed_size == 0)
-			return 0;
+	if (compress_src_size + size > COMPRESS_SRC_MAX)
+		written = btsnoop_flush_compression_buffer(btsnoop);
 
-		compressed_data = malloc(compressed_size);
-		if (!compressed_data)
-			return -ENOMEM;
-
-		memcpy(compressed_data, compress_dst, compressed_size);
-		data = compressed_data;
-		size = compressed_size;
-	}
-
-	/* if no size limit is specified, skip these several checks */
-	if (btsnoop->file_size_limit <= 0)
-		goto check_file_size_limit_done;
-
-	if (fstat(fd, &st) < 0) {
-		return_value = -errno;
-		goto clean_up;
-	}
-
-	if ((uint32_t)st.st_size + size >= btsnoop->file_size_limit) {
-		if (!btsnoop->rotate) {
-			return_value = -ENOSPC;
-			goto clean_up;
-		}
-
-		if (!btsnoop_rotate_logs(btsnoop)) {
-			return_value = -errno;
-			goto clean_up;
-		}
-
-		written = write_header_and_ctrls(btsnoop);
-		if (written < 0) {
-			return_value = written;
-			goto clean_up;
-		}
-	}
-
-check_file_size_limit_done:
-	written += write(fd, data, size);
-	return_value = written;
-
-	if (btsnoop->rotate && btsnoop->compress) {
-		ctrl_list_since_last_write_to_file = ctrl_copy_list(
-				ctrl_list_since_last_write_to_file, ctrl_list);
-	}
-
-clean_up:
-	if (compressed_data)
-		free(compressed_data);
-
-	return return_value;
+	btsnoop_append_to_compress(data, size);
+	return written;
 }
 
 struct btsnoop *btsnoop_open(const char *path, unsigned long flags)

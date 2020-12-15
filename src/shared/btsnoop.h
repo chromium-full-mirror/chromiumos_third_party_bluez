@@ -123,3 +123,4 @@ bool btsnoop_read_hci(struct btsnoop *btsnoop, struct timeval *tv,
 					void *data, uint16_t *size);
 bool btsnoop_read_phy(struct btsnoop *btsnoop, struct timeval *tv,
 			uint16_t *frequency, void *data, uint16_t *size);
+ssize_t btsnoop_flush_compression_buffer(struct btsnoop *btsnoop);
