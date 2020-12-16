@@ -2038,7 +2038,7 @@ done:
 	}
 
 	metrics_stop_timer(TIMER_CONNECT, timer_data);
-	metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
+	metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, RESULT_TYPE_DEFINED);
 
 	dbus_message_unref(dev->connect);
 	dev->connect = NULL;
@@ -2244,13 +2244,13 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 						dbus_message_get_sender(msg));
 
 	if (dev->pending || dev->connect || dev->browse) {
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BUSY, false);
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BUSY, RESULT_TYPE_DEFINED);
 		return btd_error_in_progress(msg);
 	}
 
 	if (!btd_adapter_get_powered(dev->adapter)) {
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_NONPOWERED,
-					false);
+					RESULT_TYPE_DEFINED);
 		return btd_error_not_ready(msg);
 	}
 
@@ -2265,12 +2265,12 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 			if (find_service_with_state(dev->services,
 						BTD_SERVICE_STATE_CONNECTED)) {
 				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-						CONN_ALREADY_BREDR, false);
+						CONN_ALREADY_BREDR, RESULT_TYPE_DEFINED);
 				return dbus_message_new_method_return(msg);
 			} else {
 				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 					CONN_FAIL_BREDR_PROFILE_UNAVAILABLE,
-					false);
+					RESULT_TYPE_DEFINED);
 				return btd_error_not_available(msg);
 			}
 		}
@@ -2282,11 +2282,11 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 	if (err < 0) {
 		if (err == -EALREADY) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-						CONN_ALREADY_BREDR, false);
+						CONN_ALREADY_BREDR, RESULT_TYPE_DEFINED);
 			return dbus_message_new_method_return(msg);
 		}
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BREDR,
-					false);
+					RESULT_TYPE_DEFINED);
 		return btd_error_failed(msg, strerror(-err));
 	}
 
@@ -2306,7 +2306,7 @@ resolve_services:
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 			bdaddr_type == BDADDR_BREDR ? CONN_FAIL_BROWSE_SDP :
 							CONN_FAIL_BROWSE_GATT,
-			false);
+			RESULT_TYPE_DEFINED);
 		return btd_error_failed(msg, strerror(-err));
 	}
 
@@ -3053,7 +3053,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INVALID)) {
 		metrics_send_enum(ENUM_TYPE_PAIR_RESULT,
-					PAIR_FAIL_INVALID_PARAMS, false);
+					PAIR_FAIL_INVALID_PARAMS, RESULT_TYPE_DEFINED);
 
 		// Put the device back to the temporary state.
 		btd_device_set_temporary(device, true);
@@ -3061,7 +3061,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	}
 
 	if (device->bonding) {
-		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY, false);
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY, RESULT_TYPE_DEFINED);
 		return btd_error_in_progress(msg);
 	}
 
@@ -3076,7 +3076,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 
 	if (state->bonded) {
 		metrics_send_enum(ENUM_TYPE_PAIR_RESULT,
-					PAIR_FAIL_ALREAY_PAIRED, false);
+					PAIR_FAIL_ALREAY_PAIRED, RESULT_TYPE_DEFINED);
 		return btd_error_already_exists(msg);
 	}
 
@@ -3118,7 +3118,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	}
 
 	if (err < 0) {
-		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY, false);
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, err, RESULT_TYPE_SYSTEM);
 		bonding_request_free(device->bonding);
 		// Put the device back to the temporary state.
 		btd_device_set_temporary(device, true);
@@ -6212,7 +6212,7 @@ done:
 			metrics_stop_timer(TIMER_CONNECT, timer_data);
 
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-			err < 0 ? CONN_FAIL_LE : CONN_LE_SUCCEED, false);
+			err < 0 ? CONN_FAIL_LE : CONN_LE_SUCCEED, RESULT_TYPE_DEFINED);
 
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);
@@ -6824,7 +6824,8 @@ void device_bonding_complete(struct btd_device *device, uint8_t bdaddr_type,
 
 	DBG("bonding %p status 0x%02x", bonding, status);
 
-	metrics_send_enum(ENUM_TYPE_PAIR_RESULT, status, true);
+	if (bonding != NULL)
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, status, RESULT_TYPE_MGMT);
 
 	if (auth && auth->agent)
 		agent_cancel(auth->agent);

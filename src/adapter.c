@@ -1783,10 +1783,8 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 
 		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
 		metrics_start_timer(TIMER_DISCOVERY, timer_data);
-		metrics_send_enum(ENUM_TYPE_DISCOVERY, rp->type, false);
-		btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager,
-									true);
-
+		metrics_send_enum(ENUM_TYPE_DISCOVERY, rp->type, RESULT_TYPE_DEFINED);
+		btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager, true);
 		return;
 	}
 
@@ -7372,7 +7370,7 @@ static void update_found_devices(struct btd_adapter *adapter,
 
 		dev = adapter_create_device(adapter, bdaddr, bdaddr_type);
 
-		metrics_send_enum(ENUM_TYPE_FOUND_DEVICE, bdaddr_type, false);
+		metrics_send_enum(ENUM_TYPE_FOUND_DEVICE, bdaddr_type, RESULT_TYPE_DEFINED);
 	}
 
 	if (!dev) {
@@ -8584,7 +8582,7 @@ static void dev_disconnected(struct btd_adapter *adapter,
 	bonding_attempt_complete(adapter, &addr->bdaddr, addr->type,
 						MGMT_STATUS_DISCONNECTED);
 
-	metrics_send_enum(ENUM_TYPE_DISCONN_REASON, reason, true);
+	metrics_send_enum(ENUM_TYPE_DISCONN_REASON, reason, RESULT_TYPE_MGMT);
 }
 
 void btd_add_disconnect_cb(btd_disconnect_cb func)

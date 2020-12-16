@@ -205,7 +205,9 @@ typedef enum {
 	// The authentication was timeout.
 	PAIR_FAIL_AUTH_TIMEOUT = 11,
 	PAIR_FAIL_UNKNOWN = 12,
-	PAIR_FAIL_END = 13,
+	// BT IO connection error
+	PAIR_FAIL_BT_IO_CONNECT = 13,
+	PAIR_FAIL_END = 14,
 } metrics_pair_result;
 
 typedef enum {
@@ -267,13 +269,19 @@ enum metrics_advmon_result {
 	ADVMON_RESULT_END = 5,
 };
 
+typedef enum {
+	RESULT_TYPE_DEFINED = 0, // Result that is clearly-defined by core logic.
+	RESULT_TYPE_MGMT = 1,    // Result returned by MGMT interface.
+	RESULT_TYPE_SYSTEM = 2,  // Result caused by system resource allocation.
+} metrics_result_type;
+
 /* Corresponding methods to C Metrics Library */
 bool metrics_init(void);
 void metrics_deinit(void);
 int metrics_is_enabled(void);
 bool metrics_send(const char* name, int sample, int min, int max, int buckets);
 bool metrics_send_enum(metrics_send_enum_type type, int sample,
-			bool is_mgmt_status);
+			metrics_result_type result_type);
 bool metrics_send_per_profile_enum(metrics_per_profile_type type,
 				   const char *uuid, int sample);
 

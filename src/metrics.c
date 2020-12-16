@@ -175,7 +175,7 @@ static metrics_disconn_reason convert_disconn_reason(int sample) {
 	}
 }
 
-static metrics_pair_result convert_pair_result(int sample)
+static metrics_pair_result convert_mgmt_pair_result(int sample)
 {
 	switch(sample) {
 	case MGMT_STATUS_SUCCESS:
@@ -202,7 +202,20 @@ static metrics_pair_result convert_pair_result(int sample)
 		return PAIR_FAIL_AUTH_TIMEOUT;
 	case MGMT_STATUS_AUTH_FAILED:
 		return PAIR_FAIL_AUTH_FAILED;
-	default :
+	default:
+		return PAIR_FAIL_UNKNOWN;
+	}
+}
+
+static metrics_pair_result convert_system_pair_result(int sample)
+{
+	switch(sample) {
+	case -EALREADY:  // fall through
+	case -EBUSY:
+		return PAIR_FAIL_BUSY;
+	case -EIO:
+		return PAIR_FAIL_BT_IO_CONNECT;
+	default:
 		return PAIR_FAIL_UNKNOWN;
 	}
 }
@@ -320,7 +333,7 @@ bool metrics_send(const char *name, int sample, int min, int max, int buckets)
 }
 
 bool metrics_send_enum(metrics_send_enum_type type, int sample,
-			bool is_mgmt_status)
+			metrics_result_type result_type)
 {
 	int max = 0;
 	int min = 0;
@@ -348,22 +361,24 @@ bool metrics_send_enum(metrics_send_enum_type type, int sample,
 		break;
 	case ENUM_TYPE_ADV_REG_RESULT:
 		histogram = H_NAME_ADV_REG_RESULT;
-		if (is_mgmt_status)
+		if (result_type == RESULT_TYPE_MGMT)
 			sample = convert_adv_reg_result(sample);
 		max = ADV_FAIL_END;
 		min = 1;
 		break;
 	case ENUM_TYPE_DISCONN_REASON:
 		histogram = H_NAME_DISCONN_REASON;
-		if (is_mgmt_status)
+		if (result_type == RESULT_TYPE_MGMT)
 			sample = convert_disconn_reason(sample);
 		max = DISCONN_END;
 		min = 1;
 		break;
 	case ENUM_TYPE_PAIR_RESULT:
 		histogram = H_NAME_PAIR_RESULT;
-		if (is_mgmt_status)
-			sample = convert_pair_result(sample);
+		if (result_type == RESULT_TYPE_MGMT)
+			sample = convert_mgmt_pair_result(sample);
+		else if (result_type == RESULT_TYPE_SYSTEM)
+			sample = convert_system_pair_result(sample);
 		max = PAIR_FAIL_END;
 		min = 1;
 		break;
