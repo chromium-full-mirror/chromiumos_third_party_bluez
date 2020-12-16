@@ -95,6 +95,7 @@ static const struct option main_options[] = {
 	{ "tty-speed", required_argument, NULL, 'B' },
 	{ "vendor",    required_argument, NULL, 'V' },
 	{ "mgmt",      no_argument,       NULL, 'M' },
+	{ "no-time",   no_argument,       NULL, 'N' },
 	{ "time",      no_argument,       NULL, 't' },
 	{ "date",      no_argument,       NULL, 'T' },
 	{ "sco",       no_argument,       NULL, 'S' },
@@ -138,8 +139,9 @@ int main(int argc, char *argv[])
 		int opt;
 		struct sockaddr_un addr;
 
-		opt = getopt_long(argc, argv, "r:w:a:s:p:i:d:B:V:MtTSAE:PJ:R:C:c:vh0l:f",
-							main_options, NULL);
+		opt = getopt_long(argc, argv,
+					"r:w:a:s:p:i:d:B:V:MNtTSAE:PJ:R:C:c:vh0l:f",
+					main_options, NULL);
 		if (opt < 0)
 			break;
 
@@ -206,6 +208,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'M':
 			filter_mask |= PACKET_FILTER_SHOW_MGMT_SOCKET;
+			break;
+		case 'N':
+			filter_mask &= ~PACKET_FILTER_SHOW_TIME_OFFSET;
 			break;
 		case 't':
 			filter_mask &= ~PACKET_FILTER_SHOW_TIME_OFFSET;
