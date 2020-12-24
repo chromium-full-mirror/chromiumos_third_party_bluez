@@ -276,57 +276,63 @@ bool metrics_send_enum(metrics_send_enum_type type, int sample,
 			bool is_mgmt_status)
 {
 	int max = 0;
+	int min = 0;
 	char *histogram;
 
 	if (!lib)
 		return false;
 
-	// According to Metrics library, here are requirements for samples and
-	// buckets:
-	// - 1 <= |sample| < |max|
-	// - An enumeration histogram requires |max| + 1 number of buckets.
-	// Therefore, we convert the sample into corresponding value defined in
-	// metrics.h.
+	// According to Metrics library, we should satisfy:
+	// - 0 <= |sample| < |max|
+	// However the older metrics starts at 1 (skips 0). We must preserve
+	// this condition because the enums must not be reordered.
 	switch(type) {
 	case ENUM_TYPE_DISCOVERY:
 		histogram = H_NAME_DISCOVERY_TYPE;
 		sample = convert_discovery_type(sample);
 		max = DISCOVERY_TYPE_END;
+		min = 1;
 		break;
 	case ENUM_TYPE_FOUND_DEVICE:
 		histogram = H_NAME_FOUND_DEVICE_TYPE;
 		sample = convert_device_type(sample);
 		max = DEVICE_TYPE_END;
+		min = 1;
 		break;
 	case ENUM_TYPE_ADV_REG_RESULT:
 		histogram = H_NAME_ADV_REG_RESULT;
 		if (is_mgmt_status)
 			sample = convert_adv_reg_result(sample);
 		max = ADV_FAIL_END;
+		min = 1;
 		break;
 	case ENUM_TYPE_DISCONN_REASON:
 		histogram = H_NAME_DISCONN_REASON;
 		if (is_mgmt_status)
 			sample = convert_disconn_reason(sample);
 		max = DISCONN_END;
+		min = 1;
 		break;
 	case ENUM_TYPE_PAIR_RESULT:
 		histogram = H_NAME_PAIR_RESULT;
 		if (is_mgmt_status)
 			sample = convert_pair_result(sample);
 		max = PAIR_FAIL_END;
+		min = 1;
 		break;
 	case ENUM_TYPE_CONN_RESULT:
 		histogram = H_NAME_CONN_RESULT;
 		max = CONN_FAIL_END;
+		min = 1;
 		break;
 	default:
 		DBG("Invalid enum type:%d", type);
 		return false;
 	}
 
-	if (sample <= 0 || sample >= max) {
-		DBG("Invalid sample:%d, max:%d type:%d", sample, max, type);
+	if (sample < min || sample >= max) {
+		DBG("Invalid sample:%d, min:%d max:%d type:%d",
+							sample, min, max, type);
 		return false;
 	}
 
@@ -342,13 +348,6 @@ bool metrics_send_per_profile_enum(metrics_per_profile_type type,
 
 	if (!lib)
 		return false;
-
-	// According to Metrics library, here are requirements for samples and
-	// buckets:
-	// - 1 <= |sample| < |max|
-	// - An enumeration histogram requires |max| + 1 number of buckets.
-	// Therefore, we convert the sample into corresponding value defined in
-	// metrics.h.
 
 	if (bt_uuid_strcmp(uuid, HID_UUID) == 0) {
 		histogram = (type == PROFILE_PROBE_RESULT) ?
