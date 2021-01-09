@@ -93,6 +93,7 @@ struct bt_hog {
 	struct bt_uhid		*uhid;
 	int			uhid_fd;
 	bool			uhid_created;
+	bool			report_value_cb_registered;
 	gboolean		has_report_id;
 	uint16_t		bcdhid;
 	uint8_t			bcountrycode;
@@ -348,6 +349,13 @@ static void report_ccc_written_cb(guint8 status, const guint8 *pdu,
 							att_ecode2str(status));
 		return;
 	}
+
+	/* If we already had the report map cache, we must have registered UHID
+	 * and the report value callbacks. In that case, don't re-register the
+	 * report value callbacks here.
+	 */
+	if (hog->report_value_cb_registered)
+		return;
 
 	report->notifyid = g_attrib_register(hog->attrib,
 					ATT_OP_HANDLE_NOTIFY,
@@ -1715,6 +1723,8 @@ bool bt_hog_attach(struct bt_hog *hog, void *gatt)
 					report_value_cb, r, NULL);
 	}
 
+	hog->report_value_cb_registered = true;
+
 	return true;
 }
 
@@ -1764,6 +1774,8 @@ void bt_hog_detach(struct bt_hog *hog)
 			r->notifyid = 0;
 		}
 	}
+
+	hog->report_value_cb_registered = false;
 
 	if (hog->scpp)
 		bt_scpp_detach(hog->scpp);
