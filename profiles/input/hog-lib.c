@@ -952,7 +952,7 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 	GError *gerr = NULL;
 	GIOChannel *io = NULL;
 
-	DBG_LVL(2, "Report MAP:");
+	DBG("Report MAP:");
 	for (i = 0; i < vlen;) {
 		ssize_t ilen = 0;
 		bool long_item = false;
@@ -963,16 +963,14 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 			if (!long_item && (value[i] & 0xfc) == 0x84)
 				hog->has_report_id = TRUE;
 
-			DBG_LVL(2, "\t%s", item2string(itemstr, &value[i],
-									ilen));
+			DBG("\t%s", item2string(itemstr, &value[i], ilen));
 
 			i += ilen;
 		} else {
 			error("Report Map parsing failed at %d", i);
 
 			/* Just print remaining items at once and break */
-			DBG_LVL(2, "\t%s", item2string(itemstr, &value[i],
-								vlen - i));
+			DBG("\t%s", item2string(itemstr, &value[i], vlen - i));
 			break;
 		}
 	}
