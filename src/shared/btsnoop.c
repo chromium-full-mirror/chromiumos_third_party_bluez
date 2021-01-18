@@ -409,6 +409,9 @@ static ssize_t btsnoop_write_to_log(struct btsnoop *btsnoop, const void *data,
 	int fd = btsnoop->fd;
 	ssize_t written = 0;
 
+	if (size == 0)
+		return 0;
+
 	/* if no size limit is specified, skip these several checks */
 	if (btsnoop->file_size_limit <= 0)
 		goto check_file_size_limit_done;
@@ -441,9 +444,15 @@ check_file_size_limit_done:
 
 ssize_t btsnoop_flush_compression_buffer(struct btsnoop *btsnoop)
 {
-	size_t compressed_size = btsnoop_compress();
-	void *temp = malloc(compressed_size);
+	size_t compressed_size;
 	ssize_t result;
+	void *temp;
+
+	if (compress_src_size == 0)
+		return 0;
+
+	compressed_size = btsnoop_compress();
+	temp = malloc(compressed_size);
 
 	if (!temp)
 		return -ENOMEM;
