@@ -41,7 +41,10 @@
 
 #include "src/shared/btsnoop.h"
 #include "src/shared/queue.h"
+#include "src/shared/timeout.h"
 #include "src/shared/util.h"
+
+#define BTSNOOP_COMPRESS_FLUSH_PERIOD 10000	// 10 seconds
 
 struct btsnoop_hdr {
 	uint8_t		id[8];		/* Identification Pattern */
@@ -90,6 +93,7 @@ struct btsnoop {
 	bool rotate;
 	uint32_t file_size_limit;
 	char *log_path;
+	int flush_timer;
 };
 
 /*
@@ -275,6 +279,10 @@ static void btsnoop_free(struct btsnoop *btsnoop)
 			ctrl_release_all(ctrl_list_since_last_write_to_file);
 			ctrl_list_since_last_write_to_file = NULL;
 		}
+	}
+	if (btsnoop->flush_timer) {
+		timeout_remove(btsnoop->flush_timer);
+		btsnoop->flush_timer = 0;
 	}
 
 	free(btsnoop);
@@ -466,6 +474,14 @@ static ssize_t write_and_possibly_compress(struct btsnoop *btsnoop,
 	return written;
 }
 
+static bool flush_timeout(void *user_data)
+{
+	struct btsnoop *btsnoop = user_data;
+
+	btsnoop_flush_compression_buffer(btsnoop);
+	return true;
+}
+
 struct btsnoop *btsnoop_open(const char *path, unsigned long flags)
 {
 	struct btsnoop *btsnoop;
@@ -570,6 +586,11 @@ struct btsnoop *btsnoop_create(const char *path, size_t max_size,
 		goto failed;
 
 	btsnoop->cur_size = BTSNOOP_HDR_SIZE;
+
+	if (compress)
+		btsnoop->flush_timer = timeout_add(
+						BTSNOOP_COMPRESS_FLUSH_PERIOD,
+						flush_timeout, btsnoop, NULL);
 
 	return btsnoop_ref(btsnoop);
 
