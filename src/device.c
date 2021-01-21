@@ -1239,6 +1239,23 @@ static gboolean dev_property_get_connected(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean dev_property_get_connected_le(
+					const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *dev = data;
+	dbus_bool_t connected;
+
+	if (dev->le_state.connected)
+		connected = TRUE;
+	else
+		connected = FALSE;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &connected);
+
+	return TRUE;
+}
+
 static gboolean dev_property_get_uuids(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -1894,6 +1911,28 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 	return NULL;
 }
 
+static DBusMessage *dev_disconnect_le(DBusConnection *conn, DBusMessage *msg,
+							void *user_data)
+{
+	struct btd_device *device = user_data;
+
+	DBG("");
+
+	if (!device->le_state.connected)
+		return dbus_message_new_method_return(msg);
+
+	if (device->att_io) {
+		g_io_channel_shutdown(device->att_io, FALSE, NULL);
+		g_io_channel_unref(device->att_io);
+		device->att_io = NULL;
+	}
+
+	btd_adapter_disconnect_device(device->adapter, &device->bdaddr,
+							device->bdaddr_type);
+
+	return dbus_message_new_method_return(msg);
+}
+
 static int connect_next(struct btd_device *dev)
 {
 	struct btd_service *service;
@@ -2327,6 +2366,43 @@ static uint8_t select_conn_bearer(struct btd_device *dev)
 	return dev->bdaddr_type;
 }
 
+static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
+							void *user_data)
+{
+	struct btd_device *dev = user_data;
+	struct metrics_timer_data timer_data = {dev->adapter, dev, NULL};
+	int err;
+
+	if (dev->le_state.connected) {
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+					CONN_ALREADY_LE, false);
+		return dbus_message_new_method_return(msg);
+	}
+
+	btd_device_set_temporary(dev, false);
+
+	if (dev->disable_auto_connect) {
+		dev->disable_auto_connect = FALSE;
+		device_set_auto_connect(dev, TRUE);
+	}
+
+	err = device_connect_le(dev);
+	if (err < 0) {
+		metrics_conn_result result = CONN_FAIL_LE;
+
+		if (err == -EALREADY)
+			result = CONN_ALREADY_LE;
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
+		return btd_error_failed(msg, strerror(-err));
+	}
+
+	metrics_start_timer(TIMER_CONNECT, timer_data);
+
+	dev->connect = dbus_message_ref(msg);
+
+	return NULL;
+}
+
 static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -2350,37 +2426,8 @@ static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 	else
 		bdaddr_type = select_conn_bearer(dev);
 
-	if (bdaddr_type != BDADDR_BREDR) {
-		int err;
-
-		if (dev->le_state.connected) {
-			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-						CONN_ALREADY_LE, false);
-			return dbus_message_new_method_return(msg);
-		}
-
-		btd_device_set_temporary(dev, false);
-
-		if (dev->disable_auto_connect) {
-			dev->disable_auto_connect = FALSE;
-			device_set_auto_connect(dev, TRUE);
-		}
-
-		err = device_connect_le(dev);
-		if (err < 0) {
-			metrics_conn_result result = CONN_FAIL_LE;
-			if (err == -EALREADY)
-				result = CONN_ALREADY_LE;
-			metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
-			return btd_error_failed(msg, strerror(-err));
-		}
-
-		metrics_start_timer(TIMER_CONNECT, timer_data);
-
-		dev->connect = dbus_message_ref(msg);
-
-		return NULL;
-	}
+	if (bdaddr_type != BDADDR_BREDR)
+		return dev_connect_le(conn, msg, user_data);
 
 	metrics_start_timer(TIMER_CONNECT, timer_data);
 
@@ -2790,6 +2837,9 @@ static void browse_request_complete(struct browse_req *req, uint8_t type,
 
 	if (dbus_message_is_method_call(msg, DEVICE_INTERFACE, "Connect"))
 		reply = dev_connect(dbus_conn, msg, dev);
+	else if (dbus_message_is_method_call(msg, DEVICE_INTERFACE,
+								"ConnectLE"))
+		reply = dev_connect_le(dbus_conn, msg, dev);
 	else if (dbus_message_is_method_call(msg, DEVICE_INTERFACE,
 							"ConnectProfile"))
 		reply = connect_profile(dbus_conn, msg, dev);
@@ -3550,7 +3600,9 @@ static DBusMessage *execute_write(DBusConnection *conn,
 
 static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Disconnect", NULL, NULL, dev_disconnect) },
+	{ GDBUS_ASYNC_METHOD("DisconnectLE", NULL, NULL, dev_disconnect_le) },
 	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },
+	{ GDBUS_ASYNC_METHOD("ConnectLE", NULL, NULL, dev_connect_le) },
 	{ GDBUS_ASYNC_METHOD("ConnectProfile", GDBUS_ARGS({ "UUID", "s" }),
 						NULL, connect_profile) },
 	{ GDBUS_ASYNC_METHOD("DisconnectProfile", GDBUS_ARGS({ "UUID", "s" }),
@@ -3584,6 +3636,7 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "LegacyPairing", "b", dev_property_get_legacy },
 	{ "RSSI", "n", dev_property_get_rssi, NULL, dev_property_exists_rssi },
 	{ "Connected", "b", dev_property_get_connected },
+	{ "ConnectedLE", "b", dev_property_get_connected_le },
 	{ "UUIDs", "as", dev_property_get_uuids },
 	{ "Modalias", "s", dev_property_get_modalias, NULL,
 						dev_property_exists_modalias },
@@ -3653,6 +3706,12 @@ void device_add_connection(struct btd_device *dev, uint8_t bdaddr_type)
 
 	g_dbus_emit_property_changed(dbus_conn, dev->path, DEVICE_INTERFACE,
 								"Connected");
+
+	/* Report the LE state change if needed */
+	if (state == &dev->le_state)
+		g_dbus_emit_property_changed(dbus_conn, dev->path,
+							DEVICE_INTERFACE,
+							"ConnectedLE");
 }
 
 void device_remove_connection(struct btd_device *device, uint8_t bdaddr_type)
@@ -3721,6 +3780,12 @@ void device_remove_connection(struct btd_device *device, uint8_t bdaddr_type)
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 						DEVICE_INTERFACE, "Connected");
+
+	/* Report the LE state change if needed */
+	if (state == &device->le_state)
+		g_dbus_emit_property_changed(dbus_conn, device->path,
+							DEVICE_INTERFACE,
+							"ConnectedLE");
 
 	if (remove_device)
 		btd_adapter_remove_device(device->adapter, device);

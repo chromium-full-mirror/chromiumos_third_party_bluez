@@ -2023,6 +2023,28 @@ static void cmd_connect(int argc, char *argv[])
 	bt_shell_printf("Attempting to connect to %s\n", argv[1]);
 }
 
+static void cmd_connect_le(int argc, char *argv[])
+{
+	GDBusProxy *proxy;
+
+	if (check_default_ctrl() == FALSE)
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+
+	proxy = find_proxy_by_address(default_ctrl->devices, argv[1]);
+	if (!proxy) {
+		bt_shell_printf("Device %s not available\n", argv[1]);
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (g_dbus_proxy_method_call(proxy, "ConnectLE", NULL, connect_reply,
+							proxy, NULL) == FALSE) {
+		bt_shell_printf("Failed to connect\n");
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
+
+	bt_shell_printf("Attempting to connect to %s over LE\n", argv[1]);
+}
+
 static void disconn_reply(DBusMessage *message, void *user_data)
 {
 	GDBusProxy *proxy = user_data;
@@ -2059,6 +2081,24 @@ static void cmd_disconn(int argc, char *argv[])
 	}
 
 	bt_shell_printf("Attempting to disconnect from %s\n",
+						proxy_address(proxy));
+}
+
+static void cmd_disconn_le(int argc, char *argv[])
+{
+	GDBusProxy *proxy;
+
+	proxy = find_device(argc, argv);
+	if (!proxy)
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+
+	if (g_dbus_proxy_method_call(proxy, "DisconnectLE", NULL, disconn_reply,
+							proxy, NULL) == FALSE) {
+		bt_shell_printf("Failed to disconnect\n");
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
+
+	bt_shell_printf("Attempting to disconnect LE from %s\n",
 						proxy_address(proxy));
 }
 
@@ -3023,9 +3063,13 @@ static const struct bt_shell_menu main_menu = {
 								dev_generator },
 	{ "remove",       "<dev>",    cmd_remove, "Remove device",
 							dev_generator },
-	{ "connect",      "<dev>",    cmd_connect, "Connect device",
+	{ "connect-le",   "<dev>",    cmd_connect_le, "Connect device",
+							dev_generator },
+	{ "connect",      "<dev>",    cmd_connect, "Connect device LE bearer",
 							dev_generator },
 	{ "disconnect",   "[dev]",    cmd_disconn, "Disconnect device",
+							dev_generator },
+	{ "disconnect-le",   "[dev]",    cmd_disconn_le, "Disconnect LE bearer",
 							dev_generator },
 	{ } },
 };

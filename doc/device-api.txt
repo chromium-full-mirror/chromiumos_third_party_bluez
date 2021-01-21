@@ -40,6 +40,23 @@ Methods		void Connect()
 					 org.bluez.Error.InProgress
 					 org.bluez.Error.AlreadyConnected
 
+		void ConnectLE()
+
+			This is a generic method to create a Low Energy connection.
+			If successful, it will also connect any Low Energy profiles
+			the remote device supports that can be connected
+			to and have been flagged as auto-connectable. If only subset
+			of profiles is already connected it will try to connect
+			currently disconnected ones.
+
+			If at least one profile was connected successfully this
+			method will indicate success.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.Failed
+					 org.bluez.Error.InProgress
+					 org.bluez.Error.AlreadyConnected
+
 		void Disconnect()
 
 			This method gracefully disconnects all connected
@@ -55,6 +72,14 @@ Methods		void Connect()
 			When connected over LE bearer calling this method will
 			prevent incoming connections until Connect method is
 			called again.
+
+			Possible errors: org.bluez.Error.NotConnected
+
+		void DisconnectLE()
+
+			This method gracefully disconnects all connected
+			Low Energy profiles and then terminates low-level
+			connection.
 
 			Possible errors: org.bluez.Error.NotConnected
 
@@ -226,6 +251,13 @@ Properties	string Address [readonly]
 		boolean Connected [readonly]
 
 			Indicates if the remote device is currently connected.
+			A PropertiesChanged signal indicate changes to this
+			status.
+
+		boolean ConnectedLE [readonly]
+
+			Indicates if the remote device is currently connected
+			over the Low Energy transport.
 			A PropertiesChanged signal indicate changes to this
 			status.
 
