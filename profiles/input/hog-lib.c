@@ -957,7 +957,7 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 	struct uhid_event ev;
 	ssize_t vlen = report_map_len;
 	char itemstr[20]; /* 5x3 (data) + 4 (continuation) + 1 (null) */
-	int i, err;
+	int i, err, collection_depth = 0;
 	GError *gerr = NULL;
 	GIOChannel *io = NULL;
 
@@ -972,6 +972,14 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 			if (!long_item && (value[i] & 0xfc) == 0x84)
 				hog->has_report_id = TRUE;
 
+			// Start Collection
+			if (value[i] == 0xa1)
+				collection_depth++;
+
+			// End Collection
+			if (value[i] == 0xc0)
+				collection_depth--;
+
 			DBG_LVL(2, "\t%s", item2string(itemstr, &value[i],
 									ilen));
 
@@ -982,8 +990,13 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 			/* Just print remaining items at once and break */
 			DBG_LVL(2, "\t%s", item2string(itemstr, &value[i],
 								vlen - i));
-			break;
+			return;
 		}
+	}
+
+	if (collection_depth != 0) {
+		error("Report Map error: unbalanced collection");
+		return;
 	}
 
 	/* create uHID device */
@@ -1390,7 +1403,9 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 			 * UHID to optimize reconnection.
 			 */
 			uhid_create(hog, report_map.value, report_map.length);
-		} else {
+		}
+
+		if (!hog->uhid_created) {
 			read_char(hog, hog->attrib, value_handle,
 						report_map_read_cb, hog);
 		}
