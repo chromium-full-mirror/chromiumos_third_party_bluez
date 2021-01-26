@@ -1691,11 +1691,18 @@ static void primary_cb(uint8_t status, GSList *services, void *user_data)
 bool bt_hog_attach(struct bt_hog *hog, void *gatt)
 {
 	GSList *l;
+	bt_uuid_t uuid;
 
 	if (hog->attrib)
 		return false;
 
 	hog->attrib = g_attrib_ref(gatt);
+
+	if (!hog->attr && hog->gatt_db) {
+		bt_uuid16_create(&uuid, HOG_UUID16);
+		gatt_db_foreach_service(hog->gatt_db, &uuid,
+					foreach_hog_service, hog);
+	}
 
 	if (!hog->attr && !hog->primary) {
 		discover_primary(hog, hog->attrib, NULL, primary_cb, hog);
@@ -1786,6 +1793,15 @@ void bt_hog_detach(struct bt_hog *hog)
 
 		bt_hog_detach(instance);
 	}
+
+	/* hog->attr doesn't own pointer, so it may be invalid when this hog
+	 * object gets re-attached with bt_hog_attach(). So intentionally mark
+	 * it as invalid and remove all instances so that the instances can be
+	 * re-attached at bt_hog_attach().
+	 */
+	hog->attr = NULL;
+	g_slist_free_full(hog->instances, hog_free);
+	hog->instances = NULL;
 
 	for (l = hog->reports; l; l = l->next) {
 		struct report *r = l->data;
