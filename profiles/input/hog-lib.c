@@ -48,7 +48,6 @@
 #include "src/shared/queue.h"
 #include "src/shared/att.h"
 #include "src/shared/gatt-db.h"
-#include "src/shared/memtrack.h"
 #include "src/log.h"
 
 #include "attrib/att.h"
@@ -1232,8 +1231,6 @@ static void hog_free(void *data)
 {
 	struct bt_hog *hog = data;
 
-	memtrack_assert_alloc_valid(hog);
-
 	bt_hog_detach(hog);
 
 	queue_destroy(hog->bas, (void *) bt_bas_unref);
@@ -1249,7 +1246,6 @@ static void hog_free(void *data)
 	if (hog->gatt_db)
 		gatt_db_unref(hog->gatt_db);
 	g_free(hog);
-	memtrack_remove_alloc(hog);
 }
 
 struct bt_hog *bt_hog_new_default(const char *name, uint16_t vendor,
@@ -1426,7 +1422,6 @@ static struct bt_hog *hog_new(int fd, const char *name, uint16_t vendor,
 	hog = g_try_new0(struct bt_hog, 1);
 	if (!hog)
 		return NULL;
-	memtrack_add_alloc(hog);
 
 	hog->gatt_op = queue_new();
 	hog->bas = queue_new();
@@ -1710,7 +1705,6 @@ bool bt_hog_attach(struct bt_hog *hog, void *gatt)
 
 	if (!hog->uhid_created) {
 		DBG("HoG discovering characteristics");
-		memtrack_assert_alloc_valid(hog);
 		if (hog->attr)
 			gatt_db_service_foreach_char(hog->attr,
 							foreach_hog_chrc, hog);
