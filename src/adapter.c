@@ -103,12 +103,6 @@
 #define PATHLOSS_MAX		137
 
 #define SUPPORTED_CAPABILITY_WBS		"wide band speech"
-
-/* The unit is milliseconds, and the value refers to the disconnection timeout
- * of AVDTP session.
- */
-#define CLEANUP_WATCHDOG_TIMEOUT	1000
-
 /*
  * These are known security keys that have been compromised.
  * If this grows or there are needs to be platform specific, it is
@@ -146,9 +140,6 @@ static GSList *adapter_drivers = NULL;
 static GSList *disconnect_list = NULL;
 static GSList *conn_fail_list = NULL;
 
-/* Watchdog timer of rapid index added after index removed */
-static guint cleanup_watchdog_timer;
-
 /* Timer ID of delay task of metrics */
 static guint adapter_lost_metrics_timer_id = 0;
 /* Timer ID of delay task of metrics (specific to hardware disconnection) */
@@ -161,11 +152,6 @@ static time_t metrics_last_chip_lost_time;
 static time_t last_system_resume_time;
 
 static bool keep_connectable = false;
-
-/* List of struct cleanup_watchdog, used to prevent rapid index added after
- * index removed.
- */
-static struct queue *cleanup_watchdogs;
 
 struct link_key_info {
 	bdaddr_t bdaddr;
@@ -345,14 +331,6 @@ typedef enum {
 struct supported_capability_info {
 	int dbus_type;
 	void *data;
-};
-
-struct cleanup_watchdog {
-	uint16_t index;		/* adapter index */
-	time_t target_ts;	/* targeted timestamp for index added to be
-				 * triggered
-				 */
-	bool should_add;
 };
 
 static struct btd_adapter *btd_adapter_lookup(uint16_t index)
@@ -578,9 +556,6 @@ static void adapter_stop(struct btd_adapter *adapter);
 static void trigger_passive_scanning(struct btd_adapter *adapter);
 static bool set_mode(struct btd_adapter *adapter, uint16_t opcode,
 							uint8_t mode);
-static void index_added(uint16_t index, uint16_t length, const void *param,
-							void *user_data);
-static gboolean expire_cleanup_watchdog(gpointer user_data);
 
 static struct supported_capability_info *supported_capability_alloc(
 						int dbus_type, void *data)
@@ -6037,82 +6012,11 @@ static gboolean record_chip_lost()
 	return FALSE;
 }
 
-static void cleanup_watchdog_free(void *data)
-{
-	struct cleanup_watchdog *watchdog = data;
-
-	free(watchdog);
-}
-
-static void start_cleanup_watchdog_timer(time_t current_ts)
-{
-	double diff_ts;
-	struct cleanup_watchdog *watchdog;
-
-	if (cleanup_watchdog_timer)
-		return;
-
-	watchdog = queue_peek_head(cleanup_watchdogs);
-	if (!watchdog)
-		return;
-
-	diff_ts = difftime(watchdog->target_ts, current_ts) * 1000;
-	cleanup_watchdog_timer = g_timeout_add(diff_ts, expire_cleanup_watchdog,
-						NULL);
-
-	DBG("Cleanup watchdog timer set for adapter %u with %f ms",
-		watchdog->index, diff_ts);
-}
-
-static gboolean expire_cleanup_watchdog(gpointer user_data)
-{
-	time_t current_ts;
-	struct cleanup_watchdog *watchdog;
-
-	g_source_remove(cleanup_watchdog_timer);
-	cleanup_watchdog_timer = 0;
-
-	time(&current_ts);
-
-	while ((watchdog = queue_peek_head(cleanup_watchdogs))) {
-		if (watchdog->target_ts <= current_ts) {
-			queue_pop_head(cleanup_watchdogs);
-
-			DBG("expire cleanup watchdog for adapter %u",
-				watchdog->index);
-
-			if (watchdog->should_add)
-				index_added(watchdog->index, 0, NULL, NULL);
-
-			cleanup_watchdog_free(watchdog);
-		} else {
-			start_cleanup_watchdog_timer(current_ts);
-			return FALSE;
-		}
-	}
-
-	return FALSE;
-}
-
-static bool match_cleanup_watchdog_by_index(const void *data,
-						const void *user_data)
-{
-	const uint16_t *index = user_data;
-	const struct cleanup_watchdog *watchdog = data;
-
-	if (!watchdog || !index)
-		return false;
-
-	return watchdog->index == *index;
-}
-
 static void adapter_free(gpointer user_data)
 {
-	struct cleanup_watchdog *watchdog;
 	struct btd_adapter *adapter = user_data;
 	struct metrics_timer_data timer_data = {NULL, NULL, NULL};
 	time_t cur_time;
-	uint16_t index = adapter->dev_id;
 
 	DBG("%p", adapter);
 
@@ -6188,23 +6092,6 @@ static void adapter_free(gpointer user_data)
 	adapter_lost_metrics_timer_id = g_timeout_add_seconds(
 						TIME_LENGTH_LAST_LOST,
 						record_adapter_lost, NULL);
-
-	DBG("Set cleanup watchdog for adapter %u", index);
-	watchdog = queue_find(cleanup_watchdogs,
-				match_cleanup_watchdog_by_index, NULL);
-	if (watchdog) {
-		queue_remove(cleanup_watchdogs, watchdog);
-	} else {
-		watchdog = new0(struct cleanup_watchdog, 1);
-		watchdog->index = index;
-	}
-
-	time(&cur_time);
-	watchdog->should_add = false;
-	watchdog->target_ts = cur_time + (CLEANUP_WATCHDOG_TIMEOUT / 1000);
-
-	queue_push_tail(cleanup_watchdogs, watchdog);
-	start_cleanup_watchdog_timer(cur_time);
 }
 
 struct btd_adapter *btd_adapter_ref(struct btd_adapter *adapter)
@@ -10435,23 +10322,11 @@ static void index_added(uint16_t index, uint16_t length, const void *param,
 							void *user_data)
 {
 	struct btd_adapter *adapter;
-	struct cleanup_watchdog *watchdog;
 
 	if (!!chip_lost_metrics_timer_id) {
 		g_source_remove(chip_lost_metrics_timer_id);
 		chip_lost_metrics_timer_id = 0;
 		record_chip_lost();
-	}
-
-	if (!!cleanup_watchdog_timer) {
-		watchdog = queue_find(cleanup_watchdogs,
-					match_cleanup_watchdog_by_index,
-					&index);
-		if (watchdog) {
-			warn("Postpone adding adapter %u", index);
-			watchdog->should_add = true;
-			return;
-		}
 	}
 
 	DBG("index %u", index);
@@ -10741,10 +10616,8 @@ int adapter_init(void)
 
 	if (mgmt_send(mgmt_master, MGMT_OP_READ_VERSION,
 				MGMT_INDEX_NONE, 0, NULL,
-				read_version_complete, NULL, NULL) > 0) {
-		cleanup_watchdogs = queue_new();
+				read_version_complete, NULL, NULL) > 0)
 		return 0;
-	}
 
 	error("Failed to read management version information");
 
@@ -10795,9 +10668,6 @@ void adapter_shutdown(void)
 	GList *list;
 
 	DBG("");
-
-	queue_destroy(cleanup_watchdogs, cleanup_watchdog_free);
-	cleanup_watchdogs = NULL;
 
 	powering_down = true;
 
