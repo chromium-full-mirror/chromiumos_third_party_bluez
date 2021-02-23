@@ -521,7 +521,7 @@ static gboolean store_device_info_cb(gpointer user_data)
 	if (device->remote_csrk)
 		store_csrk(device->remote_csrk, key_file, "RemoteSignatureKey");
 
-	create_file(filename, S_IRUSR | S_IWUSR);
+	create_file(filename, 0600);
 
 	str = g_key_file_to_data(key_file, &length, NULL);
 	g_file_set_contents(filename, str, length, NULL);
@@ -625,7 +625,7 @@ void device_store_cached_name(struct btd_device *dev, const char *name)
 	ba2str(&dev->bdaddr, d_addr);
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 			btd_adapter_get_storage_dir(dev->adapter), d_addr);
-	create_file(filename, S_IRUSR | S_IWUSR);
+	create_file(filename, 0600);
 
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
@@ -2977,7 +2977,7 @@ static void store_services(struct btd_device *device)
 
 	data = g_key_file_to_data(key_file, &length, NULL);
 	if (length > 0) {
-		create_file(filename, S_IRUSR | S_IWUSR);
+		create_file(filename, 0600);
 		g_file_set_contents(filename, data, length, NULL);
 	}
 
@@ -3165,7 +3165,7 @@ static void store_gatt_db(struct btd_device *device)
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 				btd_adapter_get_storage_dir(device->adapter),
 				dst_addr);
-	create_file(filename, S_IRUSR | S_IWUSR);
+	create_file(filename, 0600);
 
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
@@ -5723,7 +5723,7 @@ static void device_remove_stored(struct btd_device *device)
 
 	data = g_key_file_to_data(key_file, &length, NULL);
 	if (length > 0) {
-		create_file(filename, S_IRUSR | S_IWUSR);
+		create_file(filename, 0600);
 		g_file_set_contents(filename, data, length, NULL);
 	}
 
@@ -6185,7 +6185,7 @@ next:
 	if (sdp_key_file) {
 		data = g_key_file_to_data(sdp_key_file, &length, NULL);
 		if (length > 0) {
-			create_file(sdp_file, S_IRUSR | S_IWUSR);
+			create_file(sdp_file, 0600);
 			g_file_set_contents(sdp_file, data, length, NULL);
 		}
 
@@ -6196,7 +6196,7 @@ next:
 	if (att_key_file) {
 		data = g_key_file_to_data(att_key_file, &length, NULL);
 		if (length > 0) {
-			create_file(att_file, S_IRUSR | S_IWUSR);
+			create_file(att_file, 0600);
 			g_file_set_contents(att_file, data, length, NULL);
 		}
 
@@ -7177,7 +7177,7 @@ void device_store_svc_chng_ccc(struct btd_device *device, uint8_t bdaddr_type,
 									value);
 	}
 
-	create_file(filename, S_IRUSR | S_IWUSR);
+	create_file(filename, 0600);
 
 	str = g_key_file_to_data(key_file, &length, NULL);
 	g_file_set_contents(filename, str, length, NULL);
