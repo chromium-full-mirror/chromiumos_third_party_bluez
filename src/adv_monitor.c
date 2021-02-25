@@ -37,7 +37,6 @@
 #include "dbus-common.h"
 #include "device.h"
 #include "log.h"
-#include "metrics.h"
 #include "src/error.h"
 #include "src/shared/mgmt.h"
 #include "src/shared/queue.h"
@@ -70,8 +69,6 @@ struct btd_adv_monitor_manager {
 	uint32_t enabled_features;	/* MGMT_ADV_MONITOR_FEATURE_MASK_* */
 	uint16_t max_num_monitors;
 	uint8_t max_num_patterns;
-	uint16_t num_monitors;
-	bool active_scanning;
 
 	struct queue *apps;	/* apps who registered for Adv monitoring */
 };
@@ -224,48 +221,11 @@ static void monitor_release(struct adv_monitor *monitor)
 					NULL);
 }
 
-/* Updates the number of monitors and starts / stops tracking metrics */
-static void adv_monitor_update_count(struct btd_adv_monitor_manager *manager,
-								int delta)
-{
-	if (delta == 0) {
-		warn("monitor update count is zero");
-		return;
-	}
-
-	if (!manager) {
-		error("Manager is NULL, failed to update monitor count");
-		return;
-	}
-
-	if (delta > 0) {
-		if (manager->num_monitors == 0 && !manager->active_scanning)
-			metrics_advmon_start_tracking(manager);
-
-		manager->num_monitors += delta;
-		return;
-	}
-
-	if (manager->num_monitors >= -delta) {
-		manager->num_monitors += delta;
-	} else {
-		btd_error(manager->adapter_id,
-			"Decreasing monitor count when num_monitors is 0!");
-		manager->num_monitors = 0;
-	}
-
-	if (manager->num_monitors == 0)
-		metrics_advmon_stop_tracking(manager);
-}
-
 /* Handles the callback of Remove Adv Monitor command */
 static void remove_adv_monitor_cb(uint8_t status, uint16_t length,
 				const void *param, void *user_data)
 {
 	const struct mgmt_rp_remove_adv_monitor *rp = param;
-	struct btd_adv_monitor_manager *manager = user_data;
-
-	metrics_send_advmon_enum(manager, REMOVE_ADVMON_RESULT, status);
 
 	if (status != MGMT_STATUS_SUCCESS || !param) {
 		error("Failed to Remove Adv Monitor with status 0x%02x",
@@ -280,8 +240,6 @@ static void remove_adv_monitor_cb(uint8_t status, uint16_t length,
 
 	DBG("Adv monitor with handle:0x%04x removed from kernel",
 		le16_to_cpu(rp->monitor_handle));
-
-	adv_monitor_update_count(manager, -1);
 }
 
 /* Sends Remove Adv Monitor command to the kernel */
@@ -722,9 +680,6 @@ static void add_adv_patterns_monitor_cb(uint8_t status, uint16_t length,
 	struct adv_monitor *monitor = user_data;
 	uint16_t adapter_id = monitor->app->manager->adapter_id;
 
-	metrics_send_advmon_enum(monitor->app->manager, ADD_ADVMON_RESULT,
-									status);
-
 	if (status != MGMT_STATUS_SUCCESS || !param) {
 		btd_error(adapter_id,
 				"Failed to Add Adv Patterns Monitor with status"
@@ -752,8 +707,6 @@ static void add_adv_patterns_monitor_cb(uint8_t status, uint16_t length,
 					NULL);
 
 	DBG("Adv monitor with handle:0x%04x added", monitor->monitor_handle);
-
-	adv_monitor_update_count(monitor->app->manager, 1);
 }
 
 static bool monitor_rssi_is_unset(struct adv_monitor *monitor)
@@ -1161,15 +1114,6 @@ static void app_remove_monitor(void *data, void *user_data)
 	}
 }
 
-/* Processes Adv Monitor added event from kernel */
-static void adv_monitor_added_callback(uint16_t index, uint16_t length,
-					const void *param, void *user_data)
-{
-	struct btd_adv_monitor_manager *manager = user_data;
-
-	adv_monitor_update_count(manager, 1);
-}
-
 /* Processes Adv Monitor removed event from kernel */
 static void adv_monitor_removed_callback(uint16_t index, uint16_t length,
 					const void *param, void *user_data)
@@ -1187,8 +1131,6 @@ static void adv_monitor_removed_callback(uint16_t index, uint16_t length,
 
 	/* Traverse the apps to find the monitor */
 	queue_foreach(manager->apps, app_remove_monitor, &handle);
-
-	adv_monitor_update_count(manager, -1);
 
 	DBG("Adv Monitor removed event with handle 0x%04x processed",
 		ev->monitor_handle);
@@ -1213,10 +1155,6 @@ static struct btd_adv_monitor_manager *manager_new(
 	manager->adapter_id = btd_adapter_get_index(adapter);
 	manager->apps = queue_new();
 
-	mgmt_register(manager->mgmt, MGMT_EV_ADV_MONITOR_ADDED,
-			manager->adapter_id, adv_monitor_added_callback,
-			manager, NULL);
-
 	mgmt_register(manager->mgmt, MGMT_EV_ADV_MONITOR_REMOVED,
 			manager->adapter_id, adv_monitor_removed_callback,
 			manager, NULL);
@@ -1230,8 +1168,6 @@ static void manager_free(struct btd_adv_monitor_manager *manager)
 	mgmt_unref(manager->mgmt);
 
 	queue_destroy(manager->apps, app_destroy);
-
-	metrics_advmon_stop_tracking(manager);
 
 	free(manager);
 }
@@ -1392,8 +1328,6 @@ struct queue *btd_adv_monitor_content_filter(
 	info.matched_monitors = NULL;
 
 	queue_foreach(manager->apps, adv_match_per_app, &info);
-
-	metrics_advmon_update_frequency(manager, 1);
 
 	return info.matched_monitors;
 }
@@ -1689,51 +1623,4 @@ static void adv_monitor_filter_rssi(struct adv_monitor *monitor,
 					    handle_device_lost_timeout, dev,
 							NULL);
 	}
-}
-
-bool btd_adv_monitor_get_offload_support(
-					struct btd_adv_monitor_manager *manager)
-{
-	if (!manager) {
-		error("Manager is NULL, get offload support failed");
-		return false;
-	}
-
-	return !!(manager->enabled_features &
-				MGMT_ADV_MONITOR_FEATURE_MASK_OR_PATTERNS);
-}
-
-int btd_adv_monitor_get_monitor_count(struct btd_adv_monitor_manager *manager)
-{
-	if (!manager) {
-		error("Manager is NULL, get monitor count failed");
-		return 0;
-	}
-
-	return manager->num_monitors;
-}
-
-/* Invoke this function whenever active scan is enabled/disabled. This will
- * handle when to stop and continue tracking the number of received adv metrics.
- */
-void btd_adv_monitor_notify_active_scan(struct btd_adv_monitor_manager *manager,
-					bool enabled)
-{
-	if (!manager) {
-		error("Manager is NULL, notify active scan failed");
-		return;
-	}
-
-	if (manager->active_scanning == enabled) {
-		btd_warn(manager->adapter_id,
-			"active scanning status is already %d", enabled);
-		return;
-	}
-
-	manager->active_scanning = enabled;
-
-	if (enabled)
-		metrics_advmon_stop_tracking(manager);
-	else if (manager->num_monitors > 0)
-		metrics_advmon_start_tracking(manager);
 }

@@ -1818,7 +1818,7 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
 		metrics_start_timer(TIMER_DISCOVERY, timer_data);
 		metrics_send_enum(ENUM_TYPE_DISCOVERY, rp->type, RESULT_TYPE_DEFINED);
-		btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager, true);
+
 		return;
 	}
 
@@ -2113,7 +2113,6 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 
 	struct metrics_timer_data timer_data = {adapter, NULL, NULL};
 	metrics_stop_timer(TIMER_DISCOVERY, timer_data);
-	btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager, false);
 
 	trigger_passive_scanning(adapter);
 }

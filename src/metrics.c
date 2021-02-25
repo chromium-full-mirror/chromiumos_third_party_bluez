@@ -799,7 +799,10 @@ static struct metrics_periodic_timer *metrics_get_periodic_timer(
 static enum metrics_periodic_timer_type metrics_get_advmon_type(
 					struct btd_adv_monitor_manager *manager)
 {
-	if (btd_adv_monitor_get_offload_support(manager))
+	// TODO(b/169584341): plumbing to adv_monitor.c
+	bool is_msft_supported = true;
+
+	if (is_msft_supported)
 		return PERIODIC_TIMER_MSFT_PATTERN_ADV_PER_MINUTE;
 
 	return PERIODIC_TIMER_SW_PATTERN_ADV_PER_MINUTE;
@@ -812,9 +815,8 @@ static int metrics_update_adv_count(int current, void *data, void *user_data)
 
 static int metrics_get_number_of_monitors(int current, void *user_data)
 {
-	struct btd_adv_monitor_manager *manager = user_data;
-
-	return btd_adv_monitor_get_monitor_count(manager);
+	// TODO(b/169584341): get the number of monitors from adv_monitor.c
+	return 1;
 }
 
 static struct metrics_periodic_timer *metrics_advmon_start_tracking_internal(
@@ -913,7 +915,8 @@ bool metrics_advmon_update_frequency(struct btd_adv_monitor_manager *manager,
 bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 				enum metrics_advmon_enum_type type, int sample)
 {
-	bool is_msft_supported = btd_adv_monitor_get_offload_support(manager);
+	// TODO(b/169584341): plumbing to adv_monitor.c
+	bool is_msft_supported = true;
 	metrics_send_enum_type send_type;
 
 	if (!manager)
