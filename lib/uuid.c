@@ -29,6 +29,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <glib.h>
 
 #include "lib/bluetooth.h"
 #include "uuid.h"
@@ -131,6 +132,26 @@ int bt_uuid_cmp(const bt_uuid_t *uuid1, const bt_uuid_t *uuid2)
 	bt_uuid_to_uuid128(uuid2, &u2);
 
 	return bt_uuid128_cmp(&u1, &u2);
+}
+
+guint bt_uuid_hash(gconstpointer key)
+{
+	const bt_uuid_t *uuid = key;
+	bt_uuid_t uuid_128;
+	uint64_t *val;
+
+	bt_uuid_to_uuid128(uuid, &uuid_128);
+	val = (uint64_t *)&uuid_128.value.u128;
+
+	return g_int64_hash(val) ^ g_int64_hash(val+1);
+}
+
+gboolean bt_uuid_equal(gconstpointer v1, gconstpointer v2)
+{
+	const bt_uuid_t *uuid1 = v1;
+	const bt_uuid_t *uuid2 = v2;
+
+	return bt_uuid_cmp(uuid1, uuid2) == 0;
 }
 
 /*
