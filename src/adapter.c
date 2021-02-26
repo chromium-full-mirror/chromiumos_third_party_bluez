@@ -11066,8 +11066,6 @@ bool btd_has_kernel_features(uint32_t features)
 void btd_adapter_set_keep_connectable(struct btd_adapter *adapter,
 						bool connectable)
 {
-	GList *list;
-
 	DBG("setting keep_connectable = %d", connectable);
 
 	keep_connectable = connectable;
