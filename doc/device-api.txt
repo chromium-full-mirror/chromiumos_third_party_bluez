@@ -365,3 +365,10 @@ Properties	string Address [readonly]
 		array{byte} EIR [readonly, optional]
 
 			The extended inquiry response data from advertisement.
+
+		bool IsBlockedByPolicy [readonly, experimental]
+
+			Indicate whether or not this device is blocked by admin
+			policy. This would be true if any of its auto-connect
+			service does not exist in the ServiceAllowList under
+			org.bluez.AdminPolicy1.

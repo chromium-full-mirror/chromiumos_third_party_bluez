@@ -1,0 +1,34 @@
+BlueZ D-Bus Adapter API description
+***********************************
+
+
+Adapter hierarchy
+=================
+
+Service		org.bluez
+Interface	org.bluez.AdminPolicy1
+Object path	[variable prefix]/{hci0,hci1,...}
+
+Methods		void SetServiceAllowList(array{string} UUIDs) [experimental]
+
+			This method sets the service allowlist by specifying
+			service UUIDs.
+
+			When SetServiceAllowList is called, bluez will first
+			disconnect all the pending/existing connections and
+			block future incoming and outgoing connections to
+			the service in UUIDs for all of the clients once it
+			finished.
+
+			Any subsequent calls to this method will supersede any
+			previously set allowlist values.  Calling this method
+			with an empty array will allow any service UUIDs to be
+			used.
+
+			Possible errors: org.bluez.Error.InvalidArguments
+					 org.bluez.Error.Failed
+
+
+Properties	array{string} ServiceAllowList [readonly, experimental]
+
+			Current value of service allow list.
