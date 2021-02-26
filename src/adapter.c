@@ -520,12 +520,18 @@ uint8_t btd_adapter_get_address_type(struct btd_adapter *adapter)
 	return adapter->bdaddr_type;
 }
 
+static char **create_uuid_string_allowlist(GHashTable *allowed_uuid_set,
+							guint *num_of_uuid);
 static void store_adapter_info(struct btd_adapter *adapter)
 {
 	GKeyFile *key_file;
+	GHashTable *allowed_uuid_set;
 	char filename[PATH_MAX];
 	char *str;
 	gsize length = 0;
+	char **uuid_str_arr;
+	guint num_of_uuid = 0;
+	int i;
 
 	key_file = g_key_file_new();
 
@@ -544,13 +550,34 @@ static void store_adapter_info(struct btd_adapter *adapter)
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/settings",
 					btd_adapter_get_storage_dir(adapter));
 
+	if (adapter->admin_policy) {
+		allowed_uuid_set = btd_admin_policy_allowlist_get(
+							adapter->admin_policy);
+		uuid_str_arr = create_uuid_string_allowlist(allowed_uuid_set,
+								&num_of_uuid);
+		g_key_file_set_string_list(key_file, "Policy",
+				"ServiceAllowList",
+				(const char *const*)uuid_str_arr, num_of_uuid);
+	}
+
 	create_file(filename, S_IRUSR | S_IWUSR);
 
 	str = g_key_file_to_data(key_file, &length, NULL);
 	g_file_set_contents(filename, str, length, NULL);
 	g_free(str);
 
+	for (i = 0; i < num_of_uuid; i++)
+		g_free(uuid_str_arr[i]);
+
+	g_free(uuid_str_arr);
+
 	g_key_file_free(key_file);
+}
+
+void btd_adapter_store_adapter_info(struct btd_adapter *adapter)
+{
+	if (adapter)
+		store_adapter_info(adapter);
 }
 
 static void trigger_pairable_timeout(struct btd_adapter *adapter);
@@ -4154,6 +4181,32 @@ void btd_adapter_refresh_is_blocked_by_policy(struct btd_adapter *adapter)
 									NULL);
 }
 
+static char **create_uuid_string_allowlist(GHashTable *allowed_uuid_set,
+							guint *num_of_uuid)
+{
+	int i;
+	gpointer *uuids;
+	char **uuid_str_allowlist;
+	bt_uuid_t *uuid;
+
+	uuids = g_hash_table_get_keys_as_array(allowed_uuid_set, num_of_uuid);
+	uuid_str_allowlist = g_try_malloc_n(*num_of_uuid, sizeof(char *));
+
+	if (!uuid_str_allowlist && !num_of_uuid) {
+		error("Failed to allocate memory for uuid_str_allowlist");
+		return NULL;
+	}
+
+	for (i = 0; i < *num_of_uuid; i++) {
+		uuid = uuids[i];
+		uuid_str_allowlist[i] = g_try_malloc(MAX_LEN_UUID_STR);
+		bt_uuid_to_string(uuid, uuid_str_allowlist[i],
+							MAX_LEN_UUID_STR);
+	}
+
+	return uuid_str_allowlist;
+}
+
 static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_ASYNC_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
 	{ GDBUS_METHOD("SetDiscoveryFilter",
@@ -6969,13 +7022,43 @@ static void fix_storage(struct btd_adapter *adapter)
 	textfile_del(filename, "converted");
 }
 
+static GHashTable *uuid_list_to_uuid_set(gchar **uuids, gsize num_of_uuid)
+{
+	int i;
+	bt_uuid_t *uuid;
+	GHashTable *uuid_set = g_hash_table_new_full(bt_uuid_hash,
+						bt_uuid_equal, g_free, NULL);
+
+	if (!uuid_set)
+		return NULL;
+
+	for (i = 0; i < num_of_uuid; i++) {
+		uuid = g_try_malloc(sizeof(*uuid));
+
+		if (!uuid || bt_string_to_uuid(uuid, *uuids))
+			goto failed;
+
+		g_hash_table_add(uuid_set, uuid);
+		uuids++;
+	}
+
+	return uuid_set;
+
+failed:
+	g_hash_table_destroy(uuid_set);
+	return NULL;
+}
+
 static void load_config(struct btd_adapter *adapter)
 {
 	GKeyFile *key_file;
 	char filename[PATH_MAX];
 	struct stat st;
+	GHashTable *uuid_set;
 	GError *gerr = NULL;
 	gboolean powered;
+	gchar **uuids = NULL;
+	gsize num_of_uuid;
 
 	key_file = g_key_file_new();
 
@@ -7022,6 +7105,23 @@ static void load_config(struct btd_adapter *adapter)
 	/* Update the power status for this adapter */
 	adapter->desired_powered = powered;
 	set_mode(adapter, MGMT_OP_SET_POWERED, powered ? 0x01 : 0x00);
+
+	if (adapter->admin_policy) {
+		uuids = g_key_file_get_string_list(key_file, "Policy",
+				"ServiceAllowList", &num_of_uuid, &gerr);
+
+		if (gerr) {
+			uuids = NULL;
+			num_of_uuid = 0;
+			g_error_free(gerr);
+			gerr = NULL;
+		}
+
+		uuid_set = uuid_list_to_uuid_set(uuids, num_of_uuid);
+		if (uuid_set)
+			btd_admin_policy_allowlist_set(adapter->admin_policy,
+								uuid_set);
+	}
 
 	g_key_file_free(key_file);
 }
@@ -9475,6 +9575,9 @@ load:
 	load_defaults(adapter);
 	load_devices(adapter);
 
+	/* Update IsBlockedByPolicy on devices */
+	g_slist_foreach(adapter->devices, update_device_is_blocked_by_policy,
+									NULL);
 	/* restore Service Changed CCC value for bonded devices */
 	btd_gatt_database_restore_svc_chng_ccc(adapter->database);
 
