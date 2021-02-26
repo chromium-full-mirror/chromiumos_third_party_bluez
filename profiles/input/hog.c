@@ -182,6 +182,27 @@ static void hog_remove(struct btd_service *service)
 	hog_device_free(dev);
 }
 
+static bool mandatory_services_are_allowed(struct btd_service *service)
+{
+	static const char * const mandatory_uuids[] = {DEVICE_INFORMATION_UUID,
+						BATTERY_UUID, HOG_UUID, NULL};
+	struct btd_device *device = btd_service_get_device(service);
+	struct btd_adapter *adapter = device_get_adapter(device);
+	struct btd_profile *p = btd_service_get_profile(service);
+
+	int i;
+
+	for (i = 0; mandatory_uuids[i] != NULL; i++) {
+		if (!btd_adapter_uuid_is_allowed(adapter, mandatory_uuids[i])) {
+			DBG("mandatory service %s is blocked by policy",
+							mandatory_uuids[i]);
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static int hog_accept(struct btd_service *service)
 {
 	struct hog_device *dev = btd_service_get_user_data(service);
@@ -235,6 +256,7 @@ static struct btd_profile hog_profile = {
 	.accept		= hog_accept,
 	.disconnect	= hog_disconnect,
 	.auto_connect	= true,
+	.mandatory_services_are_allowed = mandatory_services_are_allowed,
 };
 
 static int hog_init(void)
