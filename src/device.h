@@ -90,6 +90,7 @@ void device_set_service_data(struct btd_device *dev, GSList *list,
 							bool duplicate);
 void device_set_data(struct btd_device *dev, GSList *list,
 							bool duplicate);
+void btd_device_update_is_blocked_by_policy(struct btd_device *dev);
 void device_probe_profile(gpointer a, gpointer b);
 void device_remove_profile(gpointer a, gpointer b);
 struct btd_adapter *device_get_adapter(struct btd_device *device);

@@ -118,8 +118,13 @@ void btd_admin_policy_allowlist_set(struct btd_admin_policy *admin_policy,
 	 */
 	btd_profile_policy_update(admin_policy->adapter);
 
-	/* Update auto-connect status to all devices */
+	/* Update auto-connect and IsBlockedByPolicy status to all devices */
 	btd_adapter_refresh_is_blocked_by_policy(admin_policy->adapter);
+
+	g_dbus_emit_property_changed(btd_get_dbus_connection(),
+					adapter_get_path(admin_policy->adapter),
+					ADMIN_POLICY_INTERFACE,
+					"ServiceAllowList");
 }
 
 static DBusMessage *set_service_allowlist(DBusConnection *conn,
@@ -201,6 +206,51 @@ static struct btd_admin_policy *admin_policy_new(struct btd_adapter *adapter)
 	return admin_policy;
 }
 
+static void append_uuid_set(gpointer key, gpointer value, gpointer user_data)
+{
+	const bt_uuid_t *uuid = key;
+	DBusMessageIter *entry = user_data;
+	char uuid_str[MAX_LEN_UUID_STR];
+	const char *uuid_str_ptr = uuid_str;
+
+	bt_uuid_to_string(uuid, uuid_str, MAX_LEN_UUID_STR);
+	dbus_message_iter_append_basic(entry, DBUS_TYPE_STRING, &uuid_str_ptr);
+}
+
+static gboolean
+property_get_service_allowlist(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *user_data)
+{
+	struct btd_admin_policy *admin_policy = user_data;
+	DBusMessageIter entry;
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry);
+
+	g_hash_table_foreach(admin_policy->allowed_uuid_set, append_uuid_set,
+									&entry);
+
+	dbus_message_iter_close_container(iter, &entry);
+
+	return TRUE;
+}
+
+static gboolean
+property_exists_service_allowlist(const GDBusPropertyTable *property,
+							void *user_data)
+{
+	struct btd_admin_policy *admin_policy = user_data;
+
+	return admin_policy->allowed_uuid_set != NULL ? TRUE : FALSE;
+}
+
+static const GDBusPropertyTable admin_policy_properties[] = {
+	{"ServiceAllowList", "as", property_get_service_allowlist, NULL,
+					property_exists_service_allowlist,
+					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL},
+	{ }
+};
+
 struct btd_admin_policy *btd_admin_policy_create(struct btd_adapter *adapter)
 {
 	struct btd_admin_policy *admin_policy;
@@ -212,8 +262,9 @@ struct btd_admin_policy *btd_admin_policy_create(struct btd_adapter *adapter)
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					adapter_get_path(admin_policy->adapter),
 					ADMIN_POLICY_INTERFACE,
-					admin_policy_methods, NULL, NULL,
-					admin_policy, NULL)) {
+					admin_policy_methods, NULL,
+					admin_policy_properties, admin_policy,
+					NULL)) {
 		btd_error(admin_policy->adapter_id,
 				"Failed to register "
 				ADMIN_POLICY_INTERFACE);

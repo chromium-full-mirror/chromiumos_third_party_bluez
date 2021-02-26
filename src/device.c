@@ -286,6 +286,7 @@ struct btd_device {
 	gboolean	auto_connect;
 	gboolean	disable_auto_connect;
 	gboolean	general_connect;
+	gboolean	is_blocked_by_policy;
 
 	bool		legacy;
 	int8_t		rssi;
@@ -1597,6 +1598,18 @@ static gboolean dev_property_wake_allowed_exist(
 	return device_get_wake_support(device);
 }
 
+static gboolean
+dev_property_get_is_blocked_by_policy(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *device = data;
+	dbus_bool_t is_blocked = device->is_blocked_by_policy;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &is_blocked);
+
+	return TRUE;
+}
+
 static gboolean disconnect_all(gpointer user_data)
 {
 	struct btd_device *device = user_data;
@@ -2163,6 +2176,16 @@ static int service_prio_cmp(gconstpointer a, gconstpointer b)
 	return p2->priority - p1->priority;
 }
 
+static void refresh_is_blocked_by_policy(struct btd_device *dev, bool value)
+{
+	if (value == dev->is_blocked_by_policy)
+		return;
+
+	dev->is_blocked_by_policy = value;
+	g_dbus_emit_property_changed(dbus_conn, dev->path,
+					DEVICE_INTERFACE, "IsBlockedByPolicy");
+}
+
 void btd_device_update_is_blocked_by_policy(struct btd_device *dev)
 {
 	struct btd_adapter *adapter = dev->adapter;
@@ -2170,6 +2193,7 @@ void btd_device_update_is_blocked_by_policy(struct btd_device *dev)
 	struct btd_profile *profile;
 	GSList *l;
 	bool auto_connect = false;
+	bool is_blocked = false;
 
 	/* If service discover is ongoing, let the service discover complete
 	 * callback call this function.
@@ -2184,13 +2208,16 @@ void btd_device_update_is_blocked_by_policy(struct btd_device *dev)
 		if (!profile->auto_connect)
 			continue;
 
-		if (profile->accept &&
-			!btd_service_is_blocked_by_policy(service))
+		if (btd_service_is_blocked_by_policy(service))
+			is_blocked = true;
+		else if (profile->accept)
 			auto_connect = true;
 	}
 
 	if (!dev->disable_auto_connect)
 		device_set_auto_connect(dev, auto_connect);
+
+	refresh_is_blocked_by_policy(dev, is_blocked);
 }
 
 static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
@@ -3706,6 +3733,7 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "WakeAllowed", "b", dev_property_get_wake_allowed,
 				dev_property_set_wake_allowed,
 				dev_property_wake_allowed_exist },
+	{ "IsBlockedByPolicy", "b", dev_property_get_is_blocked_by_policy},
 	{ }
 };
 
