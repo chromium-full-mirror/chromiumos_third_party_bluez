@@ -112,6 +112,8 @@ void adapter_service_remove(struct btd_adapter *adapter, uint32_t handle);
 
 struct agent *adapter_get_agent(struct btd_adapter *adapter);
 
+bool btd_adapter_uuid_is_allowed(struct btd_adapter *adapter, const char *uuid);
+
 struct btd_adapter *btd_adapter_ref(struct btd_adapter *adapter);
 void btd_adapter_unref(struct btd_adapter *adapter);
 
@@ -259,3 +261,5 @@ bool btd_has_kernel_features(uint32_t feature);
 
 void btd_adapter_set_keep_connectable(struct btd_adapter *adapter,
 						bool connectable);
+void btd_adapter_disconnect_all_devices(struct btd_adapter *adapter);
+void btd_adapter_refresh_is_blocked_by_policy(struct btd_adapter *adapter);

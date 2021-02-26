@@ -48,6 +48,7 @@ struct btd_service *service_create(struct btd_device *device,
 int service_probe(struct btd_service *service);
 void service_remove(struct btd_service *service);
 
+bool btd_service_is_blocked_by_policy(struct btd_service *service);
 int service_accept(struct btd_service *service);
 int service_set_connecting(struct btd_service *service);
 

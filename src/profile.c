@@ -2506,6 +2506,45 @@ bool btd_profile_remove_custom_prop(const char *uuid, const char *name)
 	return false;
 }
 
+static void update_profile_policy(struct btd_profile *p,
+						struct btd_adapter *adapter)
+{
+	bool is_blocked;
+
+	is_blocked = !btd_adapter_uuid_is_allowed(adapter, p->remote_uuid);
+
+	if (!is_blocked && p->is_blocked_by_policy) {
+		p->is_blocked_by_policy = false;
+		adapter_add_profile(adapter, p);
+
+		info("service %s is allowed by policy", p->remote_uuid);
+
+	} else if (is_blocked && !p->is_blocked_by_policy) {
+		p->is_blocked_by_policy = true;
+		adapter_remove_profile(adapter, p);
+
+		info("service %s is blocked by policy", p->remote_uuid);
+	}
+}
+
+void btd_profile_policy_update(struct btd_adapter *adapter)
+{
+	GSList *l;
+
+	for (l = profiles; l; l = l->next) {
+		struct btd_profile *p = l->data;
+
+		update_profile_policy(p, adapter);
+	}
+
+	for (l = ext_profiles; l; l = l->next) {
+		struct ext_profile *ext_p = l->data;
+		struct btd_profile *p = &ext_p->p;
+
+		update_profile_policy(p, adapter);
+	}
+}
+
 void btd_profile_init(void)
 {
 	g_dbus_register_interface(btd_get_dbus_connection(),
