@@ -310,4 +310,5 @@ bool metrics_advmon_update_frequency(struct btd_adv_monitor_manager *manager,
 bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 				enum metrics_advmon_enum_type type, int sample);
 
+void metrics_adapter_state_changed(bool enabled);
 #endif  // BLUEZ_METRICS_H_

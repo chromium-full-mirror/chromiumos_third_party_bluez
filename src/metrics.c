@@ -15,6 +15,7 @@
 #include "lib/uuid.h"
 #include "log.h"
 #include "metrics/c_metrics_library.h"
+#include "metrics/c_structured_metrics.h"
 #include "src/adv_monitor.h"
 #include "src/shared/queue.h"
 
@@ -929,4 +930,18 @@ bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 	}
 
 	return metrics_send_enum(send_type, sample, true);
+}
+
+static inline long get_system_time_millis(void)
+{
+	struct timespec current_time;
+
+	clock_gettime(CLOCK_REALTIME, &current_time);
+	return current_time.tv_sec * 1000 + current_time.tv_nsec / 1000000;
+}
+
+void metrics_adapter_state_changed(bool enabled)
+{
+	DBG("Adapter state changed: %d", enabled);
+	BluetoothAdapterStateChanged(get_system_time_millis(), enabled);
 }

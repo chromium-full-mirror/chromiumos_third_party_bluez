@@ -5922,6 +5922,7 @@ static void adapter_start(struct btd_adapter *adapter)
 {
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
+	metrics_adapter_state_changed(true);
 
 	info("adapter %s has been enabled", adapter->path);
 
@@ -7640,6 +7641,7 @@ static void adapter_stop(struct btd_adapter *adapter)
 
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
+	metrics_adapter_state_changed(false);
 
 	info("adapter %s has been disabled", adapter->path);
 }
