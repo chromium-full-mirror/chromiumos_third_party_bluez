@@ -181,11 +181,12 @@ typedef enum {
 } metrics_disconn_reason;
 
 typedef enum {
+	PAIR_STARTING = 0,
 	PAIR_SUCCEED = 1,
 	// The controller is not powered.
 	PAIR_FAIL_NONPOWERED = 2,
 	// The remote device has been paired with the local host.
-	PAIR_FAIL_ALREAY_PAIRED = 3,
+	PAIR_FAIL_ALREADY_PAIRED = 3,
 	// This can be invalid address type, invalid IO capability.
 	PAIR_FAIL_INVALID_PARAMS = 4,
 	// The pairing is in progress or being canceled.
@@ -311,4 +312,7 @@ bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 				enum metrics_advmon_enum_type type, int sample);
 
 void metrics_adapter_state_changed(bool enabled);
+void metrics_pairing_state_changed(const char *device_id, int device_type,
+				int state, metrics_result_type result_type);
+
 #endif  // BLUEZ_METRICS_H_

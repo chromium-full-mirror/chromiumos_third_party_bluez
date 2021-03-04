@@ -184,7 +184,7 @@ static metrics_pair_result convert_mgmt_pair_result(int sample)
 	case MGMT_STATUS_NOT_POWERED:
 		return PAIR_FAIL_NONPOWERED;
 	case MGMT_STATUS_ALREADY_PAIRED:
-		return PAIR_FAIL_ALREAY_PAIRED;
+		return PAIR_FAIL_ALREADY_PAIRED;
 	case MGMT_STATUS_INVALID_PARAMS:
 		return PAIR_FAIL_INVALID_PARAMS;
 	case MGMT_STATUS_BUSY:
@@ -944,4 +944,16 @@ void metrics_adapter_state_changed(bool enabled)
 {
 	DBG("Adapter state changed: %d", enabled);
 	BluetoothAdapterStateChanged(get_system_time_millis(), enabled);
+}
+
+void metrics_pairing_state_changed(const char *device_id, int device_type,
+		int state, metrics_result_type result_type)
+{
+	if (result_type == RESULT_TYPE_MGMT)
+		state = convert_mgmt_pair_result(state);
+	else if (result_type == RESULT_TYPE_SYSTEM)
+		state = convert_system_pair_result(state);
+	DBG("Pairing state changed: %s %d %d", device_id, device_type, state);
+	BluetoothPairingStateChanged(get_system_time_millis(), device_id,
+					device_type, state);
 }

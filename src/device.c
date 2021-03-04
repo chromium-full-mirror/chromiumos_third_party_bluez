@@ -3048,6 +3048,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	struct bonding_req *bonding;
 	uint8_t io_cap;
 	int err;
+	char addr[18];
 
 	btd_device_set_temporary(device, false);
 
@@ -3060,11 +3061,6 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 		return btd_error_invalid_args(msg);
 	}
 
-	if (device->bonding) {
-		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY, RESULT_TYPE_DEFINED);
-		return btd_error_in_progress(msg);
-	}
-
 	if (device->bredr_state.bonded)
 		bdaddr_type = device->bdaddr_type;
 	else if (device->le_state.bonded)
@@ -3072,11 +3068,25 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	else
 		bdaddr_type = select_conn_bearer(device);
 
+	ba2str(&device->bdaddr, addr);
+	metrics_pairing_state_changed(addr, bdaddr_type, PAIR_STARTING,
+					RESULT_TYPE_DEFINED);
+
+	if (device->bonding) {
+		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, PAIR_FAIL_BUSY,
+				RESULT_TYPE_DEFINED);
+		metrics_pairing_state_changed(addr, bdaddr_type, PAIR_FAIL_BUSY,
+				RESULT_TYPE_DEFINED);
+		return btd_error_in_progress(msg);
+	}
+
 	state = get_state(device, bdaddr_type);
 
 	if (state->bonded) {
 		metrics_send_enum(ENUM_TYPE_PAIR_RESULT,
-					PAIR_FAIL_ALREAY_PAIRED, RESULT_TYPE_DEFINED);
+				PAIR_FAIL_ALREADY_PAIRED, RESULT_TYPE_DEFINED);
+		metrics_pairing_state_changed(addr, bdaddr_type,
+				PAIR_FAIL_ALREADY_PAIRED, RESULT_TYPE_DEFINED);
 		return btd_error_already_exists(msg);
 	}
 
@@ -3119,6 +3129,8 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 
 	if (err < 0) {
 		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, err, RESULT_TYPE_SYSTEM);
+		metrics_pairing_state_changed(addr, bdaddr_type, err,
+				RESULT_TYPE_SYSTEM);
 		bonding_request_free(device->bonding);
 		// Put the device back to the temporary state.
 		btd_device_set_temporary(device, true);
@@ -6821,11 +6833,16 @@ void device_bonding_complete(struct btd_device *device, uint8_t bdaddr_type,
 	struct authentication_req *auth = device->authr;
 	struct bearer_state *state = get_state(device, bdaddr_type);
 	struct metrics_timer_data timer_data = {device->adapter, device, NULL};
+	char addr[18];
 
 	DBG("bonding %p status 0x%02x", bonding, status);
 
-	if (bonding != NULL)
+	if (bonding != NULL) {
 		metrics_send_enum(ENUM_TYPE_PAIR_RESULT, status, RESULT_TYPE_MGMT);
+		ba2str(&device->bdaddr, addr);
+		metrics_pairing_state_changed(addr, bdaddr_type, status,
+				RESULT_TYPE_MGMT);
+	}
 
 	if (auth && auth->agent)
 		agent_cancel(auth->agent);
