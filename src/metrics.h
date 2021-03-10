@@ -200,15 +200,26 @@ typedef enum {
 	// This can also be a failure during message integrity check.
 	PAIR_FAIL_AUTH_FAILED = 8,
 	// The pairing request is rejected by the remote device.
-	PAIR_FAIL_AUTH_REJECTED = 9,
-	// The authentication was cancelled.
-	PAIR_FAIL_AUTH_CANCELLED = 10,
-	// The authentication was timeout.
-	PAIR_FAIL_AUTH_TIMEOUT = 11,
+	PAIR_FAIL_REJECTED = 9,
+	// The pairing was cancelled.
+	PAIR_FAIL_CANCELLED = 10,
+	// The connection was timeout.
+	PAIR_FAIL_TIMEOUT = 11,
 	PAIR_FAIL_UNKNOWN = 12,
 	// BT IO connection error
 	PAIR_FAIL_BT_IO_CONNECT_ERROR = 13,
-	PAIR_FAIL_END = 14,
+	// Unknown command.
+	PAIR_FAIL_UNKNOWN_COMMAND = 14,
+	// The peer was not connected.
+	PAIR_FAIL_NOT_CONNECTED = 15,
+	// Exceeded the limit of resource such as memory, connections.
+	PAIR_FAIL_NO_RESOURCES = 16,
+	// Disconnected due to power, user termination or other reasons.
+	PAIR_FAIL_DISCONNECTED = 17,
+	// Failed due to all the other reasons such as hardware, invalid LMP
+	// PDU, transaction collision, role change, slot violation etc.
+	PAIR_FAIL_FAILED = 18,
+	PAIR_FAIL_END = 19,
 } metrics_pair_result;
 
 typedef enum {
