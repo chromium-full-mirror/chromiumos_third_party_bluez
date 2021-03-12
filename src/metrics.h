@@ -207,7 +207,7 @@ typedef enum {
 	PAIR_FAIL_AUTH_TIMEOUT = 11,
 	PAIR_FAIL_UNKNOWN = 12,
 	// BT IO connection error
-	PAIR_FAIL_BT_IO_CONNECT = 13,
+	PAIR_FAIL_BT_IO_CONNECT_ERROR = 13,
 	PAIR_FAIL_END = 14,
 } metrics_pair_result;
 
@@ -237,7 +237,13 @@ typedef enum {
 	// Failed to explore GATT services on the remote device.
 	CONN_FAIL_BROWSE_GATT = 12,
 	CONN_FAIL_UNKNOWN = 13,
-	CONN_FAIL_END = 14,
+	CONN_FAIL_BT_IO_CONNECT_ERROR = 14,
+	CONN_FAIL_NOT_CONNECT = 15,
+	CONN_FAIL_NOT_PERMITTED = 16,
+	CONN_FAIL_INVALID_PARAMS = 17,
+	CONN_FAIL_CONNECTION_REFUSED = 18,
+	CONN_FAIL_CANCELED = 19,
+	CONN_FAIL_END = 20,
 } metrics_conn_result;
 
 typedef enum {
@@ -285,6 +291,10 @@ bool metrics_send_enum(metrics_send_enum_type type, int sample,
 			metrics_result_type result_type);
 bool metrics_send_per_profile_enum(metrics_per_profile_type type,
 				   const char *uuid, int sample);
+
+/* Methods to convert err to connection results */
+metrics_conn_result metrics_bredr_conn_err_to_result(int err);
+metrics_conn_result metrics_le_conn_err_to_result(int err);
 
 /* Methods to create a timer and emit a sample when removing the timer */
 bool metrics_start_timer(metrics_timer_type type,

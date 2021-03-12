@@ -215,7 +215,7 @@ static metrics_pair_result convert_system_pair_result(int sample)
 	case -EBUSY:
 		return PAIR_FAIL_BUSY;
 	case -EIO:
-		return PAIR_FAIL_BT_IO_CONNECT;
+		return PAIR_FAIL_BT_IO_CONNECT_ERROR;
 	default:
 		return PAIR_FAIL_UNKNOWN;
 	}
@@ -956,4 +956,53 @@ void metrics_pairing_state_changed(const char *device_id, int device_type,
 	DBG("Pairing state changed: %s %d %d", device_id, device_type, state);
 	BluetoothPairingStateChanged(get_system_time_millis(), device_id,
 					device_type, state);
+}
+
+static metrics_conn_result metrics_common_conn_err_to_result(int err)
+{
+	switch (-err) {
+	case EHOSTUNREACH: /* adapter not powered */
+	case ECONNABORTED: /* adapter powered down */
+		return CONN_FAIL_NONPOWERED;
+	case EIO:
+		return CONN_FAIL_BT_IO_CONNECT_ERROR;
+	case ENOTCONN:
+		return CONN_FAIL_NOT_CONNECT;
+	case EPERM:
+		return CONN_FAIL_NOT_PERMITTED;
+	case EINVAL:
+		return CONN_FAIL_INVALID_PARAMS;
+	case ECONNREFUSED:
+		return CONN_FAIL_CONNECTION_REFUSED;
+	case ECANCELED:
+		return CONN_FAIL_CANCELED;
+	default:
+		return CONN_FAIL_UNKNOWN;
+	}
+}
+
+metrics_conn_result metrics_bredr_conn_err_to_result(int err)
+{
+	switch (-err) {
+	case 0:
+		return CONN_BREDR_SUCCEED;
+	case EALREADY:
+		return CONN_ALREADY_BREDR;
+	case EHOSTDOWN:
+		return CONN_FAIL_BREDR_PAGE_TIMEOUT;
+	default:
+		return metrics_common_conn_err_to_result(err);
+	}
+}
+
+metrics_conn_result metrics_le_conn_err_to_result(int err)
+{
+	switch (-err) {
+	case 0:
+		return CONN_LE_SUCCEED;
+	case EALREADY:
+		return CONN_ALREADY_LE;
+	default:
+		return metrics_common_conn_err_to_result(err);
+	}
 }

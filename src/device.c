@@ -1956,7 +1956,7 @@ static void device_profile_connected(struct btd_device *dev,
 {
 	struct btd_service *pending;
 	GSList *l;
-	metrics_conn_result result = CONN_BREDR_SUCCEED;
+	metrics_conn_result result = metrics_bredr_conn_err_to_result(err);
 	struct metrics_timer_data timer_data = {dev->adapter, dev, NULL};
 
 	DBG("%s %s (%d)", profile->name, strerror(-err), -err);
@@ -2015,17 +2015,7 @@ done:
 				return;
 		}
 
-		switch (-err) {
-		case EHOSTDOWN:
-			result = CONN_FAIL_BREDR_PAGE_TIMEOUT;
-			break;
-		case EHOSTUNREACH: /* adapter not powered */
-		case ECONNABORTED: /* adapter powered down */
-			result = CONN_FAIL_NONPOWERED;
-			break;
-		default:
-			result = CONN_FAIL_UNKNOWN;
-		}
+		result = metrics_bredr_conn_err_to_result(err);
 		metrics_cancel_timer(TIMER_CONNECT, timer_data);
 
 		g_dbus_send_message(dbus_conn,
@@ -2280,12 +2270,16 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 
 	err = connect_next(dev);
 	if (err < 0) {
+		metrics_conn_result result = bdaddr_type == BDADDR_BREDR ?
+					metrics_bredr_conn_err_to_result(err) :
+					metrics_le_conn_err_to_result(err);
 		if (err == -EALREADY) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-						CONN_ALREADY_BREDR, RESULT_TYPE_DEFINED);
+						result, RESULT_TYPE_DEFINED);
 			return dbus_message_new_method_return(msg);
 		}
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BREDR,
+
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result,
 					RESULT_TYPE_DEFINED);
 		return btd_error_failed(msg, strerror(-err));
 	}
@@ -2388,10 +2382,8 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 
 	err = device_connect_le(dev);
 	if (err < 0) {
-		metrics_conn_result result = CONN_FAIL_LE;
+		metrics_conn_result result = metrics_le_conn_err_to_result(err);
 
-		if (err == -EALREADY)
-			result = CONN_ALREADY_LE;
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
 		return btd_error_failed(msg, strerror(-err));
 	}
@@ -6212,6 +6204,7 @@ done:
 		device_browse_gatt(device, NULL);
 
 	if (device->connect) {
+		metrics_conn_result result = metrics_le_conn_err_to_result(err);
 		if (err < 0)
 			reply = btd_error_failed(device->connect,
 							strerror(-err));
@@ -6223,8 +6216,8 @@ done:
 		else
 			metrics_stop_timer(TIMER_CONNECT, timer_data);
 
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-			err < 0 ? CONN_FAIL_LE : CONN_LE_SUCCEED, RESULT_TYPE_DEFINED);
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result,
+							RESULT_TYPE_DEFINED);
 
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);
