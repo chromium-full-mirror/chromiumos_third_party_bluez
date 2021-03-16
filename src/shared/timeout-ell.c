@@ -70,3 +70,9 @@ void timeout_remove(unsigned int id)
 {
 	l_timeout_remove(L_UINT_TO_PTR(id));
 }
+
+unsigned int timeout_add_seconds(unsigned int timeout, timeout_func_t func,
+			void *user_data, timeout_destroy_func_t destroy)
+{
+	return timeout_add(timeout * 1000, func, user_data, destroy);
+}
