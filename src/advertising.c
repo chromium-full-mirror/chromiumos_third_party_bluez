@@ -43,6 +43,7 @@
 #include "src/shared/ad.h"
 #include "src/shared/mgmt.h"
 #include "src/shared/queue.h"
+#include "src/shared/timeout.h"
 #include "src/shared/util.h"
 #include "advertising.h"
 
@@ -122,10 +123,10 @@ static void client_free(void *data)
 	struct btd_adv_client *client = data;
 
 	if (client->to_id > 0)
-		g_source_remove(client->to_id);
+		timeout_remove(client->to_id);
 
 	if (client->disc_to_id > 0)
-		g_source_remove(client->disc_to_id);
+		timeout_remove(client->disc_to_id);
 
 	if (client->client) {
 		g_dbus_client_set_disconnect_watch(client->client, NULL, NULL);
@@ -594,7 +595,7 @@ static bool parse_duration(DBusMessageIter *iter,
 	return true;
 }
 
-static gboolean client_timeout(void *user_data)
+static bool client_timeout(void *user_data)
 {
 	struct btd_adv_client *client = user_data;
 
@@ -613,7 +614,7 @@ static bool parse_timeout(DBusMessageIter *iter,
 {
 	if (!iter) {
 		client->timeout = 0;
-		g_source_remove(client->to_id);
+		timeout_remove(client->to_id);
 		client->to_id = 0;
 		return true;
 	}
@@ -624,11 +625,12 @@ static bool parse_timeout(DBusMessageIter *iter,
 	dbus_message_iter_get_basic(iter, &client->timeout);
 
 	if (client->to_id)
-		g_source_remove(client->to_id);
+		timeout_remove(client->to_id);
 
 	if (client->timeout > 0)
-		client->to_id = g_timeout_add_seconds(client->timeout,
-							client_timeout, client);
+		client->to_id = timeout_add_seconds(client->timeout,
+							client_timeout, client,
+							NULL);
 
 	return true;
 }
@@ -993,7 +995,7 @@ static int refresh_advertisement(struct btd_adv_client *client,
 	return refresh_legacy_adv(client, func, mgmt_id);
 }
 
-static gboolean client_discoverable_timeout(void *user_data)
+static bool client_discoverable_timeout(void *user_data)
 {
 	struct btd_adv_client *client = user_data;
 
@@ -1013,7 +1015,7 @@ static bool parse_discoverable_timeout(DBusMessageIter *iter,
 {
 	if (!iter) {
 		client->discoverable_to = 0;
-		g_source_remove(client->disc_to_id);
+		timeout_remove(client->disc_to_id);
 		client->disc_to_id = 0;
 		return true;
 	}
@@ -1024,11 +1026,11 @@ static bool parse_discoverable_timeout(DBusMessageIter *iter,
 	dbus_message_iter_get_basic(iter, &client->discoverable_to);
 
 	if (client->disc_to_id)
-		g_source_remove(client->disc_to_id);
+		timeout_remove(client->disc_to_id);
 
-	client->disc_to_id = g_timeout_add_seconds(client->discoverable_to,
+	client->disc_to_id = timeout_add_seconds(client->discoverable_to,
 						client_discoverable_timeout,
-						client);
+						client, NULL);
 
 	return true;
 }
@@ -1421,7 +1423,7 @@ static DBusMessage *parse_advertisement(struct btd_adv_client *client)
 		}
 	} else if (client->disc_to_id) {
 		/* Ignore DiscoverableTimeout if not discoverable */
-		g_source_remove(client->disc_to_id);
+		timeout_remove(client->disc_to_id);
 		client->disc_to_id = 0;
 		client->discoverable_to = 0;
 	}

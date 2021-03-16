@@ -54,6 +54,7 @@
 #include "src/shared/gatt-client.h"
 #include "src/shared/gatt-server.h"
 #include "src/shared/ad.h"
+#include "src/shared/timeout.h"
 #include "btio/btio.h"
 #include "lib/mgmt.h"
 #include "attrib/att.h"
@@ -239,11 +240,11 @@ struct btd_device {
 	GSList		*watches;		/* List of disconnect_data */
 	bool		temporary;
 	bool		connectable;
-	guint		disconn_timer;
 	guint		delay_disconn_timer;
 	guint		delay_disconn_count;
-	guint		discov_timer;
-	guint		temporary_timer;	/* Temporary/disappear timer */
+	unsigned int	disconn_timer;
+	unsigned int	discov_timer;
+	unsigned int	temporary_timer;	/* Temporary/disappear timer */
 	struct browse_req *browse;		/* service discover request */
 	struct bonding_req *bonding;
 	struct authentication_req *authr;	/* authentication request */
@@ -737,13 +738,13 @@ static void device_free(gpointer user_data)
 					(sdp_free_func_t) sdp_record_free);
 
 	if (device->disconn_timer)
-		g_source_remove(device->disconn_timer);
+		timeout_remove(device->disconn_timer);
 
 	if (device->discov_timer)
-		g_source_remove(device->discov_timer);
+		timeout_remove(device->discov_timer);
 
 	if (device->temporary_timer)
-		g_source_remove(device->temporary_timer);
+		timeout_remove(device->temporary_timer);
 
 	if (device->connect)
 		dbus_message_unref(device->connect);
@@ -1610,7 +1611,7 @@ dev_property_get_is_blocked_by_policy(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
-static gboolean disconnect_all(gpointer user_data)
+static bool disconnect_all(gpointer user_data)
 {
 	struct btd_device *device = user_data;
 
@@ -1635,7 +1636,7 @@ int device_block(struct btd_device *device, gboolean update_only)
 		return 0;
 
 	if (device->disconn_timer > 0)
-		g_source_remove(device->disconn_timer);
+		timeout_remove(device->disconn_timer);
 
 	disconnect_all(device);
 
@@ -1787,9 +1788,9 @@ void device_request_disconnect(struct btd_device *device, DBusMessage *msg)
 		return;
 	}
 
-	device->disconn_timer = g_timeout_add_seconds(DISCONNECT_TIMER,
+	device->disconn_timer = timeout_add_seconds(DISCONNECT_TIMER,
 							disconnect_all,
-							device);
+							device, NULL);
 }
 
 bool device_is_disconnecting(struct btd_device *device)
@@ -3828,7 +3829,7 @@ void device_add_connection(struct btd_device *dev, uint8_t bdaddr_type)
 
 	/* Remove temporary timer while connected */
 	if (dev->temporary_timer) {
-		g_source_remove(dev->temporary_timer);
+		timeout_remove(dev->temporary_timer);
 		dev->temporary_timer = 0;
 	}
 
@@ -3857,7 +3858,7 @@ void device_remove_connection(struct btd_device *device, uint8_t bdaddr_type)
 	device_set_svc_refreshed(device, false);
 
 	if (device->disconn_timer > 0) {
-		g_source_remove(device->disconn_timer);
+		timeout_remove(device->disconn_timer);
 		device->disconn_timer = 0;
 	}
 
@@ -5134,7 +5135,7 @@ void device_set_le_support(struct btd_device *device, uint8_t bdaddr_type)
 					DEVICE_INTERFACE, "Type");
 }
 
-static gboolean device_disappeared(gpointer user_data)
+static bool device_disappeared(gpointer user_data)
 {
 	struct btd_device *dev = user_data;
 
@@ -5157,11 +5158,11 @@ void device_update_last_seen(struct btd_device *device, uint8_t bdaddr_type)
 
 	/* Restart temporary timer */
 	if (device->temporary_timer)
-		g_source_remove(device->temporary_timer);
+		timeout_remove(device->temporary_timer);
 
-	device->temporary_timer = g_timeout_add_seconds(btd_opts.tmpto,
+	device->temporary_timer = timeout_add_seconds(btd_opts.tmpto,
 							device_disappeared,
-							device);
+							device, NULL);
 }
 
 /* It is possible that we have two device objects for the same device in
@@ -5348,12 +5349,12 @@ void device_remove(struct btd_device *device, gboolean remove_stored)
 
 	if (btd_device_is_connected(device)) {
 		if (device->disconn_timer > 0)
-			g_source_remove(device->disconn_timer);
+			timeout_remove(device->disconn_timer);
 		disconnect_all(device);
 	}
 
 	if (device->temporary_timer > 0) {
-		g_source_remove(device->temporary_timer);
+		timeout_remove(device->temporary_timer);
 		device->temporary_timer = 0;
 	}
 
@@ -6551,7 +6552,7 @@ int device_discover_services(struct btd_device *device)
 		err = device_browse_gatt(device, NULL);
 
 	if (err == 0 && device->discov_timer) {
-		g_source_remove(device->discov_timer);
+		timeout_remove(device->discov_timer);
 		device->discov_timer = 0;
 	}
 
@@ -6604,7 +6605,7 @@ void btd_device_set_temporary(struct btd_device *device, bool temporary)
 	device->temporary = temporary;
 
 	if (device->temporary_timer) {
-		g_source_remove(device->temporary_timer);
+		timeout_remove(device->temporary_timer);
 		device->temporary_timer = 0;
 	}
 
@@ -6616,9 +6617,9 @@ void btd_device_set_temporary(struct btd_device *device, bool temporary)
 			device->disable_auto_connect = TRUE;
 			device_set_auto_connect(device, FALSE);
 		}
-		device->temporary_timer = g_timeout_add_seconds(btd_opts.tmpto,
+		device->temporary_timer = timeout_add_seconds(btd_opts.tmpto,
 							device_disappeared,
-							device);
+							device, NULL);
 		return;
 	}
 
@@ -6849,7 +6850,7 @@ bool device_is_connectable(struct btd_device *device)
 	return (device->ad_flags[0] & 0x03);
 }
 
-static gboolean start_discovery(gpointer user_data)
+static bool start_discovery(gpointer user_data)
 {
 	struct btd_device *device = user_data;
 
@@ -7011,7 +7012,7 @@ void device_bonding_complete(struct btd_device *device, uint8_t bdaddr_type,
 		/* If we are initiators remove any discovery timer and just
 		 * start discovering services directly */
 		if (device->discov_timer) {
-			g_source_remove(device->discov_timer);
+			timeout_remove(device->discov_timer);
 			device->discov_timer = 0;
 		}
 
@@ -7028,10 +7029,10 @@ void device_bonding_complete(struct btd_device *device, uint8_t bdaddr_type,
 			 * active discovery or discovery timer, set discovery
 			 * timer */
 			DBG("setting timer for reverse service discovery");
-			device->discov_timer = g_timeout_add_seconds(
+			device->discov_timer = timeout_add_seconds(
 							DISCOVERY_TIMER,
 							start_discovery,
-							device);
+							device, NULL);
 		}
 	}
 }
@@ -7070,8 +7071,11 @@ unsigned int device_wait_for_svc_complete(struct btd_device *dev,
 	if (state->svc_resolved || !btd_opts.reverse_discovery)
 		cb->idle_id = g_idle_add(svc_idle_cb, cb);
 	else if (dev->discov_timer > 0) {
-		g_source_remove(dev->discov_timer);
-		dev->discov_timer = g_idle_add(start_discovery, dev);
+		timeout_remove(dev->discov_timer);
+		dev->discov_timer = timeout_add_seconds(
+						0,
+						start_discovery,
+						dev, NULL);
 	}
 
 	return cb->id;
