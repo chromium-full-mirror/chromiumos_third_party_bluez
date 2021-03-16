@@ -139,6 +139,7 @@ typedef enum {
 } metrics_device_type;
 
 typedef enum {
+	CONN_TYPE_UNKNOWN = 0,
 	CONN_TYPE_BREDR = 1,
 	CONN_TYPE_LE = 2,
 	CONN_TYPE_END = 3,
@@ -293,6 +294,38 @@ typedef enum {
 	RESULT_TYPE_SYSTEM = 2,  // Result caused by system resource allocation.
 } metrics_result_type;
 
+enum metrics_conn_state {
+	CONN_STATE_STARTING = 0,
+	CONN_STATE_SUCCEED = 1,
+	CONN_STATE_ALREADY = 2,
+	CONN_STATE_BUSY = 3,
+	CONN_STATE_NONPOWERED = 4,
+	CONN_STATE_TIMEOUT = 5,
+	CONN_STATE_PROFILE_UNAVAILABLE = 6,
+	CONN_STATE_NOT_CONNECTED = 7,
+	CONN_STATE_NOT_PERMITTED = 8,
+	CONN_STATE_INVALID_PARAMS = 9,
+	CONN_STATE_CONNECTION_REFUSED = 10,
+	CONN_STATE_CANCELED = 11,
+	CONN_STATE_EVENT_INVALID = 12,
+	CONN_STATE_DEVICE_NOT_FOUND = 13,
+	CONN_STATE_BT_IO_CONNECT_ERROR = 14,
+	CONN_STATE_UNKNOWN_COMMAND = 15,
+	CONN_STATE_DISCONNECTED = 16,
+	CONN_STATE_CONNECT_FAILED = 17,
+	CONN_STATE_NOT_SUPPORTED = 18,
+	CONN_STATE_NO_RESOURCES = 19,
+	CONN_STATE_AUTH_FAILED = 20,
+	CONN_STATE_FAILED = 21,
+	CONN_STATE_UNKNOWN = 22,
+};
+
+enum acl_connection_direction {
+	ACL_CONNECTION_DIRECTION_UNKNOWN = 0,
+	ACL_CONNECTION_OUTGOING = 1,
+	ACL_CONNECTION_INCOMING = 2,
+};
+
 /* Corresponding methods to C Metrics Library */
 bool metrics_init(void);
 void metrics_deinit(void);
@@ -332,8 +365,13 @@ bool metrics_advmon_update_frequency(struct btd_adv_monitor_manager *manager,
 bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 				enum metrics_advmon_enum_type type, int sample);
 
+enum metrics_conn_state metrics_conn_system_err_to_state(int err);
+enum metrics_conn_state metrics_conn_mgmt_err_to_state(int err);
 void metrics_adapter_state_changed(bool enabled);
-void metrics_pairing_state_changed(const char *device_id, int device_type,
-				int state, metrics_result_type result_type);
-
+void metrics_pairing_state_changed(const char *device_id, int addr_type,
+				metrics_pair_result state,
+				metrics_result_type result_type);
+void metrics_acl_connection_state_changed(const char *device_id, int addr_type,
+				enum acl_connection_direction direction,
+				enum metrics_conn_state state);
 #endif  // BLUEZ_METRICS_H_

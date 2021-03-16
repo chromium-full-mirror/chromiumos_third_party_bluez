@@ -9656,30 +9656,51 @@ static void connected_callback(uint16_t index, uint16_t length,
 	uint16_t eir_len;
 	char addr[18];
 	bool name_known;
+	enum acl_connection_direction direction;
 
 	if (length < sizeof(*ev)) {
 		btd_error(adapter->dev_id, "Too small device connected event");
 		return;
 	}
 
+	ba2str(&ev->addr.bdaddr, addr);
+
+	direction = ev->flags & MGMT_DEV_CONN_INITIATED_CONNECTION ?
+			ACL_CONNECTION_OUTGOING :
+			ACL_CONNECTION_INCOMING;
+	/* Since we don't know when the incoming connection was initiated we
+	 * just log a starting event here, this is better than just let the
+	 * the server side to guess when this transaction really happened.
+	 */
+	if (direction == ACL_CONNECTION_INCOMING)
+		metrics_acl_connection_state_changed(addr,
+				ev->addr.type, direction,
+				CONN_STATE_STARTING);
+
 	eir_len = btohs(ev->eir_len);
 	if (length < sizeof(*ev) + eir_len) {
 		btd_error(adapter->dev_id, "Too small device connected event");
+		metrics_acl_connection_state_changed(addr,
+				ev->addr.type, direction,
+				CONN_STATE_EVENT_INVALID);
 		return;
 	}
 
-	ba2str(&ev->addr.bdaddr, addr);
-
-	DBG("hci%u device %s connected eir_len %u", index, addr, eir_len);
+	DBG("hci%u device %s connected eir_len %u %u", index,
+			addr, eir_len, ev->flags);
 
 	device = btd_adapter_get_device(adapter, &ev->addr.bdaddr,
 								ev->addr.type);
 	if (!device) {
+		metrics_acl_connection_state_changed(addr, ev->addr.type,
+				direction, CONN_STATE_DEVICE_NOT_FOUND);
 		btd_error(adapter->dev_id,
 				"Unable to get device object for %s", addr);
 		return;
 	}
 
+	metrics_acl_connection_state_changed(addr, ev->addr.type,
+			direction, CONN_STATE_SUCCEED);
 	device_set_eir(device, ev->eir, eir_len);
 	memset(&eir_data, 0, sizeof(eir_data));
 	if (eir_len > 0)
@@ -9811,6 +9832,10 @@ static void connect_failed_callback(uint16_t index, uint16_t length,
 	ba2str(&ev->addr.bdaddr, addr);
 
 	DBG("hci%u %s status %u", index, addr, ev->status);
+
+	metrics_acl_connection_state_changed(addr, ev->addr.type,
+			ACL_CONNECTION_OUTGOING,
+			metrics_conn_mgmt_err_to_state(ev->status));
 
 	device = btd_adapter_find_device(adapter, &ev->addr.bdaddr,
 								ev->addr.type);

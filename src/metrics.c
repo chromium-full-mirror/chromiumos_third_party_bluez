@@ -948,22 +948,105 @@ static inline long get_system_time_millis(void)
 	return current_time.tv_sec * 1000 + current_time.tv_nsec / 1000000;
 }
 
+static metrics_conn_type convert_to_device_type(int addr_type)
+{
+	switch (addr_type) {
+	case BDADDR_BREDR:
+		return CONN_TYPE_BREDR;
+	case BDADDR_LE_PUBLIC: // fall through
+	case BDADDR_LE_RANDOM:
+		return CONN_TYPE_LE;
+	default:
+		return CONN_TYPE_UNKNOWN;
+	}
+}
+
 void metrics_adapter_state_changed(bool enabled)
 {
 	DBG("Adapter state changed: %d", enabled);
 	BluetoothAdapterStateChanged(get_system_time_millis(), enabled);
 }
 
-void metrics_pairing_state_changed(const char *device_id, int device_type,
-		int state, metrics_result_type result_type)
+void metrics_pairing_state_changed(const char *device_id, int addr_type,
+		metrics_pair_result state, metrics_result_type result_type)
 {
 	if (result_type == RESULT_TYPE_MGMT)
 		state = convert_mgmt_pair_result(state);
 	else if (result_type == RESULT_TYPE_SYSTEM)
 		state = convert_system_pair_result(state);
-	DBG("Pairing state changed: %s %d %d", device_id, device_type, state);
+	DBG("Pairing state changed: %s %d %d", device_id, addr_type, state);
 	BluetoothPairingStateChanged(get_system_time_millis(), device_id,
-					device_type, state);
+					convert_to_device_type(addr_type),
+					state);
+}
+
+enum metrics_conn_state metrics_conn_system_err_to_state(int err)
+{
+	switch (-err) {
+	case 0:
+		return CONN_STATE_SUCCEED;
+	case EALREADY:
+		return CONN_STATE_ALREADY;
+	case EHOSTDOWN:
+		return CONN_STATE_TIMEOUT;
+	case EHOSTUNREACH: /* adapter not powered */
+	case ECONNABORTED: /* adapter powered down */
+		return CONN_STATE_NONPOWERED;
+	case EIO:
+		return CONN_STATE_BT_IO_CONNECT_ERROR;
+	case ENOTCONN:
+		return CONN_STATE_NOT_CONNECTED;
+	case EPERM:
+		return CONN_STATE_NOT_PERMITTED;
+	case EINVAL:
+		return CONN_STATE_INVALID_PARAMS;
+	case ECONNREFUSED:
+		return CONN_STATE_CONNECTION_REFUSED;
+	case ECANCELED:
+		return CONN_STATE_CANCELED;
+	default:
+		return CONN_STATE_UNKNOWN;
+	}
+}
+
+enum metrics_conn_state metrics_conn_mgmt_err_to_state(int err)
+{
+	switch (err) {
+	case MGMT_STATUS_SUCCESS:
+		return CONN_STATE_SUCCEED;
+	case MGMT_STATUS_NOT_POWERED:
+		return CONN_STATE_NONPOWERED;
+	case MGMT_STATUS_ALREADY_CONNECTED:
+		return CONN_STATE_ALREADY;
+	case MGMT_STATUS_INVALID_PARAMS:
+		return CONN_STATE_INVALID_PARAMS;
+	case MGMT_STATUS_BUSY:
+		return CONN_STATE_BUSY;
+	case MGMT_STATUS_NOT_SUPPORTED:
+		return CONN_STATE_NOT_SUPPORTED;
+	case MGMT_STATUS_NO_RESOURCES:
+		return CONN_STATE_NO_RESOURCES;
+	case MGMT_STATUS_REJECTED:
+		return CONN_STATE_CONNECTION_REFUSED;
+	case MGMT_STATUS_DISCONNECTED:
+		return CONN_STATE_DISCONNECTED;
+	case MGMT_STATUS_CANCELLED:
+		return CONN_STATE_CANCELED;
+	case MGMT_STATUS_CONNECT_FAILED:
+		return CONN_STATE_CONNECT_FAILED;
+	case MGMT_STATUS_TIMEOUT:
+		return CONN_STATE_TIMEOUT;
+	case MGMT_STATUS_AUTH_FAILED:
+		return CONN_STATE_AUTH_FAILED;
+	case MGMT_STATUS_UNKNOWN_COMMAND:
+		return CONN_STATE_UNKNOWN_COMMAND;
+	case MGMT_STATUS_NOT_CONNECTED:
+		return CONN_STATE_NOT_CONNECTED;
+	case MGMT_STATUS_FAILED:
+		return CONN_STATE_FAILED;
+	default:
+		return CONN_STATE_UNKNOWN;
+	}
 }
 
 static metrics_conn_result metrics_common_conn_err_to_result(int err)
@@ -984,6 +1067,8 @@ static metrics_conn_result metrics_common_conn_err_to_result(int err)
 		return CONN_FAIL_CONNECTION_REFUSED;
 	case ECANCELED:
 		return CONN_FAIL_CANCELED;
+	case EBUSY:
+		return CONN_FAIL_BUSY;
 	default:
 		return CONN_FAIL_UNKNOWN;
 	}
@@ -1013,4 +1098,16 @@ metrics_conn_result metrics_le_conn_err_to_result(int err)
 	default:
 		return metrics_common_conn_err_to_result(err);
 	}
+}
+
+void metrics_acl_connection_state_changed(const char *device_id,
+		int addr_type, enum acl_connection_direction direction,
+		enum metrics_conn_state state)
+{
+	DBG("ACL connection state changed: %s %d %d %d", device_id, addr_type,
+			direction, state);
+	BluetoothAclConnectionStateChanged(get_system_time_millis(), device_id,
+					convert_to_device_type(addr_type),
+					direction,
+					1 /* connect */, state);
 }

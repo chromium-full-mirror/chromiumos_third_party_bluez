@@ -2298,16 +2298,29 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 {
 	struct bearer_state *state = get_state(dev, bdaddr_type);
 	int err;
+	char addr[18];
 
 	DBG("%s %s, client %s", dev->path, uuid ? uuid : "(all)",
 						dbus_message_get_sender(msg));
 
+	ba2str(&dev->bdaddr, addr);
+
+	metrics_acl_connection_state_changed(addr, bdaddr_type,
+			ACL_CONNECTION_OUTGOING,
+			CONN_STATE_STARTING);
+
 	if (dev->pending || dev->connect || dev->browse) {
+		metrics_acl_connection_state_changed(addr, bdaddr_type,
+				ACL_CONNECTION_OUTGOING,
+				CONN_STATE_BUSY);
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BUSY, RESULT_TYPE_DEFINED);
 		return btd_error_in_progress(msg);
 	}
 
 	if (!btd_adapter_get_powered(dev->adapter)) {
+		metrics_acl_connection_state_changed(addr, bdaddr_type,
+				ACL_CONNECTION_OUTGOING,
+				CONN_STATE_NONPOWERED);
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_NONPOWERED,
 					RESULT_TYPE_DEFINED);
 		return btd_error_not_ready(msg);
@@ -2323,10 +2336,18 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 		if (dev->svc_refreshed) {
 			if (find_service_with_state(dev->services,
 						BTD_SERVICE_STATE_CONNECTED)) {
+				metrics_acl_connection_state_changed(
+					addr, bdaddr_type,
+					ACL_CONNECTION_OUTGOING,
+					CONN_STATE_ALREADY);
 				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 						CONN_ALREADY_BREDR, RESULT_TYPE_DEFINED);
 				return dbus_message_new_method_return(msg);
 			} else {
+				metrics_acl_connection_state_changed(
+					addr, bdaddr_type,
+					ACL_CONNECTION_OUTGOING,
+					CONN_STATE_PROFILE_UNAVAILABLE);
 				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 					CONN_FAIL_BREDR_PROFILE_UNAVAILABLE,
 					RESULT_TYPE_DEFINED);
@@ -2343,11 +2364,17 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 					metrics_bredr_conn_err_to_result(err) :
 					metrics_le_conn_err_to_result(err);
 		if (err == -EALREADY) {
+			metrics_acl_connection_state_changed(addr,
+				bdaddr_type,
+				ACL_CONNECTION_OUTGOING,
+				CONN_STATE_ALREADY);
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 						result, RESULT_TYPE_DEFINED);
 			return dbus_message_new_method_return(msg);
 		}
-
+		metrics_acl_connection_state_changed(addr, bdaddr_type,
+			ACL_CONNECTION_OUTGOING,
+			metrics_conn_system_err_to_state(err));
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result,
 					RESULT_TYPE_DEFINED);
 		return btd_error_failed(msg, strerror(-err));
@@ -2366,6 +2393,9 @@ resolve_services:
 		err = device_browse_gatt(dev, msg);
 
 	if (err < 0) {
+		metrics_acl_connection_state_changed(addr, bdaddr_type,
+			ACL_CONNECTION_OUTGOING,
+			metrics_conn_system_err_to_state(err));
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 			bdaddr_type == BDADDR_BREDR ? CONN_FAIL_BROWSE_SDP :
 							CONN_FAIL_BROWSE_GATT,
@@ -2435,8 +2465,17 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 	struct btd_device *dev = user_data;
 	struct metrics_timer_data timer_data = {dev->adapter, dev, NULL};
 	int err;
+	char addr[18];
+
+	ba2str(&dev->bdaddr, addr);
+	metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
+			ACL_CONNECTION_OUTGOING,
+			CONN_STATE_STARTING);
 
 	if (dev->le_state.connected) {
+		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
+				ACL_CONNECTION_OUTGOING,
+				CONN_STATE_ALREADY);
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 					CONN_ALREADY_LE, false);
 		return dbus_message_new_method_return(msg);
@@ -2452,7 +2491,9 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 	err = device_connect_le(dev);
 	if (err < 0) {
 		metrics_conn_result result = metrics_le_conn_err_to_result(err);
-
+		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
+				ACL_CONNECTION_OUTGOING,
+				metrics_conn_system_err_to_state(err));
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
 		return btd_error_failed(msg, strerror(-err));
 	}
@@ -6224,6 +6265,7 @@ static void att_connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
 	uint8_t io_cap;
 	int err = 0;
 	struct metrics_timer_data timer_data = {device->adapter, device, NULL};
+	char addr[18];
 
 	g_io_channel_unref(device->att_io);
 	device->att_io = NULL;
@@ -6289,6 +6331,10 @@ done:
 		else
 			metrics_stop_timer(TIMER_CONNECT, timer_data);
 
+		ba2str(&device->bdaddr, addr);
+		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
+					ACL_CONNECTION_OUTGOING,
+					metrics_conn_system_err_to_state(err));
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result,
 							RESULT_TYPE_DEFINED);
 
