@@ -59,6 +59,7 @@
 #include "src/error.h"
 #include "src/sdpd.h"
 #include "src/dbus-common.h"
+#include "src/shared/timeout.h"
 #include "src/shared/util.h"
 
 #include "avctp.h"
@@ -3957,7 +3958,7 @@ static gboolean avrcp_get_capabilities_resp(struct avctp *conn, uint8_t code,
 
 	/* Connect browsing if pending */
 	if (session->browsing_timer > 0) {
-		g_source_remove(session->browsing_timer);
+		timeout_remove(session->browsing_timer);
 		session->browsing_timer = 0;
 		avctp_connect_browsing(session->conn);
 	}
@@ -4052,7 +4053,7 @@ static void destroy_browsing(void *data)
 static void session_init_browsing(struct avrcp *session)
 {
 	if (session->browsing_timer > 0) {
-		g_source_remove(session->browsing_timer);
+		timeout_remove(session->browsing_timer);
 		session->browsing_timer = 0;
 	}
 
@@ -4087,7 +4088,7 @@ static struct avrcp_data *data_init(struct avrcp *session, const char *uuid)
 	return data;
 }
 
-static gboolean connect_browsing(gpointer user_data)
+static bool connect_browsing(gpointer user_data)
 {
 	struct avrcp *session = user_data;
 
@@ -4111,9 +4112,9 @@ static void avrcp_connect_browsing(struct avrcp *session)
 	if (session->browsing_timer > 0)
 		return;
 
-	session->browsing_timer = g_timeout_add_seconds(AVRCP_BROWSING_TIMEOUT,
+	session->browsing_timer = timeout_add_seconds(AVRCP_BROWSING_TIMEOUT,
 							connect_browsing,
-							session);
+							session, NULL);
 }
 
 static void target_init(struct avrcp *session)
@@ -4276,7 +4277,7 @@ static void session_destroy(struct avrcp *session, int err)
 	}
 
 	if (session->browsing_timer > 0)
-		g_source_remove(session->browsing_timer);
+		timeout_remove(session->browsing_timer);
 
 	if (session->controller != NULL)
 		controller_destroy(session);
