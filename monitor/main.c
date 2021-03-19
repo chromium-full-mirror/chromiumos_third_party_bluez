@@ -45,6 +45,8 @@
 #include "control.h"
 #include "display.h"
 
+#define OPT_COMPRESS 1000
+
 static void signal_callback(int signum, void *user_data)
 {
 	switch (signum) {
@@ -67,7 +69,7 @@ static void usage(void)
 		"\t-l  --limit-size <size> Limit save [-w] to <size> bytes\n"
 		"\t-f  --file-rotate      Have two rotating logs when size\n"
 		"\t                         limit [-l] is reached\n"
-		"\t-c, --compress         Compress the saved btsnoop\n"
+		"\t    --compress         Compress the saved btsnoop\n"
 		"\t-a, --analyze <file>   Analyze traces in btsnoop format\n"
 		"\t-s, --server <socket>  Start monitor server socket\n"
 		"\t-p, --priority <level> Show only priority or lower\n"
@@ -95,7 +97,7 @@ static const struct option main_options[] = {
 	{ "write",     required_argument, NULL, 'w' },
 	{ "limit-size",required_argument, NULL, 'l' },
 	{ "file-rotate",  required_argument, NULL, 'f' },
-	{ "compress",  no_argument,       NULL, 'c' },
+	{ "compress",  no_argument,       NULL, OPT_COMPRESS },
 	{ "analyze",   required_argument, NULL, 'a' },
 	{ "server",    required_argument, NULL, 's' },
 	{ "priority",  required_argument, NULL, 'p' },
@@ -145,7 +147,7 @@ int main(int argc, char *argv[])
 		int opt;
 		struct sockaddr_un addr;
 
-		opt = getopt_long(argc, argv, "r:w:a:s:p:i:d:B:V:tTSAE:PJ:R:C:vhc0l:f",
+		opt = getopt_long(argc, argv, "r:w:a:s:p:i:d:B:V:tTSAE:PJ:R:C:vh0l:f",
 							main_options, NULL);
 		if (opt < 0)
 			break;
@@ -170,7 +172,7 @@ int main(int argc, char *argv[])
 		case 'f':
 			rotate = true;
 			break;
-		case 'c':
+		case OPT_COMPRESS:
 			compress = true;
 			break;
 		case 'a':
