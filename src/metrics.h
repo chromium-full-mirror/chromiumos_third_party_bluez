@@ -236,13 +236,13 @@ typedef enum {
 	CONN_FAIL_BUSY = 5,
 	// The controller is not powered.
 	CONN_FAIL_NONPOWERED = 6,
-	// Failed to establish a LE connection.
+	// Unknown failure reasons for LE.
 	CONN_FAIL_LE = 7,
-	// Failed to connect any BREDR profile.
+	// Unknown failure reasons for BREDR.
 	CONN_FAIL_BREDR = 8,
 	// Failed to establish a BREDR connection due to Page timeout.
 	CONN_FAIL_BREDR_PAGE_TIMEOUT = 9,
-	// Failed to find connectable profiles on the remote device.
+	// Failed to find connectable profiles/service on the remote device.
 	CONN_FAIL_BREDR_PROFILE_UNAVAILABLE = 10,
 	// Failed to perform Service Discovery on the remote device.
 	CONN_FAIL_BROWSE_SDP = 11,
@@ -255,7 +255,71 @@ typedef enum {
 	CONN_FAIL_INVALID_PARAMS = 17,
 	CONN_FAIL_CONNECTION_REFUSED = 18,
 	CONN_FAIL_CANCELED = 19,
-	CONN_FAIL_END = 20,
+	// Failed due to other ongoing operations, such as pairing, busy L2CAP
+	// channel or the operation disallowed by the controller.
+	CONN_FAIL_BUSY_BREDR = 20,
+	// The connection ended up being canceled.
+	CONN_FAIL_CANCELED_BREDR = 21,
+	// Failed to create or connect to BT IO socket.
+	CONN_FAIL_IO_CONNECT_BREDR = 22,
+	// Failed due to invalid argument provided either by client or by
+	// daemon.
+	CONN_FAIL_INVALID_PARAMS_BREDR = 23,
+	// Failed due to unsupported state transition of L2CAP channel or other
+	// features either by the local host or the remote.
+	CONN_FAIL_NOT_SUPPORTED_BREDR = 24,
+	// Failed due to the socket is in bad state.
+	CONN_FAIL_BAD_SOCKET_BREDR = 25,
+	// Failed to allocate memory in either host stack or controller.
+	CONN_FAIL_MEMORY_ALLOC_BREDR = 26,
+	// Failed due to reaching the synchronous connection limit to a device.
+	CONN_FAIL_SYNC_CONNECT_LIMIT_BREDR = 27,
+	// Failed due to connection timeout.
+	CONN_FAIL_TIMEDOUT_BREDR = 28,
+	// Refused by the remote device due to limited resource, security reason
+	// or unacceptable address type.
+	CONN_FAIL_REFUSED_BREDR = 29,
+	// Terminated by the remote device due to limited resource or power
+	// off.
+	CONN_FAIL_TERM_BY_REMOTE_BREDR = 30,
+	// Terminated by the local host due to limited resource, or aborted at
+	// L2CAP layer.
+	CONN_FAIL_TERM_BY_LOCAL_BREDR = 31,
+	// Failed due to LMP protocol error.
+	CONN_FAIL_PROTO_ERROR_BREDR = 32,
+	// The is a LE connection/disconnection happening at daemon, L2CAP
+	// layer.
+	CONN_FAIL_BUSY_LE = 33,
+	// Failed to create or connect to BT IO socket
+	CONN_FAIL_IO_CONNECT_LE = 34,
+	// Failed at daemon, L2CAP or below layers due to invalid parameters.
+	CONN_FAIL_INVALID_PARAMS_LE = 35,
+	// Failed at L2CAP layer or below due to missing HCI device.
+	CONN_FAIL_NO_DEV_LE = 36,
+	// Failed due to unsupported state transition of L2CAP channel or other
+	// features (e.g. LE features) either by the local host or the remote.
+	CONN_FAIL_NOT_SUPPORTED_LE = 37,
+	// Failed to allocate memory in either host stack or controller.
+	CONN_FAIL_MEMORY_ALLOC_LE = 38,
+	// Failed due to that LE is not enabled or the attempt is refused by the
+	// remote device due to limited resource, security reason or
+	// unacceptable address type.
+	CONN_FAIL_REFUSED_LE = 39,
+	// Failed due to the socket is in bad state.
+	CONN_FAIL_BAD_SOCKET_LE = 40,
+	// Failed due to connection timeout.
+	CONN_FAIL_TIMEDOUT_LE = 41,
+	// Failed due to reaching the synchronous connection limit to a device.
+	CONN_FAIL_SYNC_CONNECT_LIMIT_LE = 42,
+	// Terminated by the remote device due to limited resource or power
+	// off.
+	CONN_FAIL_TERM_BY_REMOTE_LE = 43,
+	// Terminated by the local host due to limited resource, or aborted at
+	// L2CAP layer.
+	CONN_FAIL_TERM_BY_LOCAL_LE = 44,
+	// Failed due to LL protocol error.
+	CONN_FAIL_PROTO_ERROR_LE = 45,
+	CONN_FAIL_END = 46,
 } metrics_conn_result;
 
 typedef enum {
@@ -289,7 +353,8 @@ enum metrics_advmon_result {
 };
 
 typedef enum {
-	RESULT_TYPE_DEFINED = 0, // Result that is clearly-defined by core logic.
+	RESULT_TYPE_DEFINED = 0, // Result that is clearly-defined by core
+				 // logic.
 	RESULT_TYPE_MGMT = 1,    // Result returned by MGMT interface.
 	RESULT_TYPE_SYSTEM = 2,  // Result caused by system resource allocation.
 } metrics_result_type;
@@ -384,10 +449,6 @@ bool metrics_send_enum(metrics_send_enum_type type, int sample,
 bool metrics_send_per_profile_enum(metrics_per_profile_type type,
 				   const char *uuid, int sample);
 
-/* Methods to convert err to connection results */
-metrics_conn_result metrics_bredr_conn_err_to_result(int err);
-metrics_conn_result metrics_le_conn_err_to_result(int err);
-
 /* Methods to create a timer and emit a sample when removing the timer */
 bool metrics_start_timer(metrics_timer_type type,
 			struct metrics_timer_data data);
@@ -437,6 +498,7 @@ void metrics_profile_connection_state_changed(const char *device_id,
 void metrics_profile_disconnection_state_changed(const char *device_id,
 				const char *uuid,
 				enum metrics_profile_disconn_state state);
+
 void metrics_device_info_report(const char *device_id,
 				metrics_discovery_type device_type,
 				int class,
@@ -445,4 +507,8 @@ void metrics_device_info_report(const char *device_id,
 				int vendor_id_source,
 				int product_id,
 				int version);
+
+metrics_conn_result metrics_bredr_conn_err_to_result(int sample);
+metrics_conn_result metrics_le_conn_err_to_result(int sample);
+
 #endif  // BLUEZ_METRICS_H_

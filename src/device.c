@@ -2013,13 +2013,20 @@ static int connect_next(struct btd_device *dev)
 	return err;
 }
 
+static bool is_connect_method(DBusMessage *msg)
+{
+	if (!msg)
+		return false;
+	return dbus_message_is_method_call(msg, DEVICE_INTERFACE, "Connect");
+}
+
 static void device_profile_connected(struct btd_device *dev,
 					struct btd_profile *profile, int err)
 {
 	struct btd_service *pending;
 	GSList *l;
-	metrics_conn_result result = metrics_bredr_conn_err_to_result(err);
 	struct metrics_timer_data timer_data = {dev->adapter, dev, NULL};
+	bool is_le_conn = false;
 
 	DBG("%s %s (%d)", profile->name, strerror(-err), -err);
 
@@ -2069,15 +2076,15 @@ done:
 	l = find_service_with_state(dev->services, BTD_SERVICE_STATE_CONNECTED);
 
 	if (err && l == NULL) {
-
 		/* Fallback to LE bearer if supported */
 		if (err == -EHOSTDOWN && dev->le && !dev->le_state.connected) {
 			err = device_connect_le(dev);
 			if (err == 0)
 				return;
+
+			is_le_conn = true;
 		}
 
-		result = metrics_bredr_conn_err_to_result(err);
 		metrics_cancel_timer(TIMER_CONNECT, timer_data);
 
 		g_dbus_send_message(dbus_conn,
@@ -2090,8 +2097,14 @@ done:
 		g_dbus_send_reply(dbus_conn, dev->connect, DBUS_TYPE_INVALID);
 	}
 
+	if (is_connect_method(dev->connect)) {
+		metrics_send_enum(ENUM_TYPE_CONN_RESULT, is_le_conn ?
+				metrics_le_conn_err_to_result(err) :
+				metrics_bredr_conn_err_to_result(err),
+				RESULT_TYPE_DEFINED);
+	}
+
 	metrics_stop_timer(TIMER_CONNECT, timer_data);
-	metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, RESULT_TYPE_DEFINED);
 
 	dbus_message_unref(dev->connect);
 	dev->connect = NULL;
@@ -2367,7 +2380,11 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 				ACL_CONNECTION_OUTGOING,
 				CONN_STATE_BUSY);
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BUSY, RESULT_TYPE_DEFINED);
+		if (is_connect_method(msg)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+						CONN_FAIL_BUSY_BREDR,
+						RESULT_TYPE_DEFINED);
+		}
 		return btd_error_in_progress_str(msg, ERR_BREDR_CONN_BUSY);
 	}
 
@@ -2375,8 +2392,11 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 				ACL_CONNECTION_OUTGOING,
 				CONN_STATE_NONPOWERED);
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_NONPOWERED,
-					RESULT_TYPE_DEFINED);
+		if (is_connect_method(msg)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+						CONN_FAIL_NONPOWERED,
+						RESULT_TYPE_DEFINED);
+		}
 		return btd_error_not_ready_str(msg,
 					ERR_BREDR_CONN_ADAPTER_NOT_POWERED);
 	}
@@ -2397,17 +2417,22 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 					addr, bdaddr_type,
 					ACL_CONNECTION_OUTGOING,
 					CONN_STATE_ALREADY);
-				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-						CONN_ALREADY_BREDR, RESULT_TYPE_DEFINED);
+				if (is_connect_method(msg)) {
+					metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+							CONN_ALREADY_BREDR,
+							RESULT_TYPE_DEFINED);
+				}
 				return dbus_message_new_method_return(msg);
 			} else {
 				metrics_acl_connection_state_changed(
 					addr, bdaddr_type,
 					ACL_CONNECTION_OUTGOING,
 					CONN_STATE_PROFILE_UNAVAILABLE);
-				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+				if (is_connect_method(msg)) {
+					metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 					CONN_FAIL_BREDR_PROFILE_UNAVAILABLE,
 					RESULT_TYPE_DEFINED);
+				}
 				return btd_error_not_available_str(msg,
 					ERR_BREDR_CONN_PROFILE_UNAVAILABLE);
 			}
@@ -2418,23 +2443,23 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 
 	err = connect_next(dev);
 	if (err < 0) {
-		metrics_conn_result result = bdaddr_type == BDADDR_BREDR ?
-					metrics_bredr_conn_err_to_result(err) :
-					metrics_le_conn_err_to_result(err);
+		if (is_connect_method(msg)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+					metrics_bredr_conn_err_to_result(err),
+					RESULT_TYPE_DEFINED);
+		}
+
 		if (err == -EALREADY) {
 			metrics_acl_connection_state_changed(addr,
 				bdaddr_type,
 				ACL_CONNECTION_OUTGOING,
 				CONN_STATE_ALREADY);
-			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-						result, RESULT_TYPE_DEFINED);
 			return dbus_message_new_method_return(msg);
 		}
+
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
 			metrics_conn_system_err_to_state(err));
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result,
-					RESULT_TYPE_DEFINED);
 		return btd_error_failed(msg,
 					btd_error_bredr_conn_from_errno(err));
 	}
@@ -2455,12 +2480,17 @@ resolve_services:
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
 			metrics_conn_system_err_to_state(err));
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-			bdaddr_type == BDADDR_BREDR ? CONN_FAIL_BROWSE_SDP :
+		if (is_connect_method(msg)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+						bdaddr_type == BDADDR_BREDR ?
+							CONN_FAIL_BROWSE_SDP :
 							CONN_FAIL_BROWSE_GATT,
-			RESULT_TYPE_DEFINED);
-		return btd_error_failed(msg, bdaddr_type == BDADDR_BREDR ?
-			ERR_BREDR_CONN_SDP_SEARCH : ERR_LE_CONN_GATT_BROWSE);
+						RESULT_TYPE_DEFINED);
+		}
+		return btd_error_failed(msg,
+					bdaddr_type == BDADDR_BREDR ?
+					ERR_BREDR_CONN_SDP_SEARCH :
+					ERR_LE_CONN_GATT_BROWSE);
 	}
 
 	return NULL;
@@ -2536,8 +2566,10 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
 				ACL_CONNECTION_OUTGOING,
 				CONN_STATE_ALREADY);
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT,
-					CONN_ALREADY_LE, false);
+		if (is_connect_method(msg)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+					CONN_ALREADY_LE, RESULT_TYPE_DEFINED);
+		}
 		return dbus_message_new_method_return(msg);
 	}
 
@@ -2550,11 +2582,14 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 
 	err = device_connect_le(dev);
 	if (err < 0) {
-		metrics_conn_result result = metrics_le_conn_err_to_result(err);
 		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
 				ACL_CONNECTION_OUTGOING,
 				metrics_conn_system_err_to_state(err));
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result, false);
+		if (is_connect_method(msg)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+				metrics_le_conn_err_to_result(err),
+				RESULT_TYPE_DEFINED);
+		}
 		return btd_error_failed(msg, strerror(-err));
 	}
 
@@ -6424,7 +6459,6 @@ done:
 		device_browse_gatt(device, NULL);
 
 	if (device->connect) {
-		metrics_conn_result result = metrics_le_conn_err_to_result(err);
 		if (err < 0)
 			reply = btd_error_failed(device->connect,
 					btd_error_le_conn_from_errno(err));
@@ -6440,8 +6474,11 @@ done:
 		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
 					ACL_CONNECTION_OUTGOING,
 					metrics_conn_system_err_to_state(err));
-		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result,
-							RESULT_TYPE_DEFINED);
+		if (is_connect_method(device->connect)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+				metrics_le_conn_err_to_result(err),
+				RESULT_TYPE_DEFINED);
+		}
 
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);

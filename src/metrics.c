@@ -237,6 +237,95 @@ static metrics_pair_result convert_system_pair_result(int sample)
 	}
 }
 
+metrics_conn_result metrics_bredr_conn_err_to_result(int sample)
+{
+	switch (-sample) {
+	case 0:
+		return CONN_BREDR_SUCCEED;
+	case EISCONN:
+	case EALREADY:
+		return CONN_ALREADY_BREDR;
+	case EHOSTDOWN:
+		return CONN_FAIL_BREDR_PAGE_TIMEOUT;
+	case EHOSTUNREACH: /* adapter not powered */
+		return CONN_FAIL_NONPOWERED;
+	case EIO:
+		return CONN_FAIL_IO_CONNECT_BREDR;
+	case EPERM:
+		return CONN_FAIL_NOT_PERMITTED;
+	case ECANCELED:
+		return CONN_FAIL_CANCELED_BREDR;
+	case ENOENT: /* Service is unavailable on the remote device */
+		return CONN_FAIL_BREDR_PROFILE_UNAVAILABLE;
+	case EINVAL:
+		return CONN_FAIL_INVALID_PARAMS_BREDR;
+	case EOPNOTSUPP: /* Fall through */
+	case EPROTONOSUPPORT: /* Service is not supported or disabled */
+		return CONN_FAIL_NOT_SUPPORTED_BREDR;
+	case EBADFD:
+		return CONN_FAIL_BAD_SOCKET_BREDR;
+	case ENOPROTOOPT:
+		return CONN_FAIL_BREDR_PROFILE_UNAVAILABLE;
+	case EBUSY:
+		return CONN_FAIL_BUSY_BREDR;
+	case ENOMEM:
+		return CONN_FAIL_MEMORY_ALLOC_BREDR;
+	case EMLINK:
+		return CONN_FAIL_SYNC_CONNECT_LIMIT_BREDR;
+	case ETIMEDOUT:
+		return CONN_FAIL_TIMEDOUT_BREDR;
+	case ECONNREFUSED:
+		return CONN_FAIL_REFUSED_BREDR;
+	case ECONNRESET:
+		return CONN_FAIL_TERM_BY_REMOTE_BREDR;
+	case ECONNABORTED:
+		return CONN_FAIL_TERM_BY_LOCAL_BREDR;
+	case EPROTO:
+		return CONN_FAIL_PROTO_ERROR_BREDR;
+	default:
+		return CONN_FAIL_BREDR;
+	}
+}
+
+metrics_conn_result metrics_le_conn_err_to_result(int sample)
+{
+	switch (-sample) {
+	case 0:
+		return CONN_LE_SUCCEED;
+	case EINVAL:
+		return CONN_FAIL_INVALID_PARAMS_LE;
+	case EHOSTUNREACH:
+		return CONN_FAIL_NO_DEV_LE;
+	case EOPNOTSUPP:
+		return CONN_FAIL_NOT_SUPPORTED_LE;
+	case EISCONN:
+	case EALREADY:
+		return CONN_ALREADY_LE;
+	case ENOMEM:
+		return CONN_FAIL_MEMORY_ALLOC_LE;
+	case EBUSY:
+		return CONN_FAIL_BUSY_LE;
+	case ECONNREFUSED:
+		return CONN_FAIL_REFUSED_LE;
+	case EIO:
+		return CONN_FAIL_IO_CONNECT_LE;
+	case EBADFD:
+		return CONN_FAIL_BAD_SOCKET_LE;
+	case ETIMEDOUT:
+		return CONN_FAIL_TIMEDOUT_LE;
+	case EMLINK:
+		return CONN_FAIL_SYNC_CONNECT_LIMIT_LE;
+	case ECONNRESET:
+		return CONN_FAIL_TERM_BY_REMOTE_LE;
+	case ECONNABORTED:
+		return CONN_FAIL_TERM_BY_LOCAL_LE;
+	case EPROTO:
+		return CONN_FAIL_PROTO_ERROR_LE;
+	default:
+		return CONN_FAIL_LE;
+	}
+}
+
 static metrics_profile_probe_result convert_profile_probe_result(int sample)
 {
 	switch (sample) {
@@ -1057,31 +1146,6 @@ enum metrics_conn_state metrics_conn_mgmt_err_to_state(int err)
 	}
 }
 
-static metrics_conn_result metrics_common_conn_err_to_result(int err)
-{
-	switch (-err) {
-	case EHOSTUNREACH: /* adapter not powered */
-	case ECONNABORTED: /* adapter powered down */
-		return CONN_FAIL_NONPOWERED;
-	case EIO:
-		return CONN_FAIL_BT_IO_CONNECT_ERROR;
-	case ENOTCONN:
-		return CONN_FAIL_NOT_CONNECT;
-	case EPERM:
-		return CONN_FAIL_NOT_PERMITTED;
-	case EINVAL:
-		return CONN_FAIL_INVALID_PARAMS;
-	case ECONNREFUSED:
-		return CONN_FAIL_CONNECTION_REFUSED;
-	case ECANCELED:
-		return CONN_FAIL_CANCELED;
-	case EBUSY:
-		return CONN_FAIL_BUSY;
-	default:
-		return CONN_FAIL_UNKNOWN;
-	}
-}
-
 enum metrics_disconn_state metrics_convert_disconn_state(int state)
 {
 	switch (state) {
@@ -1095,32 +1159,6 @@ enum metrics_disconn_state metrics_convert_disconn_state(int state)
 		return DISCONN_STATE_LOCAL_HOST_SUSPEND;
 	default:
 		return DISCONN_STATE_UNKNOWN;
-	}
-}
-
-metrics_conn_result metrics_bredr_conn_err_to_result(int err)
-{
-	switch (-err) {
-	case 0:
-		return CONN_BREDR_SUCCEED;
-	case EALREADY:
-		return CONN_ALREADY_BREDR;
-	case EHOSTDOWN:
-		return CONN_FAIL_BREDR_PAGE_TIMEOUT;
-	default:
-		return metrics_common_conn_err_to_result(err);
-	}
-}
-
-metrics_conn_result metrics_le_conn_err_to_result(int err)
-{
-	switch (-err) {
-	case 0:
-		return CONN_LE_SUCCEED;
-	case EALREADY:
-		return CONN_ALREADY_LE;
-	default:
-		return metrics_common_conn_err_to_result(err);
 	}
 }
 
