@@ -1683,8 +1683,7 @@ static void append_secondary(struct btd_adv_manager *manager,
 	}
 }
 
-static gboolean secondary_exists(const GDBusPropertyTable *property,
-						void *data)
+static gboolean secondary_exits(const GDBusPropertyTable *property, void *data)
 {
 	struct btd_adv_manager *manager = data;
 
@@ -1702,43 +1701,6 @@ static gboolean get_supported_secondary(const GDBusPropertyTable *property,
 					DBUS_TYPE_STRING_AS_STRING, &entry);
 
 	append_secondary(manager, &entry);
-
-	dbus_message_iter_close_container(iter, &entry);
-
-	return TRUE;
-}
-
-static struct adv_feature {
-	int flag;
-	const char *name;
-} features[] = {
-	{ MGMT_ADV_FLAG_CAN_SET_TX_POWER, "CanSetTxPower" },
-	{ MGMT_ADV_FLAG_HW_OFFLOAD, "HardwareOffload" },
-	{ },
-};
-
-static void append_features(struct btd_adv_manager *manager,
-						DBusMessageIter *iter)
-{
-	struct adv_feature *feat;
-
-	for (feat = features; feat->name; feat++) {
-		if (manager->supported_flags & feat->flag)
-			dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING,
-								&feat->name);
-	}
-}
-
-static gboolean get_supported_features(const GDBusPropertyTable *property,
-					DBusMessageIter *iter, void *data)
-{
-	struct btd_adv_manager *manager = data;
-	DBusMessageIter entry;
-
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
-
-	append_features(manager, &entry);
 
 	dbus_message_iter_close_container(iter, &entry);
 
@@ -1783,8 +1745,7 @@ static const GDBusPropertyTable properties[] = {
 	{ "SupportedInstances", "y", get_instances, NULL, NULL },
 	{ "SupportedIncludes", "as", get_supported_includes, NULL, NULL },
 	{ "SupportedSecondaryChannels", "as", get_supported_secondary, NULL,
-							secondary_exists },
-	{ "SupportedFeatures", "as", get_supported_features, NULL, NULL },
+							secondary_exits },
 	{ "SupportedCapabilities", "a{sv}", get_supported_cap, NULL, NULL,
 					G_DBUS_PROPERTY_FLAG_EXPERIMENTAL},
 	{ }
