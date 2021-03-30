@@ -8724,6 +8724,9 @@ static void dev_disconnected(struct btd_adapter *adapter,
 	bonding_attempt_complete(adapter, &addr->bdaddr, addr->type,
 						MGMT_STATUS_DISCONNECTED);
 
+	metrics_acl_disconnection_state_changed(dst, addr->type,
+			reason_to_direction(reason),
+			convert_disconn_state(reason));
 	metrics_send_enum(ENUM_TYPE_DISCONN_REASON, reason, RESULT_TYPE_MGMT);
 }
 
@@ -9656,7 +9659,7 @@ static void connected_callback(uint16_t index, uint16_t length,
 	uint16_t eir_len;
 	char addr[18];
 	bool name_known;
-	enum acl_connection_direction direction;
+	enum metrics_acl_connection_direction direction;
 
 	if (length < sizeof(*ev)) {
 		btd_error(adapter->dev_id, "Too small device connected event");

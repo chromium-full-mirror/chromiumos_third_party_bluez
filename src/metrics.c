@@ -1074,6 +1074,22 @@ static metrics_conn_result metrics_common_conn_err_to_result(int err)
 	}
 }
 
+enum metrics_disconn_state convert_disconn_state(int state)
+{
+	switch (state) {
+	case MGMT_DEV_DISCONN_TIMEOUT:
+		return DISCONN_STATE_TIMEOUT;
+	case MGMT_DEV_DISCONN_LOCAL_HOST:
+		return DISCONN_STATE_LOCAL_HOST;
+	case MGMT_DEV_DISCONN_REMOTE:
+		return DISCONN_STATE_REMOTE;
+	case MGMT_DEV_DISCONN_LOCAL_HOST_SUSPEND:
+		return DISCONN_STATE_LOCAL_HOST_SUSPEND;
+	default:
+		return DISCONN_STATE_UNKNOWN;
+	}
+}
+
 metrics_conn_result metrics_bredr_conn_err_to_result(int err)
 {
 	switch (-err) {
@@ -1101,7 +1117,7 @@ metrics_conn_result metrics_le_conn_err_to_result(int err)
 }
 
 void metrics_acl_connection_state_changed(const char *device_id,
-		int addr_type, enum acl_connection_direction direction,
+		int addr_type, enum metrics_acl_connection_direction direction,
 		enum metrics_conn_state state)
 {
 	DBG("ACL connection state changed: %s %d %d %d", device_id, addr_type,
@@ -1110,4 +1126,29 @@ void metrics_acl_connection_state_changed(const char *device_id,
 					convert_to_device_type(addr_type),
 					direction,
 					1 /* connect */, state);
+}
+
+enum metrics_acl_connection_direction reason_to_direction(int reason)
+{
+	switch (reason) {
+	case MGMT_DEV_DISCONN_LOCAL_HOST: /* fall through */
+	case MGMT_DEV_DISCONN_LOCAL_HOST_SUSPEND:
+		return ACL_CONNECTION_OUTGOING;
+	case MGMT_DEV_DISCONN_REMOTE:
+		return ACL_CONNECTION_INCOMING;
+	default:
+		return ACL_CONNECTION_DIRECTION_UNKNOWN;
+	}
+}
+
+void metrics_acl_disconnection_state_changed(const char *device_id,
+		int addr_type, enum metrics_acl_connection_direction direction,
+		enum metrics_disconn_state state)
+{
+	DBG("ACL disconnection state changed: %s %d %d %d", device_id,
+			addr_type, direction, state);
+	BluetoothAclConnectionStateChanged(get_system_time_millis(), device_id,
+					convert_to_device_type(addr_type),
+					direction,
+					0 /* disconnect */, state);
 }

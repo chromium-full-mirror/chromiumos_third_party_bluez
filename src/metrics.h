@@ -320,7 +320,17 @@ enum metrics_conn_state {
 	CONN_STATE_UNKNOWN = 22,
 };
 
-enum acl_connection_direction {
+enum metrics_disconn_state {
+	DISCONN_STATE_STARTING = 0,
+	DISCONN_STATE_TIMEOUT = 1,
+	DISCONN_STATE_LOCAL_HOST = 2,
+	DISCONN_STATE_REMOTE = 3,
+	DISCONN_STATE_AUTH_FAILURE = 4,
+	DISCONN_STATE_LOCAL_HOST_SUSPEND = 5,
+	DISCONN_STATE_UNKNOWN = 6,
+};
+
+enum metrics_acl_connection_direction {
 	ACL_CONNECTION_DIRECTION_UNKNOWN = 0,
 	ACL_CONNECTION_OUTGOING = 1,
 	ACL_CONNECTION_INCOMING = 2,
@@ -367,11 +377,17 @@ bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 
 enum metrics_conn_state metrics_conn_system_err_to_state(int err);
 enum metrics_conn_state metrics_conn_mgmt_err_to_state(int err);
+enum metrics_disconn_state convert_disconn_state(int state);
+enum metrics_acl_connection_direction reason_to_direction(int reason);
 void metrics_adapter_state_changed(bool enabled);
 void metrics_pairing_state_changed(const char *device_id, int addr_type,
 				metrics_pair_result state,
 				metrics_result_type result_type);
 void metrics_acl_connection_state_changed(const char *device_id, int addr_type,
-				enum acl_connection_direction direction,
+				enum metrics_acl_connection_direction direction,
 				enum metrics_conn_state state);
+void metrics_acl_disconnection_state_changed(const char *device_id,
+				int addr_type,
+				enum metrics_acl_connection_direction direction,
+				enum metrics_disconn_state state);
 #endif  // BLUEZ_METRICS_H_

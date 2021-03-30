@@ -1877,7 +1877,12 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
 	struct btd_device *device = user_data;
+	char addr[18];
 
+	ba2str(&device->bdaddr, addr);
+	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
+			ACL_CONNECTION_OUTGOING,
+			DISCONN_STATE_STARTING);
 	/*
 	 * Disable connections through passive scanning until
 	 * Device1.Connect is called
@@ -1928,11 +1933,17 @@ static DBusMessage *dev_disconnect_le(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
 	struct btd_device *device = user_data;
+	char addr[18];
 
 	DBG("");
 
 	if (!device->le_state.connected)
 		return dbus_message_new_method_return(msg);
+
+	ba2str(&device->bdaddr, addr);
+	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
+			ACL_CONNECTION_OUTGOING,
+			DISCONN_STATE_STARTING);
 
 	if (device->att_io) {
 		g_io_channel_shutdown(device->att_io, FALSE, NULL);
