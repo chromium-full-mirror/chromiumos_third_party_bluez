@@ -1764,6 +1764,24 @@ static struct discovery_client *discovery_complete(struct btd_adapter *adapter,
 	return client;
 }
 
+static void start_discovery_metrics(struct btd_adapter *adapter)
+{
+	struct metrics_timer_data timer_data = {adapter, NULL, NULL};
+
+	metrics_start_timer(TIMER_DISCOVERY, timer_data);
+	metrics_send_enum(ENUM_TYPE_DISCOVERY, adapter->discovery_type,
+							RESULT_TYPE_DEFINED);
+	btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager, true);
+}
+
+static void stop_discovery_metrics(struct btd_adapter *adapter)
+{
+	struct metrics_timer_data timer_data = {adapter, NULL, NULL};
+
+	metrics_stop_timer(TIMER_DISCOVERY, timer_data);
+	btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager, false);
+}
+
 static void start_discovery_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -1815,12 +1833,7 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 		g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Discovering");
 
-		struct metrics_timer_data timer_data = {adapter, NULL, NULL};
-		metrics_start_timer(TIMER_DISCOVERY, timer_data);
-		metrics_send_enum(ENUM_TYPE_DISCOVERY, rp->type,
-							RESULT_TYPE_DEFINED);
-		btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager,
-									true);
+		start_discovery_metrics(adapter);
 
 		return;
 	}
@@ -1874,9 +1887,9 @@ static bool start_discovery_timeout(gpointer user_data)
 			adapter->discovering = true;
 			g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Discovering");
-			btd_adv_monitor_notify_active_scan(
-						adapter->adv_monitor_manager,
-						true);
+
+			start_discovery_metrics(adapter);
+
 			return FALSE;
 		}
 
@@ -2117,11 +2130,9 @@ static void stop_discovery_complete(uint8_t status, uint16_t length,
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 					ADAPTER_INTERFACE, "Discovering");
 
-	struct metrics_timer_data timer_data = {adapter, NULL, NULL};
-	metrics_stop_timer(TIMER_DISCOVERY, timer_data);
-	btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager, false);
-
 	trigger_passive_scanning(adapter);
+
+	stop_discovery_metrics(adapter);
 }
 
 static int compare_sender(gconstpointer a, gconstpointer b)
@@ -2382,8 +2393,8 @@ static int discovery_stop(struct discovery_client *client)
 					ADAPTER_INTERFACE, "Discovering");
 
 		trigger_passive_scanning(adapter);
-		btd_adv_monitor_notify_active_scan(adapter->adv_monitor_manager,
-									false);
+
+		stop_discovery_metrics(adapter);
 
 		return 0;
 	}
@@ -7773,6 +7784,8 @@ static void adapter_stop(struct btd_adapter *adapter)
 	adapter->current_discovery_filter = NULL;
 
 	adapter->discovering = false;
+
+	stop_discovery_metrics(adapter);
 
 	while (adapter->connections) {
 		struct btd_device *device = adapter->connections->data;
