@@ -917,8 +917,8 @@ fail:
 	report_reply(hog, err, 0, 0, NULL);
 }
 
-static bool get_descriptor_item_info(uint8_t *buf, ssize_t blen, ssize_t *len,
-								bool *is_long)
+static bool get_descriptor_item_info(const uint8_t *buf, ssize_t blen,
+						ssize_t *len, bool *is_long)
 {
 	if (!blen)
 		return false;
@@ -957,7 +957,7 @@ static bool get_descriptor_item_info(uint8_t *buf, ssize_t blen, ssize_t *len,
 	return *len <= blen;
 }
 
-static char *item2string(char *str, uint8_t *buf, uint8_t len)
+static char *item2string(char *str, const uint8_t *buf, uint8_t len)
 {
 	char *p = str;
 	int i;
@@ -979,16 +979,14 @@ static char *item2string(char *str, uint8_t *buf, uint8_t len)
 	return str;
 }
 
-static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
-							ssize_t report_map_len)
+static bool parse_report_map(const uint8_t *report_map, ssize_t report_map_len,
+							gboolean *has_report_id)
 {
-	uint8_t *value = report_map;
-	struct uhid_event ev;
+	const uint8_t *value = report_map;
 	ssize_t vlen = report_map_len;
 	char itemstr[20]; /* 5x3 (data) + 4 (continuation) + 1 (null) */
-	int i, err, collection_depth = 0;
-	GError *gerr = NULL;
-	GIOChannel *io = NULL;
+	int i, collection_depth = 0;
+	bool report_id_found = false;
 
 	DBG_LVL(2, "Report MAP:");
 	for (i = 0; i < vlen;) {
@@ -999,7 +997,7 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 								&long_item)) {
 			/* Report ID is short item with prefix 100001xx */
 			if (!long_item && (value[i] & 0xfc) == 0x84)
-				hog->has_report_id = TRUE;
+				report_id_found = true;
 
 			// Start Collection
 			if (value[i] == 0xa1)
@@ -1019,14 +1017,26 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 			/* Just print remaining items at once and break */
 			DBG_LVL(2, "\t%s", item2string(itemstr, &value[i],
 								vlen - i));
-			return;
+			return false;
 		}
 	}
 
 	if (collection_depth != 0) {
 		error("Report Map error: unbalanced collection");
-		return;
+		return false;
 	}
+
+	*has_report_id = report_id_found;
+	return true;
+}
+
+static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
+							ssize_t report_map_len)
+{
+	struct uhid_event ev;
+	int err, i;
+	GError *gerr = NULL;
+	GIOChannel *io = NULL;
 
 	/* create uHID device */
 	memset(&ev, 0, sizeof(ev));
@@ -1064,8 +1074,8 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 	ev.u.create.version = hog->version;
 	ev.u.create.country = hog->bcountrycode;
 	ev.u.create.bus = BUS_BLUETOOTH;
-	ev.u.create.rd_data = value;
-	ev.u.create.rd_size = vlen;
+	ev.u.create.rd_data = report_map;
+	ev.u.create.rd_size = report_map_len;
 
 	err = bt_uhid_send(hog->uhid, &ev);
 	if (err < 0) {
@@ -1109,6 +1119,11 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 	vlen = dec_read_resp(pdu, plen, value, sizeof(value));
 	if (vlen < 0) {
 		error("ATT protocol error");
+		return;
+	}
+
+	if (!parse_report_map(value, vlen, &hog->has_report_id)) {
+		error("Received invalid report map");
 		return;
 	}
 
@@ -1425,6 +1440,14 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 						BT_ATT_OP_READ_REQ, NULL,
 						db_report_map_read_value_cb,
 						&report_map);
+
+			if (report_map.length &&
+			    !parse_report_map(report_map.value,
+							report_map.length,
+							&hog->has_report_id)) {
+				DBG("Cached report map is invalid");
+				report_map.length = 0;
+			}
 		}
 
 		if (report_map.length) {
@@ -1432,9 +1455,7 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 			 * UHID to optimize reconnection.
 			 */
 			uhid_create(hog, report_map.value, report_map.length);
-		}
-
-		if (!hog->uhid_created) {
+		} else {
 			read_char(hog, hog->attrib, value_handle,
 						report_map_read_cb, hog);
 		}
