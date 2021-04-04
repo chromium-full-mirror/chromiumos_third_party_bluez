@@ -112,11 +112,8 @@ struct bt_hog {
 	struct queue		*gatt_op;
 	struct gatt_db		*gatt_db;
 	struct gatt_db_attribute	*report_map_attr;
-};
-
-struct report_map {
-	uint8_t	value[HOG_REPORT_MAP_MAX_SIZE];
-	size_t	length;
+	uint8_t			*report_map;
+	size_t			report_map_len;
 };
 
 struct report {
@@ -1030,13 +1027,17 @@ static bool parse_report_map(const uint8_t *report_map, ssize_t report_map_len,
 	return true;
 }
 
-static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
-							ssize_t report_map_len)
+static void uhid_create(struct bt_hog *hog)
 {
 	struct uhid_event ev;
 	int err, i;
 	GError *gerr = NULL;
 	GIOChannel *io = NULL;
+
+	if (!hog->report_map || hog->report_map_len == 0) {
+		error("Report map is missing");
+		return;
+	}
 
 	/* create uHID device */
 	memset(&ev, 0, sizeof(ev));
@@ -1074,8 +1075,8 @@ static void uhid_create(struct bt_hog *hog, uint8_t *report_map,
 	ev.u.create.version = hog->version;
 	ev.u.create.country = hog->bcountrycode;
 	ev.u.create.bus = BUS_BLUETOOTH;
-	ev.u.create.rd_data = report_map;
-	ev.u.create.rd_size = report_map_len;
+	ev.u.create.rd_data = hog->report_map;
+	ev.u.create.rd_size = hog->report_map_len;
 
 	err = bt_uhid_send(hog->uhid, &ev);
 	if (err < 0) {
@@ -1127,7 +1128,10 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 		return;
 	}
 
-	uhid_create(hog, value, vlen);
+	hog->report_map = g_memdup(value, vlen);
+	hog->report_map_len = vlen;
+
+	uhid_create(hog);
 
 	/* Cache the report map if gatt_db is available  */
 	if (hog->report_map_attr) {
@@ -1136,6 +1140,15 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 					NULL, db_report_map_write_value_cb,
 					NULL);
 	}
+}
+
+static void report_map_read(struct bt_hog *hog, uint16_t handle)
+{
+	g_free(hog->report_map);
+	hog->report_map = NULL;
+	hog->report_map_len = 0;
+
+	read_char(hog, hog->attrib, handle, report_map_read_cb, hog);
 }
 
 static void info_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
@@ -1250,8 +1263,7 @@ static void char_discovered_cb(uint8_t status, GSList *chars, void *user_data)
 			discover_report(hog, hog->attrib, start, end, report);
 		} else if (bt_uuid_cmp(&uuid, &report_map_uuid) == 0) {
 			DBG("HoG discovering report map");
-			read_char(hog, hog->attrib, chr->value_handle,
-						report_map_read_cb, hog);
+			report_map_read(hog, chr->value_handle);
 			discover_external(hog, hog->attrib, start, end, hog);
 		} else if (bt_uuid_cmp(&uuid, &info_uuid) == 0)
 			info_handle = chr->value_handle;
@@ -1302,6 +1314,7 @@ static void hog_free(void *data)
 	g_slist_free_full(hog->reports, report_free);
 	g_free(hog->name);
 	g_free(hog->primary);
+	g_free(hog->report_map);
 	queue_destroy(hog->gatt_op, (void *) destroy_gatt_req);
 	if (hog->gatt_db)
 		gatt_db_unref(hog->gatt_db);
@@ -1395,7 +1408,7 @@ static void db_report_map_read_value_cb(struct gatt_db_attribute *attrib,
 						int err, const uint8_t *value,
 						size_t length, void *user_data)
 {
-	struct report_map *map = user_data;
+	struct bt_hog *hog = user_data;
 
 	if (err) {
 		error("Error reading report map from gatt db %s",
@@ -1406,8 +1419,24 @@ static void db_report_map_read_value_cb(struct gatt_db_attribute *attrib,
 	if (!length)
 		return;
 
-	map->length = length < sizeof(map->value) ? length : sizeof(map->value);
-	memcpy(map->value, value, map->length);
+	if (!parse_report_map(value, length, &hog->has_report_id)) {
+		DBG("Cached report map is invalid");
+		return;
+	}
+
+	hog->report_map = g_memdup(value, length);
+	hog->report_map_len = length;
+}
+
+static void db_report_map_read(struct bt_hog *hog, uint16_t handle)
+{
+	g_free(hog->report_map);
+	hog->report_map = NULL;
+	hog->report_map_len = 0;
+
+	hog->report_map_attr = gatt_db_get_attribute(hog->gatt_db, handle);
+	gatt_db_attribute_read(hog->report_map_attr, 0, BT_ATT_OP_READ_REQ,
+					NULL, db_report_map_read_value_cb, hog);
 }
 
 static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
@@ -1416,7 +1445,6 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 	bt_uuid_t uuid, report_uuid, report_map_uuid, info_uuid;
 	bt_uuid_t proto_mode_uuid, ctrlpt_uuid;
 	uint16_t handle, value_handle;
-	struct report_map report_map = {0};
 
 	gatt_db_attribute_get_char_data(attr, &handle, &value_handle, NULL,
 					NULL, &uuid);
@@ -1433,31 +1461,16 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 
 		if (hog->gatt_db) {
 			/* Try to read the cache of report map if available */
-			hog->report_map_attr = gatt_db_get_attribute(
-								hog->gatt_db,
-								value_handle);
-			gatt_db_attribute_read(hog->report_map_attr, 0,
-						BT_ATT_OP_READ_REQ, NULL,
-						db_report_map_read_value_cb,
-						&report_map);
-
-			if (report_map.length &&
-			    !parse_report_map(report_map.value,
-							report_map.length,
-							&hog->has_report_id)) {
-				DBG("Cached report map is invalid");
-				report_map.length = 0;
-			}
+			db_report_map_read(hog, value_handle);
 		}
 
-		if (report_map.length) {
+		if (hog->report_map) {
 			/* Report map found in the cache, straight to creating
 			 * UHID to optimize reconnection.
 			 */
-			uhid_create(hog, report_map.value, report_map.length);
+			uhid_create(hog);
 		} else {
-			read_char(hog, hog->attrib, value_handle,
-						report_map_read_cb, hog);
+			report_map_read(hog, value_handle);
 		}
 
 		gatt_db_service_foreach_desc(attr, foreach_hog_external, hog);
