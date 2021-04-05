@@ -1507,7 +1507,6 @@ static void hog_attach_instance(struct bt_hog *hog,
 
 	if (!hog->attr) {
 		hog->attr = attr;
-		gatt_db_service_foreach_char(hog->attr, foreach_hog_chrc, hog);
 		return;
 	}
 
