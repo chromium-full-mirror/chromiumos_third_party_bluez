@@ -94,7 +94,6 @@ struct bt_hog {
 	struct bt_uhid		*uhid;
 	int			uhid_fd;
 	bool			uhid_created;
-	bool			report_value_cb_registered;
 	gboolean		has_report_id;
 	uint16_t		bcdhid;
 	uint8_t			bcountrycode;
@@ -114,6 +113,7 @@ struct bt_hog {
 	struct gatt_db_attribute	*report_map_attr;
 	uint8_t			*report_map;
 	size_t			report_map_len;
+	int			discovery_req_count;
 };
 
 struct report {
@@ -348,6 +348,21 @@ static void report_value_cb(const guint8 *pdu, guint16 len, gpointer user_data)
 	}
 }
 
+static void setup_input_report_notifiers(struct bt_hog *hog)
+{
+	GSList *l;
+
+	for (l = hog->reports; l; l = l->next) {
+		struct report *r = l->data;
+
+		if (r->type == HOG_REPORT_TYPE_INPUT)
+			r->notifyid = g_attrib_register(hog->attrib,
+						ATT_OP_HANDLE_NOTIFY,
+						r->value_handle,
+						report_value_cb, r, NULL);
+	}
+}
+
 static void report_ccc_written_cb(guint8 status, const guint8 *pdu,
 					guint16 plen, gpointer user_data)
 {
@@ -362,18 +377,6 @@ static void report_ccc_written_cb(guint8 status, const guint8 *pdu,
 							att_ecode2str(status));
 		return;
 	}
-
-	/* If we already had the report map cache, we must have registered UHID
-	 * and the report value callbacks. In that case, don't re-register the
-	 * report value callbacks here.
-	 */
-	if (hog->report_value_cb_registered)
-		return;
-
-	report->notifyid = g_attrib_register(hog->attrib,
-					ATT_OP_HANDLE_NOTIFY,
-					report->value_handle,
-					report_value_cb, report, NULL);
 
 	DBG("Report characteristic descriptor written: notifications enabled");
 }
@@ -419,6 +422,22 @@ static const char *type_to_string(uint8_t type)
 	return NULL;
 }
 
+static void inc_uhid_discovery_req(struct bt_hog *hog)
+{
+	__sync_fetch_and_add(&hog->discovery_req_count, 1);
+}
+
+static void uhid_create(struct bt_hog *hog);
+
+static void uhid_create_if_ready(struct bt_hog *hog)
+{
+	if (__sync_sub_and_fetch(&hog->discovery_req_count, 1))
+		return;
+
+	uhid_create(hog);
+	setup_input_report_notifiers(hog);
+}
+
 static void report_reference_cb(guint8 status, const guint8 *pdu,
 					guint16 plen, gpointer user_data)
 {
@@ -448,6 +467,8 @@ static void report_reference_cb(guint8 status, const guint8 *pdu,
 	if (report->type == HOG_REPORT_TYPE_INPUT)
 		read_char(report->hog, report->hog->attrib, report->ccc_handle,
 							ccc_read_cb, report);
+
+	uhid_create_if_ready(report->hog);
 }
 
 static void external_report_reference_cb(guint8 status, const guint8 *pdu,
@@ -469,10 +490,13 @@ static void discover_external_cb(uint8_t status, GSList *descs, void *user_data)
 	for ( ; descs; descs = descs->next) {
 		struct gatt_desc *desc = descs->data;
 
+		inc_uhid_discovery_req(hog);
 		read_char(hog, hog->attrib, desc->handle,
 						external_report_reference_cb,
 						hog);
 	}
+
+	uhid_create_if_ready(hog);
 }
 
 static void discover_external(struct bt_hog *hog, GAttrib *attrib,
@@ -486,6 +510,7 @@ static void discover_external(struct bt_hog *hog, GAttrib *attrib,
 
 	bt_uuid16_create(&uuid, GATT_EXTERNAL_REPORT_REFERENCE);
 
+	inc_uhid_discovery_req(hog);
 	discover_desc(hog, attrib, start, end, discover_external_cb,
 								user_data);
 }
@@ -512,11 +537,14 @@ static void discover_report_cb(uint8_t status, GSList *descs, void *user_data)
 			report->ccc_handle = desc->handle;
 			break;
 		case GATT_REPORT_REFERENCE:
+			inc_uhid_discovery_req(hog);
 			read_char(hog, hog->attrib, desc->handle,
 						report_reference_cb, report);
 			break;
 		}
 	}
+
+	uhid_create_if_ready(hog);
 }
 
 static void discover_report(struct bt_hog *hog, GAttrib *attrib,
@@ -526,6 +554,7 @@ static void discover_report(struct bt_hog *hog, GAttrib *attrib,
 	if (start > end)
 		return;
 
+	inc_uhid_discovery_req(hog);
 	discover_desc(hog, attrib, start, end, discover_report_cb, user_data);
 }
 
@@ -593,7 +622,7 @@ static void external_service_char_cb(uint8_t status, GSList *chars,
 	if (status != 0) {
 		const char *str = att_ecode2str(status);
 		DBG("Discover external service characteristic failed: %s", str);
-		return;
+		goto out;
 	}
 
 	for (l = chars; l; l = g_slist_next(l)) {
@@ -609,8 +638,12 @@ static void external_service_char_cb(uint8_t status, GSList *chars,
 		report = report_new(hog, chr);
 		start = chr->value_handle + 1;
 		end = (next ? next->handle - 1 : primary->range.end);
+
 		discover_report(hog, hog->attrib, start, end, report);
 	}
+
+out:
+	uhid_create_if_ready(hog);
 }
 
 static void external_report_reference_cb(guint8 status, const guint8 *pdu,
@@ -638,13 +671,14 @@ static void external_report_reference_cb(guint8 status, const guint8 *pdu,
 	DBG("External report reference read, external report characteristic "
 						"UUID: 0x%04x", uuid16);
 
-	/* Do not discover if is not a Report */
-	if (uuid16 != HOG_REPORT_UUID)
-		return;
+	if (uuid16 == HOG_REPORT_UUID) {
+		bt_uuid16_create(&uuid, uuid16);
+		inc_uhid_discovery_req(hog);
+		discover_char(hog, hog->attrib, 0x0001, 0xffff, &uuid,
+						external_service_char_cb, hog);
+	}
 
-	bt_uuid16_create(&uuid, uuid16);
-	discover_char(hog, hog->attrib, 0x0001, 0xffff, &uuid,
-					external_service_char_cb, hog);
+	uhid_create_if_ready(hog);
 }
 
 static int report_cmp(gconstpointer a, gconstpointer b)
@@ -1131,7 +1165,7 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 	hog->report_map = g_memdup(value, vlen);
 	hog->report_map_len = vlen;
 
-	uhid_create(hog);
+	uhid_create_if_ready(hog);
 
 	/* Cache the report map if gatt_db is available  */
 	if (hog->report_map_attr) {
@@ -1148,6 +1182,7 @@ static void report_map_read(struct bt_hog *hog, uint16_t handle)
 	hog->report_map = NULL;
 	hog->report_map_len = 0;
 
+	inc_uhid_discovery_req(hog);
 	read_char(hog, hog->attrib, handle, report_map_read_cb, hog);
 }
 
@@ -1180,6 +1215,8 @@ static void info_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 	DBG("success");
 	DBG_LVL(2, "bcdHID: 0x%04X bCountryCode: 0x%02X Flags: 0x%02X",
 				hog->bcdhid, hog->bcountrycode, hog->flags);
+
+	uhid_create_if_ready(hog);
 }
 
 static void proto_mode_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
@@ -1279,8 +1316,12 @@ static void char_discovered_cb(uint8_t status, GSList *chars, void *user_data)
 						proto_mode_read_cb, hog);
 	}
 
-	if (info_handle)
+	if (info_handle) {
+		inc_uhid_discovery_req(hog);
 		read_char(hog, hog->attrib, info_handle, info_read_cb, hog);
+	}
+
+	uhid_create_if_ready(hog);
 }
 
 static void report_free(void *data)
@@ -1342,6 +1383,7 @@ static void foreach_hog_report(struct gatt_db_attribute *attr, void *user_data)
 
 	bt_uuid16_create(&ref_uuid, GATT_REPORT_REFERENCE);
 	if (!bt_uuid_cmp(&ref_uuid, uuid)) {
+		inc_uhid_discovery_req(hog);
 		read_char(hog, hog->attrib, handle, report_reference_cb,
 								report);
 		return;
@@ -1399,9 +1441,11 @@ static void foreach_hog_external(struct gatt_db_attribute *attr,
 	uuid = gatt_db_attribute_get_type(attr);
 
 	bt_uuid16_create(&ext_uuid, GATT_EXTERNAL_REPORT_REFERENCE);
-	if (!bt_uuid_cmp(&ext_uuid, uuid))
+	if (!bt_uuid_cmp(&ext_uuid, uuid)) {
+		inc_uhid_discovery_req(hog);
 		read_char(hog, hog->attrib, handle,
 					external_report_reference_cb, hog);
+	}
 }
 
 static void db_report_map_read_value_cb(struct gatt_db_attribute *attrib,
@@ -1464,14 +1508,8 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 			db_report_map_read(hog, value_handle);
 		}
 
-		if (hog->report_map) {
-			/* Report map found in the cache, straight to creating
-			 * UHID to optimize reconnection.
-			 */
-			uhid_create(hog);
-		} else {
+		if (!hog->report_map)
 			report_map_read(hog, value_handle);
-		}
 
 		gatt_db_service_foreach_desc(attr, foreach_hog_external, hog);
 		return;
@@ -1479,6 +1517,7 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 
 	bt_uuid16_create(&info_uuid, HOG_INFO_UUID);
 	if (!bt_uuid_cmp(&info_uuid, &uuid)) {
+		inc_uhid_discovery_req(hog);
 		read_char(hog, hog->attrib, value_handle, info_read_cb, hog);
 		return;
 	}
@@ -1535,11 +1574,6 @@ static void hog_attach_instance(struct bt_hog *hog,
 {
 	struct bt_hog *instance;
 
-	if (!hog->attr) {
-		hog->attr = attr;
-		return;
-	}
-
 	instance = hog_new(hog->uhid_fd, hog->name, hog->vendor,
 					hog->product, hog->version, attr);
 	if (!instance)
@@ -1551,6 +1585,11 @@ static void hog_attach_instance(struct bt_hog *hog,
 static void foreach_hog_service(struct gatt_db_attribute *attr, void *user_data)
 {
 	struct bt_hog *hog = user_data;
+
+	if (!hog->attr) {
+		hog->attr = attr;
+		return;
+	}
 
 	hog_attach_instance(hog, attr);
 }
@@ -1684,6 +1723,7 @@ static void hog_attach_hog(struct bt_hog *hog, struct gatt_primary *primary)
 
 	if (!hog->primary) {
 		hog->primary = g_memdup(primary, sizeof(*primary));
+		inc_uhid_discovery_req(hog);
 		discover_char(hog, hog->attrib, primary->range.start,
 						primary->range.end, NULL,
 						char_discovered_cb, hog);
@@ -1788,32 +1828,19 @@ bool bt_hog_attach(struct bt_hog *hog, void *gatt)
 	if (!hog->uhid_created) {
 		DBG("HoG discovering characteristics");
 		memtrack_assert_alloc_valid(hog);
-		if (hog->attr)
+		inc_uhid_discovery_req(hog);
+		if (hog->attr) {
 			gatt_db_service_foreach_char(hog->attr,
 							foreach_hog_chrc, hog);
-		else
+		} else {
+			inc_uhid_discovery_req(hog);
 			discover_char(hog, hog->attrib,
 					hog->primary->range.start,
 					hog->primary->range.end, NULL,
 					char_discovered_cb, hog);
+		}
+		uhid_create_if_ready(hog);
 	}
-
-	if (!hog->uhid_created)
-		return true;
-
-	/* If UHID is already created, set up the report value handlers to
-	 * optimize reconnection.
-	 */
-	for (l = hog->reports; l; l = l->next) {
-		struct report *r = l->data;
-
-		r->notifyid = g_attrib_register(hog->attrib,
-					ATT_OP_HANDLE_NOTIFY,
-					r->value_handle,
-					report_value_cb, r, NULL);
-	}
-
-	hog->report_value_cb_registered = true;
 
 	return true;
 }
@@ -1874,8 +1901,6 @@ void bt_hog_detach(struct bt_hog *hog)
 		}
 	}
 
-	hog->report_value_cb_registered = false;
-
 	if (hog->scpp)
 		bt_scpp_detach(hog->scpp);
 
@@ -1883,6 +1908,7 @@ void bt_hog_detach(struct bt_hog *hog)
 		bt_dis_detach(hog->dis);
 
 	queue_foreach(hog->gatt_op, (void *) cancel_gatt_req, NULL);
+	hog->discovery_req_count = 0;
 	g_attrib_unref(hog->attrib);
 	hog->attrib = NULL;
 	uhid_destroy(hog);
