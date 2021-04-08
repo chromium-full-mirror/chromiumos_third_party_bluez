@@ -114,6 +114,7 @@ struct bt_hog {
 	uint8_t			*report_map;
 	size_t			report_map_len;
 	int			discovery_req_count;
+	bool			uhid_info_ready;
 };
 
 struct report {
@@ -431,11 +432,13 @@ static void uhid_create(struct bt_hog *hog);
 
 static void uhid_create_if_ready(struct bt_hog *hog)
 {
-	if (__sync_sub_and_fetch(&hog->discovery_req_count, 1))
-		return;
+	int count = __sync_sub_and_fetch(&hog->discovery_req_count, 1);
 
-	uhid_create(hog);
-	setup_input_report_notifiers(hog);
+	if (!hog->uhid_created && (hog->uhid_info_ready || count == 0)) {
+		hog->uhid_info_ready = true;
+		uhid_create(hog);
+		setup_input_report_notifiers(hog);
+	}
 }
 
 static void report_reference_cb(guint8 status, const guint8 *pdu,
