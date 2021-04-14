@@ -6036,6 +6036,11 @@ send_reply:
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);
 		device->connect = NULL;
+
+		if (is_connect_method(device->connect)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+				CONN_FAIL_BROWSE_SDP, RESULT_TYPE_DEFINED);
+		}
 	}
 
 	device_svc_resolved(device, BROWSE_SDP, BDADDR_BREDR, err);
