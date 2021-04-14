@@ -8754,8 +8754,8 @@ static void dev_disconnected(struct btd_adapter *adapter,
 						MGMT_STATUS_DISCONNECTED);
 
 	metrics_acl_disconnection_state_changed(dst, addr->type,
-			reason_to_direction(reason),
-			convert_disconn_state(reason));
+			metrics_reason_to_direction(reason),
+			metrics_convert_disconn_state(reason));
 	metrics_send_enum(ENUM_TYPE_DISCONN_REASON, reason, RESULT_TYPE_MGMT);
 }
 

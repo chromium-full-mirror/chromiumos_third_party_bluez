@@ -336,6 +336,32 @@ enum metrics_acl_connection_direction {
 	ACL_CONNECTION_INCOMING = 2,
 };
 
+enum metrics_bluetooth_profile {
+	BLUETOOTH_PROFILE_UNKNOWN = 0,
+	BLUETOOTH_PROFILE_HSP = 1,
+	BLUETOOTH_PROFILE_HFP = 2,
+	BLUETOOTH_PROFILE_A2DP = 3,
+	BLUETOOTH_PROFILE_AVRCP = 4,
+	BLUETOOTH_PROFILE_HID = 5,
+	BLUETOOTH_PROFILE_HOG = 6,
+	BLUETOOTH_PROFILE_GATT = 7,
+	BLUETOOTH_PROFILE_GAP = 8,
+	BLUETOOTH_PROFILE_DEVICE_INFO = 9,
+	BLUETOOTH_PROFILE_BATTERY = 10,
+};
+
+enum metrics_profile_conn_state {
+	PROFILE_CONN_STATE_STARTING = 0,
+	PROFILE_CONN_STATE_SUCCEED = 1,
+	PROFILE_CONN_STATE_ALREADY_CONNECTED = 2,
+	PROFILE_CONN_STATE_BUSY_CONNECTING = 3,
+	PROFILE_CONN_STATE_CONNECTION_REFUSED = 4,
+	PROFILE_CONN_STATE_CONNECT_CANCELED = 5,
+	PROFILE_CONN_STATE_REMOTE_UNAVAILABLE = 6,
+	PROFILE_CONN_STATE_PROFILE_NOT_SUPPORTED = 7,
+	PROFILE_CONN_STATE_UNKNOWN_ERROR = 8,
+};
+
 /* Corresponding methods to C Metrics Library */
 bool metrics_init(void);
 void metrics_deinit(void);
@@ -377,8 +403,9 @@ bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 
 enum metrics_conn_state metrics_conn_system_err_to_state(int err);
 enum metrics_conn_state metrics_conn_mgmt_err_to_state(int err);
-enum metrics_disconn_state convert_disconn_state(int state);
-enum metrics_acl_connection_direction reason_to_direction(int reason);
+enum metrics_disconn_state metrics_convert_disconn_state(int state);
+enum metrics_acl_connection_direction metrics_reason_to_direction(int reason);
+enum metrics_profile_conn_state metrics_convert_profile_conn_state(int err);
 void metrics_adapter_state_changed(bool enabled);
 void metrics_pairing_state_changed(const char *device_id, int addr_type,
 				metrics_pair_result state,
@@ -390,4 +417,7 @@ void metrics_acl_disconnection_state_changed(const char *device_id,
 				int addr_type,
 				enum metrics_acl_connection_direction direction,
 				enum metrics_disconn_state state);
+void metrics_profile_connection_state_changed(const char *device_id,
+				const char *uuid,
+				enum metrics_profile_conn_state state);
 #endif  // BLUEZ_METRICS_H_

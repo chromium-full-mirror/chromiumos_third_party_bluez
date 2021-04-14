@@ -38,6 +38,9 @@
 #define ADV_MON_MAX_NUM_OF_MONITOR	32
 #define ADV_MON_MAX_ADV_PER_MINUTE	1000 // somewhat arbitrary number
 
+#define STATE_CHANGE_TYPE_DISCONNECT 0
+#define STATE_CHANGE_TYPE_CONNECT 1
+
 struct metrics_timer {
 	metrics_timer_type type;
 	struct timespec start;
@@ -1074,7 +1077,7 @@ static metrics_conn_result metrics_common_conn_err_to_result(int err)
 	}
 }
 
-enum metrics_disconn_state convert_disconn_state(int state)
+enum metrics_disconn_state metrics_convert_disconn_state(int state)
 {
 	switch (state) {
 	case MGMT_DEV_DISCONN_TIMEOUT:
@@ -1125,10 +1128,11 @@ void metrics_acl_connection_state_changed(const char *device_id,
 	BluetoothAclConnectionStateChanged(get_system_time_millis(), device_id,
 					convert_to_device_type(addr_type),
 					direction,
-					1 /* connect */, state);
+					STATE_CHANGE_TYPE_CONNECT,
+					state);
 }
 
-enum metrics_acl_connection_direction reason_to_direction(int reason)
+enum metrics_acl_connection_direction metrics_reason_to_direction(int reason)
 {
 	switch (reason) {
 	case MGMT_DEV_DISCONN_LOCAL_HOST: /* fall through */
@@ -1150,5 +1154,71 @@ void metrics_acl_disconnection_state_changed(const char *device_id,
 	BluetoothAclConnectionStateChanged(get_system_time_millis(), device_id,
 					convert_to_device_type(addr_type),
 					direction,
-					0 /* disconnect */, state);
+					STATE_CHANGE_TYPE_DISCONNECT,
+					state);
+}
+
+static enum metrics_bluetooth_profile uuid_to_profile(const char *uuid)
+{
+	if (bt_uuid_strcmp(uuid, HID_UUID) == 0) {
+		return BLUETOOTH_PROFILE_HID;
+	} else if (bt_uuid_strcmp(uuid, HOG_UUID) == 0) {
+		return BLUETOOTH_PROFILE_HOG;
+	} else if (bt_uuid_strcmp(uuid, A2DP_SINK_UUID) == 0) {
+		return BLUETOOTH_PROFILE_A2DP;
+	} else if (bt_uuid_strcmp(uuid, HFP_AG_UUID) == 0 ||
+			bt_uuid_strcmp(uuid, HFP_HS_UUID) == 0) {
+		return BLUETOOTH_PROFILE_HFP;
+	} else if (bt_uuid_strcmp(uuid, AVRCP_REMOTE_UUID) == 0 ||
+			bt_uuid_strcmp(uuid, AVRCP_TARGET_UUID) == 0) {
+		return BLUETOOTH_PROFILE_AVRCP;
+	} else if (bt_uuid_strcmp(uuid, GAP_UUID) == 0) {
+		return BLUETOOTH_PROFILE_GAP;
+	} else if (bt_uuid_strcmp(uuid, DEVICE_INFORMATION_UUID) == 0) {
+		return BLUETOOTH_PROFILE_DEVICE_INFO;
+	} else if (bt_uuid_strcmp(uuid, BATTERY_UUID) == 0) {
+		return BLUETOOTH_PROFILE_BATTERY;
+	}
+	return BLUETOOTH_PROFILE_UNKNOWN;
+}
+
+enum metrics_profile_conn_state metrics_convert_profile_conn_state(int err)
+{
+	switch (-err) {
+	case 0:
+		return PROFILE_CONN_STATE_SUCCEED;
+	case EALREADY:
+		return PROFILE_CONN_STATE_ALREADY_CONNECTED;
+	case EBUSY:
+		return PROFILE_CONN_STATE_BUSY_CONNECTING;
+	case ECONNREFUSED:
+	case EAGAIN:
+		return PROFILE_CONN_STATE_CONNECTION_REFUSED;
+	case ECANCELED:
+		return PROFILE_CONN_STATE_CONNECT_CANCELED;
+	case EHOSTDOWN:
+	case EHOSTUNREACH:
+		return PROFILE_CONN_STATE_REMOTE_UNAVAILABLE;
+	case EPROTONOSUPPORT:
+	case ENOPROTOOPT:
+	case ENOENT:
+	case ENOTSUP:
+		return PROFILE_CONN_STATE_PROFILE_NOT_SUPPORTED;
+	default:
+		return PROFILE_CONN_STATE_UNKNOWN_ERROR;
+	}
+}
+
+void metrics_profile_connection_state_changed(const char *device_id,
+				const char *uuid,
+				enum metrics_profile_conn_state state)
+{
+	enum metrics_bluetooth_profile profile = uuid_to_profile(uuid);
+
+	DBG("Profile connection state changed: %s %s %d %d", device_id, uuid,
+			profile, state);
+	BluetoothProfileConnectionStateChanged(get_system_time_millis(),
+					device_id, profile,
+					STATE_CHANGE_TYPE_CONNECT,
+					state);
 }

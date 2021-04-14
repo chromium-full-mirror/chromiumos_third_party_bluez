@@ -221,6 +221,10 @@ int service_accept(struct btd_service *service)
 		return -ECONNABORTED;
 	}
 
+	ba2str(device_get_address(service->device), addr);
+	metrics_profile_connection_state_changed(addr,
+			service->profile->remote_uuid,
+			PROFILE_CONN_STATE_STARTING);
 	err = service->profile->accept(service);
 	if (!err)
 		goto done;
@@ -228,10 +232,12 @@ int service_accept(struct btd_service *service)
 	/* Capture error in profile connection. A successful profile
 	 * connection will be captured in btd_service_connecting_complete()
 	 */
+	metrics_profile_connection_state_changed(addr,
+			service->profile->remote_uuid,
+			metrics_convert_profile_conn_state(err));
 	metrics_send_per_profile_enum(PROFILE_CONN_RESULT,
 				      service->profile->remote_uuid, err);
 
-	ba2str(device_get_address(service->device), addr);
 	error("%s profile accept failed for %s", service->profile->name, addr);
 
 	return err;
@@ -286,6 +292,10 @@ int btd_service_connect(struct btd_service *service)
 		return -EBUSY;
 	}
 
+	ba2str(device_get_address(service->device), addr);
+	metrics_profile_connection_state_changed(addr,
+			service->profile->remote_uuid,
+			PROFILE_CONN_STATE_STARTING);
 	err = profile->connect(service);
 	if (err == 0) {
 		change_state(service, BTD_SERVICE_STATE_CONNECTING, 0);
@@ -295,10 +305,12 @@ int btd_service_connect(struct btd_service *service)
 	/* Capture error in profile connection. A successful profile
 	 * connection will be captured in btd_service_connecting_complete()
 	 */
+	metrics_profile_connection_state_changed(addr,
+			service->profile->remote_uuid,
+			metrics_convert_profile_conn_state(err));
 	metrics_send_per_profile_enum(PROFILE_CONN_RESULT,
 				      service->profile->remote_uuid, err);
 
-	ba2str(device_get_address(service->device), addr);
 	error("%s profile connect failed for %s: %s", profile->name, addr,
 								strerror(-err));
 
@@ -409,10 +421,16 @@ bool btd_service_remove_state_cb(unsigned int id)
 
 void btd_service_connecting_complete(struct btd_service *service, int err)
 {
+	char addr[18];
+
 	if (service->state != BTD_SERVICE_STATE_DISCONNECTED &&
 			service->state != BTD_SERVICE_STATE_CONNECTING)
 		return;
 
+	ba2str(device_get_address(service->device), addr);
+	metrics_profile_connection_state_changed(addr,
+			service->profile->remote_uuid,
+			metrics_convert_profile_conn_state(err));
 	metrics_send_per_profile_enum(PROFILE_CONN_RESULT,
 				      service->profile->remote_uuid, err);
 
