@@ -356,10 +356,22 @@ enum metrics_profile_conn_state {
 	PROFILE_CONN_STATE_ALREADY_CONNECTED = 2,
 	PROFILE_CONN_STATE_BUSY_CONNECTING = 3,
 	PROFILE_CONN_STATE_CONNECTION_REFUSED = 4,
-	PROFILE_CONN_STATE_CONNECT_CANCELED = 5,
+	PROFILE_CONN_STATE_CONNECTION_CANCELED = 5,
 	PROFILE_CONN_STATE_REMOTE_UNAVAILABLE = 6,
 	PROFILE_CONN_STATE_PROFILE_NOT_SUPPORTED = 7,
 	PROFILE_CONN_STATE_UNKNOWN_ERROR = 8,
+};
+
+enum metrics_profile_disconn_state {
+	PROFILE_DISCONN_STATE_STARTING = 0,
+	PROFILE_DISCONN_STATE_SUCCEED = 1,
+	PROFILE_DISCONN_STATE_ALREADY_DISCONNECTED = 2,
+	PROFILE_DISCONN_STATE_BUSY_DISCONNECTING = 3,
+	PROFILE_DISCONN_STATE_DISCONNECTION_REFUSED = 4,
+	PROFILE_DISCONN_STATE_DISCONNECTION_CANCELED = 5,
+	PROFILE_DISCONN_STATE_BT_IO_CONNECT_ERROR = 6,
+	PROFILE_DISCONN_STATE_INVALID_PARAMS = 7,
+	PROFILE_DISCONN_STATE_UNKNOWN_ERROR = 8,
 };
 
 /* Corresponding methods to C Metrics Library */
@@ -406,6 +418,8 @@ enum metrics_conn_state metrics_conn_mgmt_err_to_state(int err);
 enum metrics_disconn_state metrics_convert_disconn_state(int state);
 enum metrics_acl_connection_direction metrics_reason_to_direction(int reason);
 enum metrics_profile_conn_state metrics_convert_profile_conn_state(int err);
+enum metrics_profile_disconn_state metrics_convert_profile_disconn_state(
+		int err);
 void metrics_adapter_state_changed(bool enabled);
 void metrics_pairing_state_changed(const char *device_id, int addr_type,
 				metrics_pair_result state,
@@ -420,4 +434,7 @@ void metrics_acl_disconnection_state_changed(const char *device_id,
 void metrics_profile_connection_state_changed(const char *device_id,
 				const char *uuid,
 				enum metrics_profile_conn_state state);
+void metrics_profile_disconnection_state_changed(const char *device_id,
+				const char *uuid,
+				enum metrics_profile_disconn_state state);
 #endif  // BLUEZ_METRICS_H_

@@ -337,6 +337,11 @@ int btd_service_disconnect(struct btd_service *service)
 		break;
 	}
 
+	ba2str(device_get_address(service->device), addr);
+	metrics_profile_disconnection_state_changed(addr,
+			service->profile->remote_uuid,
+			PROFILE_DISCONN_STATE_STARTING);
+
 	change_state(service, BTD_SERVICE_STATE_DISCONNECTING, 0);
 
 	err = profile->disconnect(service);
@@ -348,7 +353,6 @@ int btd_service_disconnect(struct btd_service *service)
 		return 0;
 	}
 
-	ba2str(device_get_address(service->device), addr);
 	error("%s profile disconnect failed for %s: %s", profile->name, addr,
 								strerror(-err));
 
@@ -442,9 +446,20 @@ void btd_service_connecting_complete(struct btd_service *service, int err)
 
 void btd_service_disconnecting_complete(struct btd_service *service, int err)
 {
+	char addr[18];
+
+	ba2str(device_get_address(service->device), addr);
 	if (service->state != BTD_SERVICE_STATE_CONNECTED &&
-			service->state != BTD_SERVICE_STATE_DISCONNECTING)
+			service->state != BTD_SERVICE_STATE_DISCONNECTING) {
+		metrics_profile_disconnection_state_changed(addr,
+				service->profile->remote_uuid,
+				PROFILE_DISCONN_STATE_ALREADY_DISCONNECTED);
 		return;
+	}
+
+	metrics_profile_disconnection_state_changed(addr,
+			service->profile->remote_uuid,
+			metrics_convert_profile_disconn_state(err));
 
 	if (err == 0)
 		change_state(service, BTD_SERVICE_STATE_DISCONNECTED, 0);

@@ -1195,7 +1195,7 @@ enum metrics_profile_conn_state metrics_convert_profile_conn_state(int err)
 	case EAGAIN:
 		return PROFILE_CONN_STATE_CONNECTION_REFUSED;
 	case ECANCELED:
-		return PROFILE_CONN_STATE_CONNECT_CANCELED;
+		return PROFILE_CONN_STATE_CONNECTION_CANCELED;
 	case EHOSTDOWN:
 	case EHOSTUNREACH:
 		return PROFILE_CONN_STATE_REMOTE_UNAVAILABLE;
@@ -1220,5 +1220,43 @@ void metrics_profile_connection_state_changed(const char *device_id,
 	BluetoothProfileConnectionStateChanged(get_system_time_millis(),
 					device_id, profile,
 					STATE_CHANGE_TYPE_CONNECT,
+					state);
+}
+
+enum metrics_profile_disconn_state metrics_convert_profile_disconn_state(
+		int err)
+{
+	switch (-err) {
+	case 0:
+		return PROFILE_DISCONN_STATE_SUCCEED;
+	case EALREADY:
+	case ENOTCONN:
+		return PROFILE_DISCONN_STATE_ALREADY_DISCONNECTED;
+	case EBUSY:
+		return PROFILE_DISCONN_STATE_BUSY_DISCONNECTING;
+	case ECONNREFUSED:
+		return PROFILE_DISCONN_STATE_DISCONNECTION_REFUSED;
+	case ECANCELED:
+		return PROFILE_DISCONN_STATE_DISCONNECTION_CANCELED;
+	case EIO:
+		return PROFILE_DISCONN_STATE_BT_IO_CONNECT_ERROR;
+	case EINVAL:
+		return PROFILE_DISCONN_STATE_INVALID_PARAMS;
+	default:
+		return PROFILE_DISCONN_STATE_UNKNOWN_ERROR;
+	}
+}
+
+void metrics_profile_disconnection_state_changed(const char *device_id,
+				const char *uuid,
+				enum metrics_profile_disconn_state state)
+{
+	enum metrics_bluetooth_profile profile = uuid_to_profile(uuid);
+
+	DBG("Profile disconnection state changed: %s %s %d %d", device_id, uuid,
+			profile, state);
+	BluetoothProfileConnectionStateChanged(get_system_time_millis(),
+					device_id, profile,
+					STATE_CHANGE_TYPE_DISCONNECT,
 					state);
 }
