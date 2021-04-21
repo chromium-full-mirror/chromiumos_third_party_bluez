@@ -154,7 +154,6 @@ static DBusMessage *set_service_allowlist(DBusConnection *conn,
 	g_hash_table_destroy(admin_policy->allowed_uuid_set);
 
 	btd_admin_policy_allowlist_set(admin_policy, uuid_set);
-	btd_adapter_store_adapter_info(adapter);
 
 	return dbus_message_new_method_return(msg);
 }
