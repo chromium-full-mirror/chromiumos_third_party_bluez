@@ -48,6 +48,7 @@
 #define MGMT_STATUS_RFKILLED		0x12
 #define MGMT_STATUS_ALREADY_PAIRED	0x13
 #define MGMT_STATUS_PERMISSION_DENIED	0x14
+#define MGMT_STATUS_CONNECT_NOT_ESTD	0x15
 
 struct mgmt_hdr {
 	uint16_t opcode;
@@ -1188,6 +1189,7 @@ static const char *mgmt_status[] = {
 	"Blocked through rfkill",
 	"Already Paired",
 	"Permission Denied",
+	"Connection not established",
 };
 
 #ifndef NELEM

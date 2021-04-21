@@ -118,6 +118,7 @@ struct bonding_req {
 	guint retry_timer;
 	struct timespec attempt_start_time;
 	long last_attempt_duration_ms;
+	guint retry_attempts;
 };
 
 typedef enum {
@@ -3053,6 +3054,7 @@ static struct bonding_req *bonding_request_new(DBusMessage *msg,
 
 	bonding->msg = dbus_message_ref(msg);
 	bonding->bdaddr_type = bdaddr_type;
+	bonding->retry_attempts = 3;
 
 	bonding->cb_iter = btd_adapter_pin_cb_iter_new(device->adapter);
 
@@ -7164,6 +7166,11 @@ int device_bonding_attempt_retry(struct btd_device *device)
 
 	if (!bonding)
 		return -EINVAL;
+
+	if (bonding->retry_attempts-- <= 0) {
+		DBG("Reached max attempts for retry");
+		return -EINVAL;
+	}
 
 	/* Mark the end of a bonding attempt to compute the delta for the
 	 * retry. */
