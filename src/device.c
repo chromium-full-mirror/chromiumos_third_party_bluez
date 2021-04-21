@@ -5537,11 +5537,8 @@ static struct btd_service *probe_service(struct btd_device *device,
 		return NULL;
 
 	l = find_service_with_profile(device->services, profile);
-	/* If the service already exists, return NULL so that it won't be added
-	 * to the device->services.
-	 */
 	if (l)
-		return NULL;
+		return l->data;
 
 	service = service_create(device, profile);
 	err = service_probe(service);
