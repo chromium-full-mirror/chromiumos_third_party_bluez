@@ -536,7 +536,7 @@ static void store_adapter_info(struct btd_adapter *adapter)
 	char filename[PATH_MAX];
 	char *str;
 	gsize length = 0;
-	char **uuid_str_arr = NULL;
+	char **uuid_str_arr;
 	guint num_of_uuid = 0;
 	int i;
 
