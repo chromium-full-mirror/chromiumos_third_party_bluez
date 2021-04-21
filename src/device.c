@@ -2223,51 +2223,16 @@ static int service_prio_cmp(gconstpointer a, gconstpointer b)
 	return p2->priority - p1->priority;
 }
 
-void btd_device_update_is_blocked_by_policy(struct btd_device *dev)
-{
-	struct btd_adapter *adapter = dev->adapter;
-	struct btd_service *service;
-	struct btd_profile *profile;
-	GSList *l;
-	bool auto_connect = false;
-
-	/* If service discover is ongoing, let the service discover complete
-	 * callback call this function.
-	 */
-	if (dev->browse)
-		return;
-
-	for (l = dev->services; l != NULL; l = g_slist_next(l)) {
-		service = l->data;
-		profile = btd_service_get_profile(service);
-
-		if (!profile->auto_connect)
-			continue;
-
-		if (profile->accept &&
-			!btd_service_is_blocked_by_policy(service))
-			auto_connect = true;
-	}
-
-	if (!dev->disable_auto_connect)
-		device_set_auto_connect(dev, auto_connect);
-}
-
 static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 {
 	struct btd_service *service;
 	struct btd_profile *p;
 	GSList *l;
-	bool is_blocked;
 
 	if (uuid) {
 		service = find_connectable_service(dev, uuid);
-		is_blocked = !btd_adapter_uuid_is_allowed(dev->adapter,	uuid);
-
-		if (service && !is_blocked)
+		if (service)
 			return g_slist_prepend(dev->pending, service);
-		else if (is_blocked)
-			info("service %s is blocked by policy", uuid);
 
 		return dev->pending;
 	}
@@ -2275,16 +2240,9 @@ static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 	for (l = dev->services; l != NULL; l = g_slist_next(l)) {
 		service = l->data;
 		p = btd_service_get_profile(service);
-		is_blocked = !btd_adapter_uuid_is_allowed(dev->adapter,
-								p->remote_uuid);
 
 		if (!p->auto_connect)
 			continue;
-
-		if (is_blocked) {
-			info("service %s is blocked by policy", p->remote_uuid);
-			continue;
-		}
 
 		if (g_slist_find(dev->pending, service))
 			continue;
@@ -3055,8 +3013,6 @@ static void device_svc_resolved(struct btd_device *dev, uint8_t browse_type,
 							dev->svc_callbacks);
 		g_free(cb);
 	}
-
-	btd_device_update_is_blocked_by_policy(dev);
 }
 
 static struct bonding_req *bonding_request_new(DBusMessage *msg,
@@ -5530,10 +5486,9 @@ static struct btd_service *probe_service(struct btd_device *device,
 	}
 
 	/* Only set auto connect if profile has set the flag and can really
-	 * accept connections and is not blocked by policy.
+	 * accept connections.
 	 */
-	if (profile->auto_connect && profile->accept &&
-				!btd_service_is_blocked_by_policy(service))
+	if (profile->auto_connect && profile->accept)
 		device_set_auto_connect(device, TRUE);
 
 	return service;

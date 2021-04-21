@@ -41,8 +41,6 @@ struct btd_profile {
 	 */
 	bool external;
 
-	bool is_blocked_by_policy;
-
 	int (*device_probe) (struct btd_service *service);
 	void (*device_remove) (struct btd_service *service);
 
@@ -55,8 +53,6 @@ struct btd_profile {
 						struct btd_adapter *adapter);
 	void (*adapter_remove) (struct btd_profile *p,
 						struct btd_adapter *adapter);
-
-	bool (*mandatory_services_are_allowed)(struct btd_service *service);
 };
 
 void btd_profile_foreach(void (*func)(struct btd_profile *p, void *data),
@@ -80,7 +76,6 @@ bool btd_profile_add_custom_prop(const char *uuid, const char *type,
 					btd_profile_prop_get get,
 					void *user_data);
 bool btd_profile_remove_custom_prop(const char *uuid, const char *name);
-void btd_profile_policy_update(struct btd_adapter *adapter);
 
 void btd_profile_init(void);
 void btd_profile_cleanup(void);

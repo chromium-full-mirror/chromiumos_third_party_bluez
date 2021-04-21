@@ -180,20 +180,6 @@ void service_remove(struct btd_service *service)
 	btd_service_unref(service);
 }
 
-bool btd_service_is_blocked_by_policy(struct btd_service *service)
-{
-	struct btd_adapter *adapter;
-
-	if (!service->profile->mandatory_services_are_allowed) {
-		adapter = device_get_adapter(service->device);
-
-		return !btd_adapter_uuid_is_allowed(adapter,
-						service->profile->remote_uuid);
-	}
-
-	return !service->profile->mandatory_services_are_allowed(service);
-}
-
 int service_accept(struct btd_service *service)
 {
 	char addr[18];
@@ -214,17 +200,11 @@ int service_accept(struct btd_service *service)
 	if (!service->profile->accept)
 		return -ENOSYS;
 
-	if (btd_service_is_blocked_by_policy(service)) {
-		info("service %s is blocked by policy",
-						service->profile->remote_uuid);
-
-		return -ECONNABORTED;
-	}
-
 	ba2str(device_get_address(service->device), addr);
 	metrics_profile_connection_state_changed(addr,
 			service->profile->remote_uuid,
 			PROFILE_CONN_STATE_STARTING);
+
 	err = service->profile->accept(service);
 	if (!err)
 		goto done;

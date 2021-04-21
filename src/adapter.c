@@ -81,7 +81,6 @@
 #include "gatt-database.h"
 #include "advertising.h"
 #include "adv_monitor.h"
-#include "admin_policy.h"
 #include "eir.h"
 #include "metrics.h"
 #include "battery.h"
@@ -300,8 +299,6 @@ struct btd_adapter {
 	struct btd_adv_monitor_manager *adv_monitor_manager;
 
 	struct btd_battery_provider_manager *battery_provider_manager;
-
-	struct btd_admin_policy *admin_policy;
 
 	gboolean initialized;
 
@@ -4156,32 +4153,6 @@ failed:
 	return btd_error_failed(msg, "Failed to get supported capabilities");
 }
 
-static void disconnect_device(gpointer data, gpointer user_data)
-{
-	struct btd_device *device = data;
-
-	if (btd_device_is_connected(device))
-		device_request_disconnect(device, NULL);
-}
-
-void btd_adapter_disconnect_all_devices(struct btd_adapter *adapter)
-{
-	g_slist_foreach(adapter->connections, disconnect_device, NULL);
-}
-
-static void update_device_is_blocked_by_policy(void *data, void *user_data)
-{
-	struct btd_device *device = data;
-
-	btd_device_update_is_blocked_by_policy(device);
-}
-
-void btd_adapter_refresh_is_blocked_by_policy(struct btd_adapter *adapter)
-{
-	g_slist_foreach(adapter->devices, update_device_is_blocked_by_policy,
-									NULL);
-}
-
 static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_ASYNC_METHOD("StartDiscovery", NULL, NULL, start_discovery) },
 	{ GDBUS_METHOD("SetDiscoveryFilter",
@@ -5405,7 +5376,7 @@ static void probe_profile(struct btd_profile *profile, void *data)
 	struct btd_adapter *adapter = data;
 	int err;
 
-	if (profile->adapter_probe == NULL || profile->is_blocked_by_policy)
+	if (profile->adapter_probe == NULL)
 		return;
 
 	err = profile->adapter_probe(profile, adapter);
@@ -7149,9 +7120,6 @@ static void adapter_remove(struct btd_adapter *adapter)
 	btd_battery_provider_manager_destroy(adapter->battery_provider_manager);
 	adapter->battery_provider_manager = NULL;
 
-	btd_admin_policy_destroy(adapter->admin_policy);
-	adapter->admin_policy = NULL;
-
 	g_slist_free(adapter->pin_callbacks);
 	adapter->pin_callbacks = NULL;
 
@@ -7648,14 +7616,6 @@ static void device_found_callback(uint16_t index, uint16_t length,
 struct agent *adapter_get_agent(struct btd_adapter *adapter)
 {
 	return agent_get(NULL);
-}
-
-bool btd_adapter_uuid_is_allowed(struct btd_adapter *adapter, const char *uuid)
-{
-	if (!adapter || !adapter->admin_policy)
-		return true;
-
-	return btd_admin_policy_uuid_is_allowed(adapter->admin_policy, uuid);
 }
 
 static void adapter_remove_connection(struct btd_adapter *adapter,
@@ -9464,9 +9424,6 @@ static int adapter_register(struct btd_adapter *adapter)
 		adapter_set_io_capability(adapter, io_cap);
 		agent_unref(agent);
 	}
-
-	if (g_dbus_get_flags() & G_DBUS_FLAG_ENABLE_EXPERIMENTAL)
-		adapter->admin_policy = btd_admin_policy_create(adapter);
 
 	/* Don't start GATT database and advertising managers on
 	 * non-LE controllers.
