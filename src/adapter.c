@@ -8573,8 +8573,9 @@ static void bonding_attempt_complete(struct btd_adapter *adapter,
 	else
 		device = btd_adapter_find_device(adapter, bdaddr, addr_type);
 
-	if (status == MGMT_STATUS_AUTH_FAILED && adapter->pincode_requested) {
-		/* On faliure, issue a bonding_retry if possible. */
+	if ((status == MGMT_STATUS_AUTH_FAILED && adapter->pincode_requested) ||
+		 status == MGMT_STATUS_CONNECT_NOT_ESTD) {
+		/* On failure, issue a bonding_retry if possible. */
 		if (device != NULL) {
 			if (device_bonding_attempt_retry(device) == 0)
 				return;
