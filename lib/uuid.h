@@ -30,7 +30,6 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include <glib.h>
 
 #define GENERIC_AUDIO_UUID	"00001203-0000-1000-8000-00805f9b34fb"
 
@@ -181,8 +180,6 @@ int bt_uuid128_create(bt_uuid_t *btuuid, uint128_t value);
 
 int bt_uuid_cmp(const bt_uuid_t *uuid1, const bt_uuid_t *uuid2);
 void bt_uuid_to_uuid128(const bt_uuid_t *src, bt_uuid_t *dst);
-guint bt_uuid_hash(gconstpointer key);
-gboolean bt_uuid_equal(gconstpointer v1, gconstpointer v2);
 
 #define MAX_LEN_UUID_STR 37
 
