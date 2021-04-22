@@ -106,6 +106,8 @@
 #define PATHLOSS_MAX		137
 
 #define SUPPORTED_CAPABILITY_WBS		"wide band speech"
+
+#define DEVICE_INFO_UPDATE_INTERVAL_SECS 14400
 /*
  * These are known security keys that have been compromised.
  * If this grows or there are needs to be platform specific, it is
@@ -329,6 +331,7 @@ struct btd_adapter {
 
 	bool le_simult_roles_supported;
 	bool quality_report_supported;
+	unsigned int log_dev_info_timer_id;
 };
 
 typedef enum {
@@ -6032,6 +6035,13 @@ static void adapter_start(struct btd_adapter *adapter)
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
 	metrics_adapter_state_changed(true);
+	if (adapter->log_dev_info_timer_id == 0) {
+		device_log_devices_info(adapter->devices);
+		adapter->log_dev_info_timer_id = timeout_add_seconds(
+				DEVICE_INFO_UPDATE_INTERVAL_SECS,
+				device_log_devices_info, adapter->devices,
+				NULL);
+	}
 
 	info("adapter %s has been enabled", adapter->path);
 
@@ -6153,6 +6163,9 @@ static void adapter_free(gpointer user_data)
 
 	if (adapter->pair_device_timeout > 0)
 		timeout_remove(adapter->pair_device_timeout);
+
+	if (adapter->log_dev_info_timer_id > 0)
+		timeout_remove(adapter->log_dev_info_timer_id);
 
 	if (adapter->auth_idle_id)
 		g_source_remove(adapter->auth_idle_id);
@@ -7811,6 +7824,11 @@ static void adapter_stop(struct btd_adapter *adapter)
 
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
+
+	if (adapter->log_dev_info_timer_id > 0) {
+		timeout_remove(adapter->log_dev_info_timer_id);
+		adapter->log_dev_info_timer_id = 0;
+	}
 	metrics_adapter_state_changed(false);
 
 	info("adapter %s has been disabled", adapter->path);

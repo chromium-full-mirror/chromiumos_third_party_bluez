@@ -41,6 +41,11 @@
 #define STATE_CHANGE_TYPE_DISCONNECT 0
 #define STATE_CHANGE_TYPE_CONNECT 1
 
+#define DEVICE_MAJOR_CLASS_MASK 0x1F00
+#define DEVICE_MAJOR_CLASS_BIT_OFFSET 8
+#define DEVICE_CATEGORY_MASK 0xFFC0
+#define DEVICE_CATEGORY_BIT_OFFSET 6
+
 struct metrics_timer {
 	metrics_timer_type type;
 	struct timespec start;
@@ -1257,4 +1262,29 @@ void metrics_profile_disconnection_state_changed(const char *device_id,
 	BluetoothProfileConnectionStateChanged(get_system_time_micros(),
 					device_id, STATE_CHANGE_TYPE_DISCONNECT,
 					profile, state);
+}
+
+void metrics_device_info_report(const char *device_id,
+				metrics_discovery_type device_type,
+				int class,
+				int appearance,
+				int vendor_id,
+				int vendor_id_source,
+				int product_id,
+				int version)
+{
+	int major_class = (class & DEVICE_MAJOR_CLASS_MASK)
+			>> DEVICE_MAJOR_CLASS_BIT_OFFSET;
+	int category = (appearance & DEVICE_CATEGORY_MASK)
+			>> DEVICE_CATEGORY_BIT_OFFSET;
+
+	DBG("Device info report: %s %d %d %d %d %d %d %d",
+			device_id, device_type,
+			major_class, category, vendor_id,
+			vendor_id_source, product_id, version);
+	BluetoothDeviceInfoReport(get_system_time_micros(),
+					device_id, device_type, major_class,
+					category, vendor_id,
+					vendor_id_source, product_id,
+					version);
 }

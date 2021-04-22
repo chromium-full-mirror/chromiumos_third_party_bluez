@@ -545,6 +545,53 @@ static bool device_address_is_private(struct btd_device *dev)
 	}
 }
 
+static void log_device_info(struct btd_device *device)
+{
+	int vendor_id = 0;
+	int product_id = 0;
+	int version = 0;
+	char addr[18];
+	metrics_discovery_type device_type = DISCOVERY_TYPE_END;
+
+	if (device->temporary || device_address_is_private(device))
+		return;
+
+	DBG("Log device info: %s", device->name);
+
+	ba2str(&device->bdaddr, addr);
+
+	if (device->bredr && device->le)
+		device_type = DISCOVERY_TYPE_DUAL;
+	else if (device->bredr)
+		device_type = DISCOVERY_TYPE_BREDR;
+	else if (device->le)
+		device_type = DISCOVERY_TYPE_LE;
+
+	if (device->vendor_src) {
+		vendor_id = device->vendor;
+		product_id = device->product;
+		version = device->version;
+	}
+
+	metrics_device_info_report(addr, device_type,
+			device->class, device->appearance,
+			vendor_id, device->vendor_src,
+			product_id, version);
+}
+
+bool device_log_devices_info(gpointer user_data)
+{
+	GSList *l;
+
+	for (l = user_data; l != NULL; l = g_slist_next(l)) {
+		struct btd_device *device = l->data;
+
+		log_device_info(device);
+	}
+
+	return TRUE;
+}
+
 static void store_device_info(struct btd_device *device)
 {
 	if (device->temporary || device->store_id > 0)
@@ -5082,6 +5129,7 @@ void device_set_class(struct btd_device *device, uint32_t class)
 
 	device->class = class;
 
+	log_device_info(device);
 	store_device_info(device);
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
@@ -5105,6 +5153,7 @@ void device_update_addr(struct btd_device *device, const bdaddr_t *bdaddr,
 	bacpy(&device->bdaddr, bdaddr);
 	device->bdaddr_type = bdaddr_type;
 
+	log_device_info(device);
 	store_device_info(device);
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
@@ -5119,6 +5168,7 @@ void device_set_bredr_support(struct btd_device *device)
 		return;
 
 	device->bredr = true;
+	log_device_info(device);
 	store_device_info(device);
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 					DEVICE_INTERFACE, "Type");
@@ -5132,6 +5182,7 @@ void device_set_le_support(struct btd_device *device, uint8_t bdaddr_type)
 	device->le = true;
 	device->bdaddr_type = bdaddr_type;
 
+	log_device_info(device);
 	store_device_info(device);
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 					DEVICE_INTERFACE, "Type");
@@ -7736,6 +7787,7 @@ void device_set_appearance(struct btd_device *device, uint16_t value)
 
 	device->appearance = value;
 	store_device_info(device);
+	log_device_info(device);
 }
 
 void btd_device_set_pnpid(struct btd_device *device, uint16_t source,
@@ -7757,6 +7809,7 @@ void btd_device_set_pnpid(struct btd_device *device, uint16_t source,
 						DEVICE_INTERFACE, "Modalias");
 
 	store_device_info(device);
+	log_device_info(device);
 }
 
 uint32_t btd_device_get_current_flags(struct btd_device *dev)

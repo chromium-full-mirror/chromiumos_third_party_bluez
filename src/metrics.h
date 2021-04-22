@@ -437,4 +437,12 @@ void metrics_profile_connection_state_changed(const char *device_id,
 void metrics_profile_disconnection_state_changed(const char *device_id,
 				const char *uuid,
 				enum metrics_profile_disconn_state state);
+void metrics_device_info_report(const char *device_id,
+				metrics_discovery_type device_type,
+				int class,
+				int appearance,
+				int vendor_id,
+				int vendor_id_source,
+				int product_id,
+				int version);
 #endif  // BLUEZ_METRICS_H_

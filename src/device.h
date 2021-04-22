@@ -195,3 +195,4 @@ void btd_device_flags_changed(struct btd_device *dev, uint32_t supported_flags,
 void btd_device_update_is_blocked_by_policy(struct btd_device *dev);
 void btd_device_init(void);
 void btd_device_cleanup(void);
+bool device_log_devices_info(gpointer user_data);
