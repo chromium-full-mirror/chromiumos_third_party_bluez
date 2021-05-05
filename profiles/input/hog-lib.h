@@ -39,3 +39,5 @@ void bt_hog_detach(struct bt_hog *hog);
 
 int bt_hog_set_control_point(struct bt_hog *hog, bool suspend);
 int bt_hog_send_report(struct bt_hog *hog, void *data, size_t size, int type);
+
+void bt_hog_set_uhid_cache_filename(struct bt_hog *hog, char *filename);
