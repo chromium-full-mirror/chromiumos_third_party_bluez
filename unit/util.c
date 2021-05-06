@@ -127,6 +127,7 @@ gboolean test_timeout(gpointer user_data)
 		return FALSE;
 
 	d->err = g_error_new(TEST_ERROR, TEST_ERROR_TIMEOUT, "Timed out");
+	d->timer_id = 0;
 
 	g_main_loop_quit(d->mainloop);
 
@@ -199,7 +200,7 @@ send:
 	return TRUE;
 
 failed:
+	d->io_id = 0;
 	g_main_loop_quit(d->mainloop);
-	d->io_completed = TRUE;
 	return FALSE;
 }
