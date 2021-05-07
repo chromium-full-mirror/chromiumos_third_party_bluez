@@ -50,6 +50,7 @@
 #include "lib/uuid.h"
 #include "lib/mgmt.h"
 #include "lib/sdp.h"
+#include "lib/uuid.h"
 
 #include "gdbus/gdbus.h"
 
@@ -327,6 +328,7 @@ struct btd_adapter {
 	GHashTable *capability_dict;
 
 	bool le_simult_roles_supported;
+	bool quality_report_supported;
 };
 
 typedef enum {
@@ -10146,6 +10148,8 @@ static void read_exp_features_complete(uint8_t status, uint16_t length,
 	struct btd_adapter *adapter = user_data;
 	const struct mgmt_rp_read_exp_features_info *rp = param;
 	size_t feature_count = 0;
+	bt_uuid_t btuuid;
+	uint8_t quality_report_uuid[16];
 	size_t i = 0;
 
 	DBG("index %u status 0x%02x", adapter->dev_id, status);
@@ -10162,6 +10166,9 @@ static void read_exp_features_complete(uint8_t status, uint16_t length,
 		return;
 	}
 
+	bt_string_to_uuid(&btuuid, BT_FEATURE_QUALITY_REPORT_UUID);
+	bt_uuid_to_le(&btuuid, quality_report_uuid);
+
 	feature_count = le16_to_cpu(rp->feature_count);
 	for (i = 0; i < feature_count; ++i) {
 
@@ -10176,8 +10183,15 @@ static void read_exp_features_complete(uint8_t status, uint16_t length,
 			uint32_t flags = le32_to_cpu(rp->features[i].flags);
 
 			adapter->le_simult_roles_supported = flags & 0x01;
+		} else if (memcmp(rp->features[i].uuid, quality_report_uuid,
+				sizeof(quality_report_uuid)) == 0) {
+			uint32_t flags = le32_to_cpu(rp->features[i].flags);
+
+			adapter->quality_report_supported = flags & 0x01;
 		}
 	}
+	btd_info(adapter->dev_id, "quality_report_supported %d",
+			adapter->quality_report_supported);
 }
 
 static void read_exp_features(struct btd_adapter *adapter)

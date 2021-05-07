@@ -159,6 +159,9 @@ extern "C" {
 /* GATT Server Supported features */
 #define GATT_CHARAC_SERVER_FEAT				0x2B3A
 
+/* Experimental Feature of Quality Report */
+#define BT_FEATURE_QUALITY_REPORT_UUID "330859bc-7506-492d-9370-9a6f0614037f"
+
 typedef struct {
 	enum {
 		BT_UUID_UNSPEC = 0,
