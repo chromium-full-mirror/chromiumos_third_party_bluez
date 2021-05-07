@@ -686,8 +686,10 @@ static void handle_debug_property_changed(GDBusProxy *proxy, const char *name,
 	const char *interface = g_dbus_proxy_get_interface(proxy);
 
 	if (!strcmp(interface, DEBUG_INTERFACE)) {
-		if (!strcmp(name, DEBUG_BLUEZ_PROPERTY))
+		if (!strcmp(name, DEBUG_BLUEZ_PROPERTY)) {
 			update_bluez_debug(iter);
+			btd_adapter_update_kernel_quality_report(iter);
+		}
 		if (!strcmp(name, DEBUG_KERNEL_PROPERTY))
 			update_kernel_debug(iter);
 	}
@@ -702,6 +704,7 @@ static void handle_debug_proxy_added(GDBusProxy *proxy, void *user_data)
 		if (g_dbus_proxy_get_property(proxy, DEBUG_BLUEZ_PROPERTY,
 								&iter)) {
 			update_bluez_debug(&iter);
+			btd_adapter_update_kernel_quality_report(&iter);
 		}
 		if (g_dbus_proxy_get_property(proxy, DEBUG_KERNEL_PROPERTY,
 								&iter)) {
