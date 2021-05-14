@@ -115,7 +115,6 @@ struct bt_hog {
 	size_t			report_map_len;
 	int			discovery_req_count;
 	bool			uhid_info_ready;
-	char			*uhid_cache_filename;
 };
 
 struct report {
@@ -429,101 +428,6 @@ static void inc_uhid_discovery_req(struct bt_hog *hog)
 	__sync_fetch_and_add(&hog->discovery_req_count, 1);
 }
 
-static void bt_hog_store_uhid_cache(struct bt_hog *hog)
-{
-	char *str;
-	gchar *report_map;
-	gint *id, *type, *handle, *value_handle, *properties, *ccc_handle,
-		*notifyid, *len;
-	GKeyFile *key_file;
-	gsize length = 0;
-	GSList *l;
-	int i = 0, j = 0;
-	size_t num_reports = 0;
-	gchar **values;
-
-	if (!hog->uhid_cache_filename)
-		return;
-
-	key_file = g_key_file_new();
-
-	num_reports = (gsize)g_slist_length(hog->reports);
-
-	id = g_new0(gint, num_reports);
-	type = g_new0(gint, num_reports);
-	handle = g_new0(gint, num_reports);
-	value_handle = g_new0(gint, num_reports);
-	properties = g_new0(gint, num_reports);
-	ccc_handle = g_new0(gint, num_reports);
-	notifyid = g_new0(gint, num_reports);
-	len = g_new0(gint, num_reports);
-	values = g_new0(gchar *, num_reports);
-
-	for (l = hog->reports; l; l = l->next, i++) {
-		struct report *r = l->data;
-
-		id[i] = (gint)r->id;
-		type[i] = (gint)r->type;
-		handle[i] = (gint)r->handle;
-		value_handle[i] = (gint)r->value_handle;
-		properties[i] = (gint)r->properties;
-		ccc_handle[i] = (gint)r->ccc_handle;
-		notifyid[i] = (gint)r->notifyid;
-		len[i] = (gint)r->len;
-		values[i] = g_base64_encode(r->value, r->len);
-	}
-
-	g_key_file_set_integer_list(key_file, "Report", "id", id, num_reports);
-	g_key_file_set_integer_list(key_file, "Report", "type", type,
-				    num_reports);
-	g_key_file_set_integer_list(key_file, "Report", "handle", handle,
-				    num_reports);
-	g_key_file_set_integer_list(key_file, "Report", "value_handle",
-				    value_handle, num_reports);
-	g_key_file_set_integer_list(key_file, "Report", "properties",
-				    properties, num_reports);
-	g_key_file_set_integer_list(key_file, "Report", "ccc_handle",
-				    ccc_handle, num_reports);
-	g_key_file_set_integer_list(key_file, "Report", "notifyid", notifyid,
-				    num_reports);
-	g_key_file_set_integer_list(key_file, "Report", "len", len,
-				    num_reports);
-	g_key_file_set_string_list(key_file, "Report", "values",
-				   (const gchar *const *)values, num_reports);
-	g_key_file_set_integer(key_file, "Report", "num_reports", num_reports);
-
-	report_map = g_base64_encode(hog->report_map, hog->report_map_len);
-	g_key_file_set_string(key_file, "ReportMap", "report_map", report_map);
-	g_key_file_set_integer(key_file, "ReportMap", "report_map_len",
-			       hog->report_map_len);
-	g_key_file_set_integer(key_file, "General", "bcdhid", hog->bcdhid);
-	g_key_file_set_integer(key_file, "General", "bcountrycode",
-			       hog->bcountrycode);
-	g_key_file_set_integer(key_file, "General", "proto_mode_handle",
-			       hog->proto_mode_handle);
-	g_key_file_set_integer(key_file, "General", "ctrlpt_handle",
-			       hog->ctrlpt_handle);
-	g_key_file_set_integer(key_file, "General", "flags", hog->flags);
-
-	str = g_key_file_to_data(key_file, &length, NULL);
-	g_file_set_contents(hog->uhid_cache_filename, str, length, NULL);
-
-	for (i = 0; i < num_reports; i++)
-		g_free(values[i]);
-	g_free(values);
-	g_free(id);
-	g_free(type);
-	g_free(handle);
-	g_free(value_handle);
-	g_free(properties);
-	g_free(ccc_handle);
-	g_free(notifyid);
-	g_free(len);
-	g_free(report_map);
-	g_free(str);
-	g_key_file_free(key_file);
-}
-
 static void uhid_create(struct bt_hog *hog);
 
 static void uhid_create_if_ready(struct bt_hog *hog)
@@ -534,7 +438,6 @@ static void uhid_create_if_ready(struct bt_hog *hog)
 		hog->uhid_info_ready = true;
 		uhid_create(hog);
 		setup_input_report_notifiers(hog);
-		bt_hog_store_uhid_cache(hog);
 	}
 }
 
@@ -691,19 +594,17 @@ static struct report *report_new(struct bt_hog *hog, struct gatt_char *chr)
 	struct report *report;
 	GSList *l;
 
-	/* Update if report already exists */
+	/* Skip if report already exists */
 	l = g_slist_find_custom(hog->reports, chr, report_chrc_cmp);
-	if (l) {
-		report = l->data;
-	} else {
-		report = g_new0(struct report, 1);
-		hog->reports = g_slist_append(hog->reports, report);
-	}
+	if (l)
+		return l->data;
 
+	report = g_new0(struct report, 1);
 	report->hog = hog;
 	report->handle = chr->handle;
 	report->value_handle = chr->value_handle;
 	report->properties = chr->properties;
+	hog->reports = g_slist_append(hog->reports, report);
 
 	read_char(hog, hog->attrib, chr->value_handle, report_read_cb, report);
 
@@ -1461,7 +1362,6 @@ static void hog_free(void *data)
 	queue_destroy(hog->gatt_op, (void *) destroy_gatt_req);
 	if (hog->gatt_db)
 		gatt_db_unref(hog->gatt_db);
-	g_free(hog->uhid_cache_filename);
 	g_free(hog);
 	memtrack_remove_alloc(hog);
 }
@@ -1606,7 +1506,7 @@ static void foreach_hog_chrc(struct gatt_db_attribute *attr, void *user_data)
 	bt_uuid16_create(&report_map_uuid, HOG_REPORT_MAP_UUID);
 	if (!bt_uuid_cmp(&report_map_uuid, &uuid)) {
 
-		if (hog->gatt_db && !hog->report_map) {
+		if (hog->gatt_db) {
 			/* Try to read the cache of report map if available */
 			db_report_map_read(hog, value_handle);
 		}
@@ -1893,121 +1793,6 @@ static void primary_cb(uint8_t status, GSList *services, void *user_data)
 	}
 }
 
-static bool bt_hog_load_uhid_cache(struct bt_hog *hog)
-{
-	bool success = false;
-	gchar *report_map = NULL, **values = NULL;
-	gint *id = NULL, *type = NULL, *handle = NULL, *value_handle = NULL,
-	     *properties = NULL, *ccc_handle = NULL, *notifyid = NULL,
-	     *len = NULL;
-	GKeyFile *key_file = NULL;
-	GSList *l;
-	int i = 0, j = 0;
-	size_t num_id = 0, num_type = 0, num_handle = 0, num_value_handle = 0,
-	       num_properties = 0, num_ccc_handle = 0, num_notifyid = 0,
-	       num_len = 0, value_len = 0, num_reports = 0, report_map_len = 0;
-	struct report *reports = NULL;
-
-	if (!hog->uhid_cache_filename)
-		return false;
-
-	key_file = g_key_file_new();
-	if (!g_key_file_load_from_file(key_file, hog->uhid_cache_filename, 0,
-				       NULL))
-		goto exit;
-
-	num_reports =
-		g_key_file_get_integer(key_file, "Report", "num_reports", NULL);
-	if (!num_reports)
-		goto exit;
-
-	reports = g_new0(struct report, num_reports);
-
-	id = g_key_file_get_integer_list(key_file, "Report", "id", &num_id,
-					 NULL);
-	type = g_key_file_get_integer_list(key_file, "Report", "type",
-					   &num_type, NULL);
-	handle = g_key_file_get_integer_list(key_file, "Report", "handle",
-					     &num_handle, NULL);
-	value_handle = g_key_file_get_integer_list(
-		key_file, "Report", "value_handle", &num_value_handle, NULL);
-	properties = g_key_file_get_integer_list(
-		key_file, "Report", "properties", &num_properties, NULL);
-	ccc_handle = g_key_file_get_integer_list(
-		key_file, "Report", "ccc_handle", &num_ccc_handle, NULL);
-	notifyid = g_key_file_get_integer_list(key_file, "Report", "notifyid",
-					       &num_notifyid, NULL);
-	len = g_key_file_get_integer_list(key_file, "Report", "len", &num_len,
-					  NULL);
-
-	if (num_reports != num_id && num_reports != num_type &&
-	    num_reports != num_handle && num_reports != num_value_handle &&
-	    num_reports != num_properties && num_reports != num_ccc_handle &&
-	    num_reports != num_notifyid && num_reports != num_len)
-		goto exit;
-
-	report_map_len = g_key_file_get_integer(key_file, "ReportMap",
-						"report_map_len", NULL);
-	report_map = g_key_file_get_string(key_file, "ReportMap", "report_map",
-					   NULL);
-
-	hog->bcdhid =
-		g_key_file_get_integer(key_file, "General", "bcdhid", NULL);
-	hog->bcountrycode = g_key_file_get_integer(key_file, "General",
-						   "bcountrycode", NULL);
-	hog->proto_mode_handle = g_key_file_get_integer(
-		key_file, "General", "proto_mode_handle", NULL);
-	hog->ctrlpt_handle = g_key_file_get_integer(key_file, "General",
-						    "ctrlpt_handle", NULL);
-	hog->flags = g_key_file_get_integer(key_file, "General", "flags", NULL);
-
-	g_free(hog->report_map);
-	hog->report_map = g_base64_decode(report_map, &hog->report_map_len);
-	if (hog->report_map_len != report_map_len ||
-	    !parse_report_map(hog->report_map, hog->report_map_len,
-			      &hog->has_report_id))
-		goto exit;
-
-	values = g_key_file_get_string_list(key_file, "Report", "values", NULL,
-					    NULL);
-	for (i = 0; i < num_reports; i++) {
-		g_base64_decode_inplace(values[i], &value_len);
-		if (len[i] != value_len)
-			goto exit;
-
-		reports[i].value = g_new0(uint8_t, len[i]);
-		memcpy(reports[i].value, values[i], value_len);
-
-		reports[i].hog = hog;
-		reports[i].id = id[i];
-		reports[i].type = type[i];
-		reports[i].handle = handle[i];
-		reports[i].value_handle = value_handle[i];
-		reports[i].properties = properties[i];
-		reports[i].ccc_handle = ccc_handle[i];
-		reports[i].notifyid = notifyid[i];
-		reports[i].len = len[i];
-		hog->reports = g_slist_append(hog->reports, &reports[i]);
-	}
-
-	success = true;
-
-exit:
-	g_strfreev(values);
-	g_free(id);
-	g_free(type);
-	g_free(handle);
-	g_free(value_handle);
-	g_free(properties);
-	g_free(ccc_handle);
-	g_free(notifyid);
-	g_free(len);
-	g_free(report_map);
-	g_key_file_free(key_file);
-
-	return success;
-}
-
 bool bt_hog_attach(struct bt_hog *hog, void *gatt)
 {
 	GSList *l;
@@ -2017,10 +1802,6 @@ bool bt_hog_attach(struct bt_hog *hog, void *gatt)
 		return false;
 
 	hog->attrib = g_attrib_ref(gatt);
-
-	if (bt_hog_load_uhid_cache(hog)) {
-		hog->uhid_info_ready = true;
-	}
 
 	if (!hog->attr && hog->gatt_db) {
 		bt_uuid16_create(&uuid, HOG_UUID16);
@@ -2184,9 +1965,4 @@ int bt_hog_send_report(struct bt_hog *hog, void *data, size_t size, int type)
 	}
 
 	return 0;
-}
-
-void bt_hog_set_uhid_cache_filename(struct bt_hog *hog, char *filename)
-{
-	hog->uhid_cache_filename = filename;
 }
