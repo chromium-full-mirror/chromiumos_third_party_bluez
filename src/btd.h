@@ -124,6 +124,7 @@ struct btd_opts {
 	gboolean	debug_keys;
 	gboolean	fast_conn;
 	gboolean	refresh_discovery;
+	gboolean	experimental;
 
 	uint16_t	did_source;
 	uint16_t	did_vendor;
