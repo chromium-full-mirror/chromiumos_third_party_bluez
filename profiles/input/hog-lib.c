@@ -129,7 +129,6 @@ struct report {
 	guint			notifyid;
 	uint16_t		len;
 	uint8_t			*value;
-	bool			constant;
 };
 
 struct gatt_request {
@@ -1036,12 +1035,6 @@ static void get_report(struct uhid_event *ev, void *user_data)
 		goto fail;
 	}
 
-	/* use the cached report value if constant */
-	if (report->len && report->value && report->constant) {
-		report_reply(hog, 0, report->id, report->len, report->value);
-		return;
-	}
-
 	hog->getrep_att = gatt_read_char(hog->attrib,
 						report->value_handle,
 						get_report_cb, report);
@@ -1120,14 +1113,12 @@ static char *item2string(char *str, const uint8_t *buf, uint8_t len)
 }
 
 static bool parse_report_map(const uint8_t *report_map, ssize_t report_map_len,
-			     gboolean *has_report_id,
-			     uint8_t *constant_report_ids,
-			     size_t *constant_report_count)
+							gboolean *has_report_id)
 {
 	const uint8_t *value = report_map;
-	ssize_t vlen = report_map_len, idlen = 0;
+	ssize_t vlen = report_map_len;
 	char itemstr[20]; /* 5x3 (data) + 4 (continuation) + 1 (null) */
-	int i, collection_depth = 0, report_id = 0;
+	int i, collection_depth = 0;
 	bool report_id_found = false;
 
 	DBG_LVL(2, "Report MAP:");
@@ -1138,25 +1129,8 @@ static bool parse_report_map(const uint8_t *report_map, ssize_t report_map_len,
 		if (get_descriptor_item_info(&value[i], vlen - i, &ilen,
 								&long_item)) {
 			/* Report ID is short item with prefix 100001xx */
-			if (!long_item && (value[i] & 0xfc) == 0x84) {
+			if (!long_item && (value[i] & 0xfc) == 0x84)
 				report_id_found = true;
-				report_id = value[i + 1];
-			}
-
-			/* Feature is short item with prefix 101100xx */
-			if (!long_item && (value[i] & 0xfc) == 0xb0) {
-				if (value[i + 1] & 0x01 && report_id &&
-				    constant_report_ids &&
-				    constant_report_count) {
-					constant_report_ids =
-						g_renew(uint8_t,
-							constant_report_ids,
-							idlen + 1);
-					constant_report_ids[idlen++] =
-						report_id;
-					*constant_report_count = idlen;
-				}
-			}
 
 			// Start Collection
 			if (value[i] == 0xa1)
@@ -1285,7 +1259,7 @@ static void report_map_read_cb(guint8 status, const guint8 *pdu, guint16 plen,
 		return;
 	}
 
-	if (!parse_report_map(value, vlen, &hog->has_report_id, NULL, NULL)) {
+	if (!parse_report_map(value, vlen, &hog->has_report_id)) {
 		error("Received invalid report map");
 		return;
 	}
@@ -1592,7 +1566,7 @@ static void db_report_map_read_value_cb(struct gatt_db_attribute *attrib,
 	if (!length)
 		return;
 
-	if (!parse_report_map(value, length, &hog->has_report_id, NULL, NULL)) {
+	if (!parse_report_map(value, length, &hog->has_report_id)) {
 		DBG("Cached report map is invalid");
 		return;
 	}
@@ -1931,10 +1905,8 @@ static bool bt_hog_load_uhid_cache(struct bt_hog *hog)
 	int i = 0, j = 0;
 	size_t num_id = 0, num_type = 0, num_handle = 0, num_value_handle = 0,
 	       num_properties = 0, num_ccc_handle = 0, num_notifyid = 0,
-	       num_len = 0, value_len = 0, num_reports = 0, report_map_len = 0,
-	       constant_report_count = 0;
+	       num_len = 0, value_len = 0, num_reports = 0, report_map_len = 0;
 	struct report *reports = NULL;
-	uint8_t *constant_report_ids = NULL;
 
 	if (!hog->uhid_cache_filename)
 		return false;
@@ -1950,7 +1922,6 @@ static bool bt_hog_load_uhid_cache(struct bt_hog *hog)
 		goto exit;
 
 	reports = g_new0(struct report, num_reports);
-	constant_report_ids = g_new0(uint8_t, 1);
 
 	id = g_key_file_get_integer_list(key_file, "Report", "id", &num_id,
 					 NULL);
@@ -1994,8 +1965,7 @@ static bool bt_hog_load_uhid_cache(struct bt_hog *hog)
 	hog->report_map = g_base64_decode(report_map, &hog->report_map_len);
 	if (hog->report_map_len != report_map_len ||
 	    !parse_report_map(hog->report_map, hog->report_map_len,
-			      &hog->has_report_id, constant_report_ids,
-			      &constant_report_count))
+			      &hog->has_report_id))
 		goto exit;
 
 	values = g_key_file_get_string_list(key_file, "Report", "values", NULL,
@@ -2007,11 +1977,6 @@ static bool bt_hog_load_uhid_cache(struct bt_hog *hog)
 
 		reports[i].value = g_new0(uint8_t, len[i]);
 		memcpy(reports[i].value, values[i], value_len);
-
-		for (j = 0; j < constant_report_count; j++) {
-			if (id[i] == constant_report_ids[j])
-				reports[i].constant = true;
-		}
 
 		reports[i].hog = hog;
 		reports[i].id = id[i];
@@ -2038,7 +2003,6 @@ exit:
 	g_free(notifyid);
 	g_free(len);
 	g_free(report_map);
-	g_free(constant_report_ids);
 	g_key_file_free(key_file);
 
 	return success;
