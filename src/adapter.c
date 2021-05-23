@@ -10142,6 +10142,49 @@ static bool set_blocked_keys(struct btd_adapter *adapter)
 						adapter, NULL);
 }
 
+/* A user space process can enable/disable the quality report feature
+ * by sending a property changed signal to the bluetoothd. The bluetoothd
+ * can set up the signal handlers in a file under plugins/ to call
+ * this function.
+ */
+void btd_adapter_update_kernel_quality_report(DBusMessageIter *iter)
+{
+	bt_uuid_t btuuid;
+	struct mgmt_cp_set_exp_feature cp;
+	struct btd_adapter *adapter;
+
+	adapter = btd_adapter_get_default();
+	if (!adapter) {
+		info("No default adapter. Skip enabling quality report.");
+		return;
+	}
+
+	if (!adapter->quality_report_supported) {
+		info("quality report feature not supported.");
+		return;
+	}
+
+	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_BYTE) {
+		error("Wrong arg type is supplied to quality report");
+		return;
+	}
+
+	memset(&cp, 0, sizeof(cp));
+	bt_string_to_uuid(&btuuid, BT_FEATURE_QUALITY_REPORT_UUID);
+	bt_uuid_to_le(&btuuid, cp.uuid);
+
+	dbus_message_iter_get_basic(iter, &cp.action);
+	if (cp.action > 1) {
+		error("Unexpected quality report action %u", cp.action);
+		return;
+	}
+
+	mgmt_send(adapter->mgmt, MGMT_OP_SET_EXP_FEATURE, adapter->dev_id,
+			sizeof(cp), &cp, NULL, NULL, NULL);
+	info("update kernel quality report default adapter %d enable %d",
+		adapter->dev_id, cp.action);
+}
+
 static void read_exp_features_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
