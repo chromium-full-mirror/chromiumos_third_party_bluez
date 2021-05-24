@@ -76,7 +76,6 @@ void input_set_auto_sec(bool state)
 
 static void hog_device_accept(struct hog_device *dev, struct gatt_db *db)
 {
-	char *filename;
 	char name[248];
 	uint16_t vendor, product, version;
 
@@ -97,9 +96,6 @@ static void hog_device_accept(struct hog_device *dev, struct gatt_db *db)
 						vendor, product, version);
 
 	dev->hog = bt_hog_new_default(name, vendor, product, version, db);
-
-	filename = btd_device_get_storage_path(dev->device, "hog-uhid-cache");
-	bt_hog_set_uhid_cache_filename(dev->hog, filename);
 }
 
 static struct hog_device *hog_device_new(struct btd_device *device)
