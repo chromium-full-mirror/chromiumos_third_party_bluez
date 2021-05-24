@@ -159,6 +159,11 @@ static const char *avdtp_options[] = {
 	NULL
 };
 
+static const char *advmon_options[] = {
+	"RSSISamplingPeriod",
+	NULL
+};
+
 static const struct group_table {
 	const char *name;
 	const char **options;
@@ -169,6 +174,7 @@ static const struct group_table {
 	{ "Policy",	policy_options },
 	{ "GATT",	gatt_options },
 	{ "AVDTP",	avdtp_options },
+	{ "AdvMon",	advmon_options },
 	{ }
 };
 
@@ -808,6 +814,18 @@ static void parse_config(GKeyFile *config)
 		g_free(str);
 	}
 
+	val = g_key_file_get_integer(config, "AdvMon", "RSSISamplingPeriod",
+									&err);
+	if (err) {
+		DBG("%s", err->message);
+		g_clear_error(&err);
+	} else {
+		val = MIN(val, 0xFF);
+		val = MAX(val, 0);
+		DBG("RSSISamplingPeriod=%d", val);
+		btd_opts.advmon.rssi_sampling_period = val;
+	}
+
 	parse_br_config(config);
 	parse_le_config(config);
 }
@@ -847,6 +865,8 @@ static void init_defaults(void)
 
 	btd_opts.avdtp.session_mode = BT_IO_MODE_BASIC;
 	btd_opts.avdtp.stream_mode = BT_IO_MODE_BASIC;
+
+	btd_opts.advmon.rssi_sampling_period = 0;
 }
 
 static void log_handler(const gchar *log_domain, GLogLevelFlags log_level,
