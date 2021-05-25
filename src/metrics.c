@@ -943,12 +943,12 @@ bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 	return metrics_send_enum(send_type, sample, true);
 }
 
-static inline long get_system_time_millis(void)
+static inline long get_system_time_micros(void)
 {
 	struct timespec current_time;
 
 	clock_gettime(CLOCK_REALTIME, &current_time);
-	return current_time.tv_sec * 1000 + current_time.tv_nsec / 1000000;
+	return current_time.tv_sec * 1000000 + current_time.tv_nsec / 1000;
 }
 
 static metrics_conn_type convert_to_device_type(int addr_type)
@@ -967,7 +967,7 @@ static metrics_conn_type convert_to_device_type(int addr_type)
 void metrics_adapter_state_changed(bool enabled)
 {
 	DBG("Adapter state changed: %d", enabled);
-	BluetoothAdapterStateChanged(get_system_time_millis(), enabled);
+	BluetoothAdapterStateChanged(get_system_time_micros(), enabled);
 }
 
 void metrics_pairing_state_changed(const char *device_id, int addr_type,
@@ -978,7 +978,7 @@ void metrics_pairing_state_changed(const char *device_id, int addr_type,
 	else if (result_type == RESULT_TYPE_SYSTEM)
 		state = convert_system_pair_result(state);
 	DBG("Pairing state changed: %s %d %d", device_id, addr_type, state);
-	BluetoothPairingStateChanged(get_system_time_millis(), device_id,
+	BluetoothPairingStateChanged(get_system_time_micros(), device_id,
 					convert_to_device_type(addr_type),
 					state);
 }
@@ -1125,7 +1125,7 @@ void metrics_acl_connection_state_changed(const char *device_id,
 {
 	DBG("ACL connection state changed: %s %d %d %d", device_id, addr_type,
 			direction, state);
-	BluetoothAclConnectionStateChanged(get_system_time_millis(), device_id,
+	BluetoothAclConnectionStateChanged(get_system_time_micros(), device_id,
 					convert_to_device_type(addr_type),
 					direction,
 					STATE_CHANGE_TYPE_CONNECT,
@@ -1151,7 +1151,7 @@ void metrics_acl_disconnection_state_changed(const char *device_id,
 {
 	DBG("ACL disconnection state changed: %s %d %d %d", device_id,
 			addr_type, direction, state);
-	BluetoothAclConnectionStateChanged(get_system_time_millis(), device_id,
+	BluetoothAclConnectionStateChanged(get_system_time_micros(), device_id,
 					convert_to_device_type(addr_type),
 					direction,
 					STATE_CHANGE_TYPE_DISCONNECT,
@@ -1217,10 +1217,9 @@ void metrics_profile_connection_state_changed(const char *device_id,
 
 	DBG("Profile connection state changed: %s %s %d %d", device_id, uuid,
 			profile, state);
-	BluetoothProfileConnectionStateChanged(get_system_time_millis(),
-					device_id, profile,
-					STATE_CHANGE_TYPE_CONNECT,
-					state);
+	BluetoothProfileConnectionStateChanged(get_system_time_micros(),
+					device_id, STATE_CHANGE_TYPE_CONNECT,
+					profile, state);
 }
 
 enum metrics_profile_disconn_state metrics_convert_profile_disconn_state(
@@ -1255,8 +1254,7 @@ void metrics_profile_disconnection_state_changed(const char *device_id,
 
 	DBG("Profile disconnection state changed: %s %s %d %d", device_id, uuid,
 			profile, state);
-	BluetoothProfileConnectionStateChanged(get_system_time_millis(),
-					device_id, profile,
-					STATE_CHANGE_TYPE_DISCONNECT,
-					state);
+	BluetoothProfileConnectionStateChanged(get_system_time_micros(),
+					device_id, STATE_CHANGE_TYPE_DISCONNECT,
+					profile, state);
 }
