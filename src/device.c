@@ -6190,7 +6190,7 @@ bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 		return false;
 	}
 
-	if (dev->att) {
+	if (btd_device_is_connected(dev) && dev->att) {
 		if (btd_opts.gatt_channels == bt_att_get_channels(dev->att)) {
 			DBG("EATT channel limit reached");
 			return false;
