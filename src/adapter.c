@@ -10165,7 +10165,7 @@ static bool set_blocked_keys(struct btd_adapter *adapter)
  * can set up the signal handlers in a file under plugins/ to call
  * this function.
  */
-void btd_adapter_update_kernel_quality_report(DBusMessageIter *iter)
+void btd_adapter_update_kernel_quality_report(uint8_t action)
 {
 	bt_uuid_t btuuid;
 	struct mgmt_cp_set_exp_feature cp;
@@ -10182,16 +10182,11 @@ void btd_adapter_update_kernel_quality_report(DBusMessageIter *iter)
 		return;
 	}
 
-	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_BYTE) {
-		error("Wrong arg type is supplied to quality report");
-		return;
-	}
-
 	memset(&cp, 0, sizeof(cp));
 	bt_string_to_uuid(&btuuid, BT_FEATURE_QUALITY_REPORT_UUID);
 	bt_uuid_to_le(&btuuid, cp.uuid);
 
-	dbus_message_iter_get_basic(iter, &cp.action);
+	cp.action = action;
 	if (cp.action > 1) {
 		error("Unexpected quality report action %u", cp.action);
 		return;

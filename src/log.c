@@ -46,7 +46,6 @@
 #include "log.h"
 
 #define LOG_IDENT "bluetoothd"
-#define MAX_BLUEZ_DEBUG_LEVEL 2
 
 static unsigned char current_bluez_debug_level = 0;
 static bool level_set_by_flag = false;

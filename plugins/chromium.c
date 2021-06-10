@@ -11,6 +11,8 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <glib.h>
 #include <dbus/dbus.h>
@@ -37,10 +39,18 @@
 
 #define DBUS_PLUGIN_INTERFACE "org.chromium.Bluetooth"
 
-#define DEBUG_OBJECT_PATH	"/org/chromium/Bluetooth"
-#define DEBUG_INTERFACE		"org.chromium.Bluetooth.Debug"
-#define DEBUG_BLUEZ_PROPERTY	"BluezLevel"
-#define DEBUG_KERNEL_PROPERTY	"KernelLevel"
+#define DEBUG_CONF_FILE_PATH		"/var/lib/bluetooth/debug.conf"
+#define DEBUG_OBJECT_PATH		"/org/chromium/Bluetooth"
+#define DEBUG_INTERFACE			"org.chromium.Bluetooth.Debug"
+#define DEBUG_BLUEZ_PROPERTY		"BluezLevel"
+#define DEBUG_KERNEL_PROPERTY		"KernelLevel"
+
+// Kernel only accepts boolean value
+#define MAX_KERNEL_DEBUG_LEVEL 1
+
+// Since we need to migrate from the old api which accepted 4 values, we need to
+// preserve 4 as the max.
+#define MAX_DEBUG_LEVELS 4
 
 #define DBUS_PLUGIN_DEVICE_INTERFACE "org.chromium.BluetoothDevice"
 
@@ -74,8 +84,6 @@ static unsigned int service_id = 0;
 static const char *services_to_reconnect[] = {
 		HSP_AG_UUID, HFP_AG_UUID, NULL };
 static GSList *retry_devices = NULL;
-
-static GDBusClient *debug_client;
 
 struct retry_data {
 	struct btd_device *dev;
@@ -640,20 +648,7 @@ static void read_version_complete(uint8_t status, uint16_t length,
 		DBUS_PATH, DBUS_PLUGIN_INTERFACE, "SupportsConnInfo");
 }
 
-static void update_bluez_debug(DBusMessageIter *iter)
-{
-	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_BYTE) {
-		error("Wrong arg type is supplied to BlueZ debug level");
-		return;
-	}
-
-	unsigned char level;
-	dbus_message_iter_get_basic(iter, &level);
-
-	btd_set_debug_level(level);
-}
-
-static void update_kernel_debug(DBusMessageIter *iter)
+static void update_kernel_debug(uint8_t level)
 {
 	/* d4992530-b9ec-469f-ab01-6c481c47da1c */
 	static const uint8_t uuid[16] = {
@@ -665,12 +660,7 @@ static void update_kernel_debug(DBusMessageIter *iter)
 	memset(&cp, 0, sizeof(cp));
 	memcpy(cp.uuid, uuid, 16);
 
-	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_BYTE) {
-		error("Wrong arg type is supplied to kernel debug level");
-		return;
-	}
-
-	dbus_message_iter_get_basic(iter, &cp.action);
+	cp.action = level;
 	if (cp.action > 1) {
 		error("Unexpected kernel debug level %u", cp.action);
 		return;
@@ -680,38 +670,154 @@ static void update_kernel_debug(DBusMessageIter *iter)
 			sizeof(cp), &cp, NULL, NULL, NULL);
 }
 
-static void handle_debug_property_changed(GDBusProxy *proxy, const char *name,
-					DBusMessageIter *iter, void *user_data)
-{
-	const char *interface = g_dbus_proxy_get_interface(proxy);
+struct debug_data {
+	uint8_t bluez;
+	uint8_t kernel;
+};
 
-	if (!strcmp(interface, DEBUG_INTERFACE)) {
-		if (!strcmp(name, DEBUG_BLUEZ_PROPERTY)) {
-			update_bluez_debug(iter);
-			btd_adapter_update_kernel_quality_report(iter);
-		}
-		if (!strcmp(name, DEBUG_KERNEL_PROPERTY))
-			update_kernel_debug(iter);
+bool read_debug_levels_from_file(struct debug_data *debug)
+{
+	FILE *fp;
+	uint8_t values[MAX_DEBUG_LEVELS];
+	int count;
+	ssize_t bytes;
+	char *line = NULL;
+	size_t len = 0;
+	long value;
+
+	fp = fopen(DEBUG_CONF_FILE_PATH, "r");
+	if (!fp)
+		return false;
+
+	for (count = 0; count < MAX_DEBUG_LEVELS; ++count) {
+		bytes = getline(&line, &len, fp);
+		if (bytes < 0)
+			break;
+
+		// Any value > UINT8_MAX is treated as 0
+		value = strtol(line, NULL, 10);
+		if (value > 255)
+			value = 0;
+
+		values[count] = (uint8_t)value;
 	}
+
+	// Free allocation by getline
+	if (line)
+		free(line);
+
+	fclose(fp);
+
+	// We only support 2 entries or 4 entries (legacy saved values)
+	if (count != 2 && count != 4) {
+		warn("Unsupported debug levels from file. Got %d", count);
+		return false;
+	}
+
+	if (count == 4) {
+		debug->bluez = values[2];
+		debug->kernel = values[3];
+	} else {
+		debug->bluez = values[0];
+		debug->kernel = values[1];
+	}
+
+	return true;
 }
 
-static void handle_debug_proxy_added(GDBusProxy *proxy, void *user_data)
+void apply_debug_levels(struct debug_data *debug, uint8_t bluez, uint8_t kernel)
 {
-	const char *interface = g_dbus_proxy_get_interface(proxy);
-	DBusMessageIter iter;
-
-	if (!strcmp(interface, DEBUG_INTERFACE)) {
-		if (g_dbus_proxy_get_property(proxy, DEBUG_BLUEZ_PROPERTY,
-								&iter)) {
-			update_bluez_debug(&iter);
-			btd_adapter_update_kernel_quality_report(&iter);
-		}
-		if (g_dbus_proxy_get_property(proxy, DEBUG_KERNEL_PROPERTY,
-								&iter)) {
-			update_kernel_debug(&iter);
-		}
+	// Limit values to valid values
+	if (bluez > MAX_BLUEZ_DEBUG_LEVEL) {
+		warn("Given bluez log level (%d) is invalid. Using %d.", bluez,
+		     MAX_BLUEZ_DEBUG_LEVEL);
+		bluez = MAX_BLUEZ_DEBUG_LEVEL;
 	}
+
+	debug->bluez = bluez;
+
+	if (kernel > MAX_KERNEL_DEBUG_LEVEL) {
+		warn("Given kernel log level (%d) is invalid. Using %d.",
+		     kernel, MAX_KERNEL_DEBUG_LEVEL);
+		kernel = MAX_KERNEL_DEBUG_LEVEL;
+	}
+
+	debug->kernel = kernel;
+
+	btd_set_debug_level(bluez);
+	btd_adapter_update_kernel_quality_report(!!bluez);
+	update_kernel_debug(kernel);
+
+	info("Applied debug levels: bluez(%u), kernel(%u)", bluez, kernel);
 }
+
+bool store_debug_levels(struct debug_data *debug)
+{
+	FILE *fp;
+
+	fp = fopen(DEBUG_CONF_FILE_PATH, "w");
+	if (!fp)
+		return false;
+
+	fprintf(fp, "%u\n", debug->bluez);
+	fprintf(fp, "%u\n", debug->kernel);
+
+	fclose(fp);
+	return true;
+}
+
+/* New api that only accepts bluez and kernel log levels. */
+static DBusMessage *set_log_levels(DBusConnection *conn, DBusMessage *msg,
+				   void *user_data)
+{
+	struct debug_data *debug = user_data;
+	DBusError err;
+	uint8_t bluez, kernel;
+
+	dbus_error_init(&err);
+
+	if (!dbus_message_get_args(msg, &err, DBUS_TYPE_BYTE, &bluez,
+				   DBUS_TYPE_BYTE, &kernel,
+				   DBUS_TYPE_INVALID)) {
+		if (dbus_error_is_set(&err)) {
+			error("read params failed %s", err.message);
+			dbus_error_free(&err);
+		}
+		return btd_error_failed(msg, "Failed to read parameters");
+	}
+
+	apply_debug_levels(debug, bluez, kernel);
+	if (!store_debug_levels(debug))
+		warn("Unable to save debug log levels");
+
+	return dbus_message_new_method_return(msg);
+}
+
+static const GDBusMethodTable debug_methods[] = {
+	{ GDBUS_METHOD("SetLevels", GDBUS_ARGS({ "levels", "yy" }), NULL,
+		       set_log_levels) },
+	{},
+};
+
+#define DEFINE_GET_DEBUG_PROPERTY(PROP)                                        \
+	static gboolean property_get_debug_##PROP(                             \
+		const GDBusPropertyTable *property, DBusMessageIter *iter,     \
+		void *user_data)                                               \
+	{                                                                      \
+		struct debug_data *debug_data = user_data;                     \
+		dbus_message_iter_append_basic(iter, DBUS_TYPE_BYTE,           \
+					       &debug_data->PROP);             \
+		return TRUE;                                                   \
+	}
+
+DEFINE_GET_DEBUG_PROPERTY(bluez);
+DEFINE_GET_DEBUG_PROPERTY(kernel);
+
+static const GDBusPropertyTable debug_properties[] = {
+	{ DEBUG_BLUEZ_PROPERTY, "y", property_get_debug_bluez },
+	{ DEBUG_KERNEL_PROPERTY, "y", property_get_debug_kernel },
+	{}
+};
 
 static int chromium_init(void)
 {
@@ -753,17 +859,20 @@ static int chromium_init(void)
 		remove_dbus_watches();
 	}
 
-	/* Listen to debug property changes */
-	debug_client = g_dbus_client_new(conn, DBUS_PLUGIN_INTERFACE,
-							DEBUG_OBJECT_PATH);
-	if (!debug_client) {
-		error("Failed to create dbus client");
-		return 0;
-	}
+	struct debug_data *ddata = g_new0(struct debug_data, 1);
 
-	g_dbus_client_set_proxy_handlers(debug_client, handle_debug_proxy_added,
-					NULL, handle_debug_property_changed,
-					debug_client);
+	if (read_debug_levels_from_file(ddata))
+		apply_debug_levels(ddata, ddata->bluez, ddata->kernel);
+	else
+		warn("Unable to read debug levels from file");
+
+	/* Register debug interface*/
+	if (!g_dbus_register_interface(conn, DEBUG_OBJECT_PATH, DEBUG_INTERFACE,
+				       debug_methods, NULL, debug_properties,
+				       ddata, g_free)) {
+		error("Failed to register debug interface");
+		g_free(ddata);
+	}
 
 	return 0;
 }
@@ -772,8 +881,8 @@ static void chromium_exit(void)
 {
 	DBG("");
 
-	if (debug_client)
-		g_dbus_client_unref(debug_client);
+	g_dbus_unregister_interface(btd_get_dbus_connection(),
+				    DEBUG_OBJECT_PATH, DEBUG_INTERFACE);
 
 	mgmt_unref(mgmt_if);
 	mgmt_if = NULL;

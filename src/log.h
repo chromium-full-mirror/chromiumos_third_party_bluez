@@ -54,6 +54,7 @@ struct btd_debug_desc {
 void __btd_enable_debug(struct btd_debug_desc *start,
 					struct btd_debug_desc *stop);
 
+#define MAX_BLUEZ_DEBUG_LEVEL 2
 // To be called by D-bus API
 void btd_set_debug_level(uint8_t level);
 
