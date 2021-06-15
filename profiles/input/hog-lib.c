@@ -2016,7 +2016,7 @@ static bool bt_hog_load_uhid_cache(struct bt_hog *hog)
 		if (!find_report(hog, reports[i]->type, reports[i]->id))
 			hog->reports = g_slist_append(hog->reports, reports[i]);
 		else
-			g_free(reports[i]);
+			report_free(reports[i]);
 	}
 
 	success = true;

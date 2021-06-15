@@ -76,7 +76,6 @@ void input_set_auto_sec(bool state)
 
 static void hog_device_accept(struct hog_device *dev, struct gatt_db *db)
 {
-	char *filename;
 	char name[248];
 	uint16_t vendor, product, version;
 
@@ -97,9 +96,6 @@ static void hog_device_accept(struct hog_device *dev, struct gatt_db *db)
 						vendor, product, version);
 
 	dev->hog = bt_hog_new_default(name, vendor, product, version, db);
-
-	filename = btd_device_get_storage_path(dev->device, "hog-uhid-cache");
-	bt_hog_set_uhid_cache_filename(dev->hog, filename);
 }
 
 static struct hog_device *hog_device_new(struct btd_device *device)
@@ -209,6 +205,7 @@ static bool mandatory_services_are_allowed(struct btd_service *service)
 
 static int hog_accept(struct btd_service *service)
 {
+	char *filename;
 	struct hog_device *dev = btd_service_get_user_data(service);
 	struct btd_device *device = btd_service_get_device(service);
 	struct gatt_db *db = btd_device_get_gatt_db(device);
@@ -219,6 +216,9 @@ static int hog_accept(struct btd_service *service)
 		if (!dev->hog)
 			return -EINVAL;
 	}
+
+	filename = btd_device_get_storage_path(dev->device, "hog-uhid-cache");
+	bt_hog_set_uhid_cache_filename(dev->hog, filename);
 
 	/* HOGP 1.0 Section 6.1 requires bonding */
 	if (!device_is_bonded(device, btd_device_get_bdaddr_type(device))) {
