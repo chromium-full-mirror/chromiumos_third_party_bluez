@@ -9721,14 +9721,6 @@ static void connected_callback(uint16_t index, uint16_t length,
 	direction = ev->flags & MGMT_DEV_CONN_INITIATED_CONNECTION ?
 			ACL_CONNECTION_OUTGOING :
 			ACL_CONNECTION_INCOMING;
-	/* Since we don't know when the incoming connection was initiated we
-	 * just log a starting event here, this is better than just let the
-	 * the server side to guess when this transaction really happened.
-	 */
-	if (direction == ACL_CONNECTION_INCOMING)
-		metrics_acl_connection_state_changed(addr,
-				ev->addr.type, direction,
-				CONN_STATE_STARTING);
 
 	eir_len = btohs(ev->eir_len);
 	if (length < sizeof(*ev) + eir_len) {
