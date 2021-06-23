@@ -4525,9 +4525,6 @@ static gboolean avrcp_handle_set_volume(struct avctp *conn, uint8_t code,
 
 	volume = pdu->params[0] & 0x7F;
 
-	/* Always attempt to update the transport volume */
-	media_transport_update_device_volume(session->dev, volume);
-
 	if (session->queued_set_volume) {
 		avrcp_set_volume(session->dev,
 					session->queued_set_volume->volume,
@@ -4535,6 +4532,9 @@ static gboolean avrcp_handle_set_volume(struct avctp *conn, uint8_t code,
 		clear_queued_set_volume(session);
 		return FALSE;
 	}
+
+	/* Always attempt to update the transport volume */
+	media_transport_update_device_volume(session->dev, volume);
 
 	if (player != NULL)
 		player->cb->set_volume(volume, session->dev, player->user_data);
