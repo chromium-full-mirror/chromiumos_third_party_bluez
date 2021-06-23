@@ -5877,9 +5877,10 @@ static void setup_bthost(void)
 
 	if (data->hciemu_type == HCIEMU_TYPE_LE ||
 		test->client_enable_adv) {
-		if (data->hciemu_type >= HCIEMU_TYPE_BREDRLE50)
+		if (data->hciemu_type >= HCIEMU_TYPE_BREDRLE50) {
+			bthost_set_ext_adv_params(bthost);
 			bthost_set_ext_adv_enable(bthost, 0x01);
-		else
+		} else
 			bthost_set_adv_enable(bthost, 0x01);
 	} else
 		bthost_write_scan_enable(bthost, 0x03);
@@ -7560,7 +7561,7 @@ static const uint8_t read_adv_features_rsp_3[] =  {
 	0xff, 0xff, 0x01, 0x00,	/* supported flags */
 	0x1f,			/* max_adv_data_len */
 	0x1f,			/* max_scan_rsp_len */
-	0x01,			/* max_instances */
+	0x03,			/* max_instances */
 	0x00,			/* num_instances */
 };
 
@@ -8108,9 +8109,6 @@ static const struct generic_data add_ext_advertising_timeout_expired = {
 	.expect_alt_ev = MGMT_EV_ADVERTISING_REMOVED,
 	.expect_alt_ev_param = advertising_instance1_param,
 	.expect_alt_ev_len = sizeof(advertising_instance1_param),
-	.expect_hci_command = BT_HCI_CMD_LE_SET_EXT_ADV_ENABLE,
-	.expect_hci_param = set_ext_adv_disable_param,
-	.expect_hci_len = sizeof(set_ext_adv_disable_param),
 };
 
 static const struct generic_data remove_ext_advertising_fail_1 = {
@@ -8151,7 +8149,7 @@ static const struct generic_data remove_ext_advertising_success_2 = {
 };
 
 static const uint8_t set_ext_adv_data_test2[] = {
-	0x01,				/* handle */
+	0x02,				/* handle */
 	0x03,				/* complete data */
 	0x01,				/* controller should not fragment */
 	0x07,				/* adv data len */
@@ -8164,13 +8162,10 @@ static const uint8_t set_ext_adv_data_test2[] = {
 	0x00, 0x00, 0x00, 0x00,
 };
 
-static const struct generic_data multi_ext_advertising_switch = {
+static const struct generic_data multi_ext_advertising = {
 	.expect_alt_ev = MGMT_EV_ADVERTISING_REMOVED,
 	.expect_alt_ev_param = advertising_instance1_param,
 	.expect_alt_ev_len = sizeof(advertising_instance1_param),
-	.expect_hci_command = BT_HCI_CMD_LE_SET_EXT_ADV_DATA,
-	.expect_hci_param = set_ext_adv_data_test2,
-	.expect_hci_len = sizeof(set_ext_adv_data_test2),
 };
 
 static const struct generic_data multi_ext_advertising_add_second = {
@@ -9702,6 +9697,7 @@ static void trigger_device_found(void *user_data)
 
 		bthost_set_adv_enable(bthost, 0x01);
 	} else if (data->hciemu_type >= HCIEMU_TYPE_BREDRLE50) {
+		bthost_set_ext_adv_params(bthost);
 		if (test->set_adv)
 			bthost_set_ext_adv_data(bthost, test->adv_data,
 							test->adv_data_len);
@@ -9866,21 +9862,16 @@ static void le_connected_event(uint16_t index, uint16_t length,
 
 	tester_print("Device connected");
 
-	test_add_condition(data);
-
-	if (data->hciemu_type >= HCIEMU_TYPE_BREDRLE50)
-		hciemu_add_hook(data->hciemu, HCIEMU_HOOK_POST_CMD,
-					BT_HCI_CMD_LE_SET_EXT_ADV_ENABLE,
-					test_adv_enable_hook, data);
-	else
+	if (data->hciemu_type < HCIEMU_TYPE_BREDRLE50) {
+		test_add_condition(data);
 		hciemu_add_hook(data->hciemu, HCIEMU_HOOK_POST_CMD,
 					BT_HCI_CMD_LE_SET_ADV_ENABLE,
 					test_adv_enable_hook, data);
+	}
 
 	/* Make sure we get not disconnected during the testaces */
 	mgmt_register(data->mgmt_alt, MGMT_EV_DEVICE_DISCONNECTED,
 				data->mgmt_index, disconnected_event,
-
 				NULL, NULL);
 
 	test_condition_complete(data);
@@ -11115,7 +11106,6 @@ int main(int argc, char *argv[])
 					 &add_advertising_name_data_appear,
 					 setup_command_generic,
 					 test_command_generic);
-
 	test_le_full("Adv. connectable & connected (slave) - Success",
 					&conn_slave_adv_conneactable_test,
 					setup_advertise_while_connected,
@@ -11454,8 +11444,8 @@ int main(int argc, char *argv[])
 	/* When advertising two instances, the instances should be
 	 * advertised in a round-robin fashion.
 	 */
-	test_bredrle50("Multi Ext Advertising - Success 1 (Instance Switch)",
-					&multi_ext_advertising_switch,
+	test_bredrle50("Multi Ext Advertising - Success 1",
+					&multi_ext_advertising,
 					setup_multi_adv,
 					test_command_generic);
 
@@ -11478,7 +11468,7 @@ int main(int argc, char *argv[])
 					NULL, test_command_generic);
 
 	test_bredrle50("Set PHY 1m 2m coded Succcess", &set_phy_all_success,
-                                        NULL, test_command_generic);
+					NULL, test_command_generic);
 
 	test_bredrle50("Set PHY 2m tx success", &set_phy_2m_tx_success,
 					NULL, test_command_generic);
