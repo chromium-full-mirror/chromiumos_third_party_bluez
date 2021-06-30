@@ -93,7 +93,6 @@
 
 #define COLOR_PHY_PACKET		COLOR_BLUE
 
-#define UNKNOWN_MANUFACTURER 0xffff
 
 static time_t time_offset = ((time_t) -1);
 static int priority_level = BTSNOOP_PRIORITY_INFO;
@@ -3190,7 +3189,7 @@ static void print_manufacturer_data(const void *data, uint8_t data_len)
 	packet_print_company("Company", company);
 
 	switch (company) {
-	case 76:
+	case COMPANY_ID_APPLE:
 	case 19456:
 		print_manufacturer_apple(data + 2, data_len - 2);
 		break;
@@ -4013,7 +4012,7 @@ void packet_monitor(struct timeval *tv, struct ucred *cred,
 			index_list[index].manufacturer = manufacturer;
 
 			switch (manufacturer) {
-			case 2:
+			case COMPANY_ID_INTEL:
 				/*
 				 * Intel controllers that support the
 				 * Microsoft vendor extension are using
@@ -4021,7 +4020,7 @@ void packet_monitor(struct timeval *tv, struct ucred *cred,
 				 */
 				index_list[index].msft_opcode = 0xFC1E;
 				break;
-			case 93:
+			case COMPANY_ID_REALTEK:
 				/*
 				 * Realtek controllers that support the
 				 * Microsoft vendor extenions are using
@@ -5843,7 +5842,7 @@ static void read_local_version_rsp(const void *data, uint8_t size)
 	print_manufacturer(rsp->manufacturer);
 
 	switch (manufacturer) {
-	case 15:
+	case COMPANY_ID_BROADCOM:
 		print_manufacturer_broadcom(rsp->lmp_subver, rsp->hci_rev);
 		break;
 	}
@@ -9356,11 +9355,11 @@ static const char *current_vendor_str(void)
 		return "Microsoft";
 
 	switch (manufacturer) {
-	case 2:
+	case COMPANY_ID_INTEL:
 		return "Intel";
-	case 15:
+	case COMPANY_ID_BROADCOM:
 		return "Broadcom";
-	case 93:
+	case COMPANY_ID_REALTEK:
 		return "Realtek";
 	}
 
@@ -9384,9 +9383,9 @@ static const struct vendor_ocf *current_vendor_ocf(uint16_t ocf)
 		return msft_vendor_ocf();
 
 	switch (manufacturer) {
-	case 2:
+	case COMPANY_ID_INTEL:
 		return intel_vendor_ocf(ocf);
-	case 15:
+	case COMPANY_ID_BROADCOM:
 		return broadcom_vendor_ocf(ocf);
 	}
 
@@ -9414,9 +9413,9 @@ static const struct vendor_evt *current_vendor_evt(const void *data,
 		return NULL;
 
 	switch (manufacturer) {
-	case 2:
+	case COMPANY_ID_INTEL:
 		return intel_vendor_evt(data, consumed_size);
-	case 15:
+	case COMPANY_ID_BROADCOM:
 		return broadcom_vendor_evt(evt);
 	}
 
@@ -9543,7 +9542,7 @@ static void remote_version_complete_evt(const void *data, uint8_t size)
 	print_manufacturer(evt->manufacturer);
 
 	switch (le16_to_cpu(evt->manufacturer)) {
-	case 15:
+	case COMPANY_ID_BROADCOM:
 		print_manufacturer_broadcom(evt->lmp_subver, 0xffff);
 		break;
 	}
@@ -11285,7 +11284,7 @@ void packet_vendor_diag(struct timeval *tv, uint16_t index,
 					"Vendor Diagnostic", NULL, extra_str);
 
 	switch (manufacturer) {
-	case 15:
+	case COMPANY_ID_BROADCOM:
 		broadcom_lm_diag(data, size);
 		break;
 	default:

@@ -24,6 +24,24 @@
 #define PACKET_FILTER_SHOW_MGMT_SOCKET	(1 << 7)
 #define PACKET_FILTER_ZERO_DATA		(1 << 8)
 
+/* Bluetooth SoC Manufacturers
+ * https://www.bluetooth.com/specifications/assigned-numbers/company-identifiers/
+ */
+#define COMPANY_ID_INTEL		0x0002
+#define COMPANY_ID_TOSHIBA		0x0004
+#define COMPANY_ID_BROADCOM		0x000f
+#define COMPANY_ID_QUALCOMM		0x001d
+#define COMPANY_ID_STMICRO		0x0030
+#define COMPANY_ID_ATHEROS		0x0045
+#define COMPANY_ID_MEDIATEK		0x0046
+#define COMPANY_ID_MARVELL		0x0048
+#define COMPANY_ID_APPLE		0x004c
+#define COMPANY_ID_NORDIC		0x0059
+#define COMPANY_ID_REALTEK		0x005d
+#define COMPANY_ID_CYPRESS		0x0131
+#define COMPANY_ID_SILICONLAB		0x02ff
+#define UNKNOWN_MANUFACTURER		0xffff
+
 bool packet_has_filter(unsigned long filter);
 bool packet_get_zero_data_filter();
 void packet_set_filter(unsigned long filter);
