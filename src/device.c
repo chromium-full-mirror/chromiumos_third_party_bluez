@@ -6226,6 +6226,7 @@ bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 	BtIOSecLevel sec_level;
 	uint16_t mtu;
 	uint16_t cid;
+	uint16_t psm;
 	struct btd_gatt_database *database;
 	const bdaddr_t *dst;
 	char dstaddr[18];
@@ -6233,7 +6234,10 @@ bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 	bt_io_get(io, &gerr, BT_IO_OPT_SEC_LEVEL, &sec_level,
 						BT_IO_OPT_IMTU, &mtu,
 						BT_IO_OPT_CID, &cid,
+						BT_IO_OPT_PSM, &psm,
 						BT_IO_OPT_INVALID);
+
+	DBG("psm = 0x%x, cid = 0x%x", psm, cid);
 
 	if (gerr) {
 		error("bt_io_get: %s", gerr->message);
@@ -6241,7 +6245,8 @@ bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 		return false;
 	}
 
-	if (btd_device_is_connected(dev) && dev->att) {
+	if (btd_device_is_connected(dev) && psm == BT_ATT_EATT_PSM &&
+								dev->att) {
 		if (btd_opts.gatt_channels == bt_att_get_channels(dev->att)) {
 			DBG("EATT channel limit reached");
 			return false;
