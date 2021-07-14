@@ -45,6 +45,7 @@ monitor_btmon_SOURCES = monitor/main.c monitor/bt.h \
 				monitor/keys.h monitor/keys.c \
 				monitor/analyze.h monitor/analyze.c \
 				monitor/intel.h monitor/intel.c \
+				monitor/aosp.h monitor/aosp.c \
 				monitor/broadcom.h monitor/broadcom.c \
 				monitor/msft.h monitor/msft.c \
 				monitor/jlink.h monitor/jlink.c \
