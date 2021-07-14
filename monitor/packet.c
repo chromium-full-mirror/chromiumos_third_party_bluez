@@ -45,6 +45,7 @@
 #include "intel.h"
 #include "broadcom.h"
 #include "packet.h"
+#include "aosp.h"
 
 #define COLOR_CHANNEL_LABEL		COLOR_WHITE
 #define COLOR_FRAME_LABEL		COLOR_WHITE
@@ -9417,6 +9418,10 @@ static const struct vendor_evt *current_vendor_evt(const void *data,
 		return intel_vendor_evt(data, consumed_size);
 	case COMPANY_ID_BROADCOM:
 		return broadcom_vendor_evt(evt);
+	case COMPANY_ID_QUALCOMM:
+	case COMPANY_ID_MEDIATEK:
+	case COMPANY_ID_REALTEK:
+		return aosp_vendor_evt(evt);
 	}
 
 	return NULL;
