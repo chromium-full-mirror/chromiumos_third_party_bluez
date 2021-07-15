@@ -10217,6 +10217,11 @@ static void le_simult_central_peripheral_func(struct btd_adapter *adapter,
 	adapter->le_simult_roles_supported = flags & 0x01;
 }
 
+bool is_quality_report_supported(struct btd_adapter *adapter)
+{
+	return adapter->quality_report_supported;
+}
+
 static void quality_report_func(struct btd_adapter *adapter, uint32_t flags)
 {
 	adapter->quality_report_supported = le32_to_cpu(flags) & 0x01;

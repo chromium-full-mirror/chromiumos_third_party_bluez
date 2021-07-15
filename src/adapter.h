@@ -264,3 +264,5 @@ void btd_adapter_set_keep_connectable(struct btd_adapter *adapter,
 						bool connectable);
 void btd_adapter_disconnect_all_devices(struct btd_adapter *adapter);
 void btd_adapter_refresh_is_blocked_by_policy(struct btd_adapter *adapter);
+
+bool is_quality_report_supported(struct btd_adapter *adapter);

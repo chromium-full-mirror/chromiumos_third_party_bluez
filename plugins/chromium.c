@@ -670,6 +670,49 @@ static void update_kernel_debug(uint8_t level)
 			sizeof(cp), &cp, NULL, NULL, NULL);
 }
 
+static void btd_adapter_update_kernel_quality_report(uint8_t action)
+{
+	/* 330859bc-7506-492d-9370-9a6f0614037f */
+	static const uint8_t quality_report_uuid[16] = {
+				0x7f, 0x03, 0x14, 0x06, 0x6f, 0x9a, 0x70, 0x93,
+				0x2d, 0x49, 0x06, 0x75, 0xbc, 0x59, 0x08, 0x33,
+	};
+	struct mgmt_cp_set_exp_feature cp;
+	uint16_t dev_id;
+	struct btd_adapter *adapter;
+
+	if (action != 0 && action != 1) {
+		error("Unexpected quality report action %u", cp.action);
+		return;
+	}
+
+	adapter = btd_adapter_get_default();
+	if (!adapter) {
+		info("No default adapter. Skip enabling quality report.");
+		return;
+	}
+
+	dev_id = btd_adapter_get_index(adapter);
+	if (dev_id == MGMT_INDEX_NONE) {
+		info("Adapter index is NA. Skip enabling quality report.");
+		return;
+	}
+
+	if (!is_quality_report_supported(adapter)) {
+		info("quality report feature not supported.");
+		return;
+	}
+
+	memset(&cp, 0, sizeof(cp));
+	memcpy(cp.uuid, quality_report_uuid, 16);
+	cp.action = action;
+
+	mgmt_send(mgmt_if, MGMT_OP_SET_EXP_FEATURE, dev_id,
+			sizeof(cp), &cp, NULL, NULL, NULL);
+	info("update kernel quality report default adapter %d enable %d",
+			dev_id, cp.action);
+}
+
 struct debug_data {
 	uint8_t bluez;
 	uint8_t kernel;
