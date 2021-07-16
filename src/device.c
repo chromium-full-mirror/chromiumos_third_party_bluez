@@ -2249,11 +2249,11 @@ static void refresh_is_blocked_by_policy(struct btd_device *dev, bool value)
 void btd_device_update_is_blocked_by_policy(struct btd_device *dev)
 {
 	struct btd_adapter *adapter = dev->adapter;
-	struct btd_service *service;
 	struct btd_profile *profile;
 	GSList *l;
 	bool auto_connect = false;
 	bool is_blocked = false;
+	const char *uuid;
 
 	/* If service discover is ongoing, let the service discover complete
 	 * callback call this function.
@@ -2261,14 +2261,14 @@ void btd_device_update_is_blocked_by_policy(struct btd_device *dev)
 	if (dev->browse)
 		return;
 
-	for (l = dev->services; l != NULL; l = g_slist_next(l)) {
-		service = l->data;
-		profile = btd_service_get_profile(service);
+	for (l = dev->uuids; l != NULL; l = g_slist_next(l)) {
+		uuid = l->data;
+		profile = btd_profile_find_by_uuid(uuid);
 
-		if (!profile->auto_connect)
+		if (!profile || !profile->auto_connect)
 			continue;
 
-		if (btd_service_is_blocked_by_policy(service))
+		if (!btd_adapter_uuid_is_allowed(adapter, uuid))
 			is_blocked = true;
 		else if (profile->accept)
 			auto_connect = true;

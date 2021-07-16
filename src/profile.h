@@ -80,6 +80,7 @@ bool btd_profile_add_custom_prop(const char *uuid, const char *type,
 					btd_profile_prop_get get,
 					void *user_data);
 bool btd_profile_remove_custom_prop(const char *uuid, const char *name);
+struct btd_profile *btd_profile_find_by_uuid(const char *uuid);
 void btd_profile_policy_update(struct btd_adapter *adapter);
 
 void btd_profile_init(void);
