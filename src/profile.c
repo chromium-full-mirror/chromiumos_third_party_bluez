@@ -732,6 +732,28 @@ void btd_profile_unregister(struct btd_profile *profile)
 	profiles = g_slist_remove(profiles, profile);
 }
 
+struct btd_profile *btd_profile_find_by_uuid(const char *uuid)
+{
+	GSList *l;
+
+	for (l = profiles; l != NULL; l = g_slist_next(l)) {
+		struct btd_profile *profile = l->data;
+
+		if (strcmp(profile->remote_uuid, uuid) == 0)
+			return profile;
+	}
+
+	for (l = ext_profiles; l != NULL; l = g_slist_next(l)) {
+		struct ext_profile *ext_profile = l->data;
+		struct btd_profile *profile = &ext_profile->p;
+
+		if (strcmp(profile->remote_uuid, uuid) == 0)
+			return profile;
+	}
+
+	return NULL;
+}
+
 static struct ext_profile *find_ext_profile(const char *owner,
 						const char *path)
 {
