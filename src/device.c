@@ -295,6 +295,8 @@ struct btd_device {
 
 	GIOChannel	*att_io;
 	guint		store_id;
+
+	bool		is_blocked;
 };
 
 static const uint16_t uuid_list[] = {
@@ -3767,6 +3769,18 @@ static DBusMessage *execute_write(DBusConnection *conn,
 	return NULL;
 }
 
+static gboolean
+dev_property_get_is_blocked_by_policy(const GDBusPropertyTable *property,
+					     DBusMessageIter *iter, void *data)
+{
+	struct btd_device *device = data;
+	dbus_bool_t is_blocked = device->is_blocked;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &is_blocked);
+
+	return TRUE;
+}
+
 static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Disconnect", NULL, NULL, dev_disconnect) },
 	{ GDBUS_ASYNC_METHOD("DisconnectLE", NULL, NULL, dev_disconnect_le) },
@@ -3827,6 +3841,8 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "WakeAllowed", "b", dev_property_get_wake_allowed,
 				dev_property_set_wake_allowed,
 				dev_property_wake_allowed_exist },
+	{ "IsBlockedByPolicy", "b", dev_property_get_is_blocked_by_policy,
+								NULL, NULL },
 	{ }
 };
 
@@ -7879,6 +7895,22 @@ struct btd_service *btd_device_get_service(struct btd_device *dev,
 	}
 
 	return NULL;
+}
+
+void btd_device_set_is_blocked_by_policy(struct btd_device *dev, bool value)
+{
+	if (!dev) {
+		error("Unexpected error in setting IsBlockedByPolicy");
+		return;
+	}
+
+	if (dev->is_blocked == value)
+		return;
+
+	dev->is_blocked = value;
+
+	g_dbus_emit_property_changed(dbus_conn, dev->path,
+					DEVICE_INTERFACE, "IsBlockedByPolicy");
 }
 
 void btd_device_init(void)
