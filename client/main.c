@@ -2923,6 +2923,12 @@ static void cmd_admin_allow(int argc, char *argv[])
 		return;
 	}
 
+	if (restrict_operations) {
+		bt_shell_printf(
+			"Set service allowlist operation not allowed\n");
+		return;
+	}
+
 	if (strcmp(argv[1], "clear") == 0)
 		argc--;
 
