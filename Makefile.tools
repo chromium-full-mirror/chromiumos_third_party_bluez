@@ -46,13 +46,14 @@ monitor_btmon_SOURCES = monitor/main.c monitor/bt.h \
 				monitor/analyze.h monitor/analyze.c \
 				monitor/intel.h monitor/intel.c \
 				monitor/aosp.h monitor/aosp.c \
+				monitor/stats.h monitor/stats.c \
 				monitor/broadcom.h monitor/broadcom.c \
 				monitor/msft.h monitor/msft.c \
 				monitor/jlink.h monitor/jlink.c \
 				monitor/tty.h
 monitor_btmon_LDADD = lib/libbluetooth-internal.la \
 				src/libshared-mainloop.la $(UDEV_LIBS) -ldl \
-				-lbz2
+				-lbz2 -lm
 
 if MANPAGES
 man_MANS += monitor/btmon.1
