@@ -103,6 +103,10 @@ struct bqr {
 
 #define STRUCT_BQR_SIZE			sizeof(struct bqr)
 
+struct subevt_info_data;
+
+void aosp_get_subevt_info(uint8_t subevt_idx,
+					struct subevt_info_data *subevt_info);
 const struct vendor_evt *aosp_vendor_evt(uint8_t evt);
 
 #endif /* __AOSP_H */

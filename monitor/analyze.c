@@ -30,6 +30,7 @@
 #include "monitor/vendor.h"
 #include "monitor/intel.h"
 #include "monitor/stats.h"
+#include "monitor/aosp.h"
 
 struct hci_dev {
 	uint16_t index;
@@ -830,6 +831,11 @@ static void info_index(struct timeval *tv, uint16_t index,
 	switch (dev->manufacturer) {
 	case COMPANY_ID_INTEL:
 		set_subevt_info_fetch_func(intel_get_subevt_info);
+		break;
+	case COMPANY_ID_QUALCOMM:
+	case COMPANY_ID_MEDIATEK:
+	case COMPANY_ID_REALTEK:
+		set_subevt_info_fetch_func(aosp_get_subevt_info);
 		break;
 	default:
 		break;

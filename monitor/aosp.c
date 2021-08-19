@@ -33,9 +33,30 @@
 #include "packet.h"
 #include "vendor.h"
 #include "aosp.h"
+#include "stats.h"
 
 #define BLUETOOTH_CLOCK_MS(counter)		0.3125 * (counter)
 #define BASEBAND_SLOT_MS(counter)		0.625 * (counter)
+
+/*
+ * The statistics are calculated over a partial list of BQR subevent indices
+ * over which the statistics are of interest.
+ */
+static const uint8_t bqr_stats_subevt_list[] = {
+	TX_POWER_LEVEL,
+	RSSI,
+	SNR,
+	UNUSED_AFH_CHANNEL_COUNT,
+	AFH_SELECT_UNIDEAL_CHANNEL_COUNT,
+	RETRANSMISSION_COUNT,
+	NO_RX_COUNT,
+	NAK_COUNT,
+	FLOW_OFF_COUNT,
+	BUFFER_OVERFLOW_BYTES,
+	BUFFER_UNDERFLOW_BYTES,
+};
+
+/* --- xxxx_subevt functions called from packet.c --- */
 
 static void bqr_id_subevt(const struct bqr *r, const char *subevt_name)
 {
@@ -305,43 +326,151 @@ static void vs_params_subevt(const void *data, uint8_t size)
 	packet_hexdump(data, size);
 }
 
+/* --- ana_xxxx_subevt functions called from analyze.c --- */
+
+static void ana_conn_handle_subevt(const struct bqr *r)
+{
+	uint16_t conn_handle = get_le16(&r->conn_handle);
+
+	set_bqr_stats_current(conn_handle, bqr_stats_subevt_list,
+					ARRAY_SIZE(bqr_stats_subevt_list));
+}
+
+static void ana_tx_power_level_subevt(const struct bqr *r)
+{
+	subevt_add(TX_POWER_LEVEL, &r->tx_power_level);
+}
+
+static void ana_rssi_subevt(const struct bqr *r)
+{
+	subevt_add(RSSI, &r->rssi);
+}
+
+static void ana_snr_subevt(const struct bqr *r)
+{
+	subevt_add(SNR, &r->snr);
+}
+
+static void ana_unused_afh_channel_count_subevt(const struct bqr *r)
+{
+	subevt_add(UNUSED_AFH_CHANNEL_COUNT, &r->unused_afh_channel_count);
+}
+
+static void ana_afh_select_unideal_channel_count_subevt(const struct bqr *r)
+{
+	subevt_add(AFH_SELECT_UNIDEAL_CHANNEL_COUNT,
+					&r->afh_select_unideal_channel_count);
+}
+
+static void ana_retransmission_count_subevt(const struct bqr *r)
+{
+	uint32_t retransmission_count = get_le32(&r->retransmission_count);
+
+	subevt_add(RETRANSMISSION_COUNT, &retransmission_count);
+}
+
+static void ana_no_rx_count_subevt(const struct bqr *r)
+{
+	uint32_t no_rx_count = get_le32(&r->no_rx_count);
+
+	subevt_add(NO_RX_COUNT, &no_rx_count);
+}
+
+static void ana_nak_count_subevt(const struct bqr *r)
+{
+	uint32_t nak_count = get_le32(&r->nak_count);
+
+	subevt_add(NAK_COUNT, &nak_count);
+}
+
+static void ana_flow_off_count_subevt(const struct bqr *r)
+{
+	uint32_t flow_off_count = get_le32(&r->flow_off_count);
+
+	subevt_add(FLOW_OFF_COUNT, &flow_off_count);
+}
+
+static void ana_buffer_overflow_bytes_subevt(const struct bqr *r)
+{
+	uint32_t buffer_overflow_bytes = get_le32(&r->buffer_overflow_bytes);
+
+	subevt_add(BUFFER_OVERFLOW_BYTES, &buffer_overflow_bytes);
+}
+
+static void ana_buffer_underflow_bytes_subevt(const struct bqr *r)
+{
+	uint32_t buffer_underflow_bytes = get_le32(&r->buffer_underflow_bytes);
+
+	subevt_add(BUFFER_UNDERFLOW_BYTES, &buffer_underflow_bytes);
+}
+
+static void ana_vs_params_subevt(const void *data, uint8_t size)
+{
+}
+
+/* --- the subevent table for both xxxx_subevt and ana_xxxx_subevt --- */
+
 struct bqr_subevt_data {
 	enum bqr_subevt_list subevt_idx;
 	const char *subevt_name;
 	void (*func)(const struct bqr *r, const char *subevt_name);
+	void (*ana_func)(const struct bqr *r);
+	enum int_types int_type;
 };
 
-static struct bqr_subevt_data bqr_subevt_table[] = {
+static const struct bqr_subevt_data bqr_subevt_table[] = {
 	/* The sequence of subevents is fixed. There are no subevent codes. */
-	{ QUALITY_REPORT_ID, "Quality report id", bqr_id_subevt },
-	{ PACKET_TYPE, "Packet type", packet_type_subevt },
-	{ CONNECTION_HANDLE, "Connection handle", conn_handle_subevt },
-	{ CONNECTION_ROLE, "Connection role", conn_role_subevt },
-	{ TX_POWER_LEVEL, "Tx power level", tx_power_level_subevt },
-	{ RSSI, "RSSI", rssi_subevt },
-	{ SNR, "SNR", snr_subevt },
+	{ QUALITY_REPORT_ID, "Quality report id", bqr_id_subevt, NULL, UINT8 },
+	{ PACKET_TYPE, "Packet type", packet_type_subevt, NULL, UINT8 },
+	{ CONNECTION_HANDLE, "Connection handle",
+		conn_handle_subevt, ana_conn_handle_subevt, UINT16 },
+	{ CONNECTION_ROLE, "Connection role", conn_role_subevt, NULL, UINT8 },
+	{ TX_POWER_LEVEL, "Tx power level",
+		tx_power_level_subevt, ana_tx_power_level_subevt, INT8 },
+	{ RSSI, "RSSI", rssi_subevt, ana_rssi_subevt, INT8 },
+	{ SNR, "SNR", snr_subevt, ana_snr_subevt, UINT8 },
 	{ UNUSED_AFH_CHANNEL_COUNT, "Unused AFH channel count",
-				unused_afh_channel_count_subevt },
+		unused_afh_channel_count_subevt,
+		ana_unused_afh_channel_count_subevt, UINT8 },
 	{ AFH_SELECT_UNIDEAL_CHANNEL_COUNT, "AFH select unideal channel count",
-			afh_select_unideal_channel_count_subevt },
-	{ LSTO, "LSTO", lsto_subevt },
+		afh_select_unideal_channel_count_subevt,
+		ana_afh_select_unideal_channel_count_subevt, UINT8 },
+	{ LSTO, "LSTO", lsto_subevt, NULL, UINT16 },
 	{ CONNECTION_PICONET_CLOCK, "Connection piconet clock",
-					conn_piconet_clock_subevt },
+		conn_piconet_clock_subevt, NULL, UINT32 },
 	{ RETRANSMISSION_COUNT, "Retransmission count",
-					retransmission_count_subevt },
-	{ NO_RX_COUNT, "No rx count", no_rx_count_subevt },
-	{ NAK_COUNT, "NAK count", nak_count_subevt },
+		retransmission_count_subevt,
+		ana_retransmission_count_subevt, UINT32 },
+	{ NO_RX_COUNT, "No rx count",
+		no_rx_count_subevt, ana_no_rx_count_subevt, UINT32 },
+	{ NAK_COUNT, "NAK count",
+		nak_count_subevt, ana_nak_count_subevt, UINT32 },
 	{ LAST_TX_ACK_TIMESTAMP, "Last tx ack timestamp",
-					last_tx_ack_timestamp_subevt },
-	{ FLOW_OFF_COUNT, "Flow off count", flow_off_count_subevt },
+		last_tx_ack_timestamp_subevt, NULL, UINT32 },
+	{ FLOW_OFF_COUNT, "Flow off count",
+		flow_off_count_subevt, ana_flow_off_count_subevt, UINT32 },
 	{ LAST_FLOW_ON_TIMESTAMP, "Last flow on timestamp",
-					last_flow_on_timestamp_subevt },
+		last_flow_on_timestamp_subevt, NULL, UINT32 },
 	{ BUFFER_OVERFLOW_BYTES, "Buffer overflow bytes",
-					buffer_overflow_bytes_subevt },
+		buffer_overflow_bytes_subevt,
+		ana_buffer_overflow_bytes_subevt, UINT32 },
 	{ BUFFER_UNDERFLOW_BYTES, "Buffer underflow bytes",
-					buffer_underflow_bytes_subevt },
+		buffer_underflow_bytes_subevt,
+		ana_buffer_underflow_bytes_subevt, UINT32 },
 	{}
 };
+
+void aosp_get_subevt_info(uint8_t subevt_idx,
+					struct subevt_info_data *subevt_info)
+{
+	const struct bqr_subevt_data *subevt = &bqr_subevt_table[subevt_idx];
+
+	subevt_info->name = subevt->subevt_name;
+	/* An AOSP quality subevent always contains exactly 1 slot. */
+	subevt_info->num_slots = 1;
+	subevt_info->int_type = subevt->int_type;
+	subevt_info->size = get_int_size(subevt->int_type);
+}
 
 static void aosp_bqr_evt(const void *data, uint8_t size)
 {
@@ -365,10 +494,24 @@ static void aosp_bqr_evt(const void *data, uint8_t size)
 		return;
 	}
 
-	for (i = 0; bqr_subevt_table[i].subevt_name; i++)
-		bqr_subevt_table[i].func(r, bqr_subevt_table[i].subevt_name);
+	for (i = 0; bqr_subevt_table[i].subevt_name; i++) {
+		const struct bqr_subevt_data *subevt = &bqr_subevt_table[i];
 
-	vs_params_subevt(data + STRUCT_BQR_SIZE, size - STRUCT_BQR_SIZE);
+		if (is_packet_mode())
+			subevt->func(r, subevt->subevt_name);
+		else if (subevt->ana_func)
+			subevt->ana_func(r);
+	}
+
+	/* vs_params_subevt is optional */
+	if (is_packet_mode())
+		vs_params_subevt(data + STRUCT_BQR_SIZE,
+						size - STRUCT_BQR_SIZE);
+	else
+		ana_vs_params_subevt(data + STRUCT_BQR_SIZE,
+						size - STRUCT_BQR_SIZE);
+
+	bqr_stats_post();
 }
 
 /*
