@@ -16,3 +16,8 @@ struct vendor_evt;
 
 const struct vendor_ocf *intel_vendor_ocf(uint16_t ocf);
 const struct vendor_evt *intel_vendor_evt(const void *data, int *consumed_size);
+
+struct subevt_info_data;
+
+void intel_get_subevt_info(uint8_t subevent_id,
+					struct subevt_info_data *subevt_info);

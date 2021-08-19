@@ -27,6 +27,7 @@
 #include "ll.h"
 #include "vendor.h"
 #include "intel.h"
+#include "stats.h"
 
 #define COLOR_UNKNOWN_EVENT_MASK	COLOR_WHITE_BG
 #define COLOR_UNKNOWN_SCAN_STATUS	COLOR_WHITE_BG
@@ -1224,10 +1225,124 @@ struct intel_tlv {
 #define NEXT_TLV(tlv) (const struct intel_tlv *) \
 					((const uint8_t *) tlv + TLV_SIZE(tlv))
 
+/* The subevent indices of Intel telemetry subevents. */
+enum intel_subevt_list {
+	EXT_EVT_TYPE = 0x01,
+
+	ACL_CONNECTION_HANDLE = 0x4a,
+	ACL_HEC_ERRORS,
+	ACL_CRC_ERRORS,
+	ACL_PACKETS_FROM_HOST,
+	ACL_TX_PACKETS_TO_AIR,
+	ACL_TX_PACKETS_0_RETRY,
+	ACL_TX_PACKETS_1_RETRY,
+	ACL_TX_PACKETS_2_RETRY,
+	ACL_TX_PACKETS_3_RETRY,
+	ACL_TX_PACKETS_MORE_RETRY,
+	ACL_TX_PACKETS_DH1,
+	ACL_TX_PACKETS_DH3,
+	ACL_TX_PACKETS_DH5,
+	ACL_TX_PACKETS_2DH1,
+	ACL_TX_PACKETS_2DH3,
+	ACL_TX_PACKETS_2DH5,
+	ACL_TX_PACKETS_3DH1,
+	ACL_TX_PACKETS_3DH3,
+	ACL_TX_PACKETS_3DH5,
+	ACL_RX_PACKETS,
+	ACL_LINK_THROUGHPUT,
+	ACL_MAX_PACKET_LATENCY,
+	ACL_AVG_PACKET_LATENCY,
+
+	SCO_CONNECTION_HANDLE = 0x6a,
+	SCO_RX_PACKETS,
+	SCO_TX_PACKETS,
+	SCO_RX_PACKETS_LOST,
+	SCO_TX_PACKETS_LOST,
+	SCO_RX_NO_SYNC_ERROR,
+	SCO_RX_HEC_ERROR,
+	SCO_RX_CRC_ERROR,
+	SCO_RX_NAK_ERROR,
+	SCO_TX_FAILED_BY_WIFI,
+	SCO_RX_FAILED_BY_WIFI,
+	SCO_SAMPLES_INSERTED,
+	SCO_SAMPLES_DROPPED,
+	SCO_MUTE_SAMPLES,
+	SCO_PLC_INJECTION_DATA,
+};
+
+static const uint8_t intel_stats_acl_subevt_list[] = {
+	ACL_HEC_ERRORS,
+	ACL_CRC_ERRORS,
+	ACL_PACKETS_FROM_HOST,
+	ACL_TX_PACKETS_TO_AIR,
+	ACL_TX_PACKETS_0_RETRY,
+	ACL_TX_PACKETS_1_RETRY,
+	ACL_TX_PACKETS_2_RETRY,
+	ACL_TX_PACKETS_3_RETRY,
+	ACL_TX_PACKETS_MORE_RETRY,
+	ACL_TX_PACKETS_DH1,
+	ACL_TX_PACKETS_DH3,
+	ACL_TX_PACKETS_DH5,
+	ACL_TX_PACKETS_2DH1,
+	ACL_TX_PACKETS_2DH3,
+	ACL_TX_PACKETS_2DH5,
+	ACL_TX_PACKETS_3DH1,
+	ACL_TX_PACKETS_3DH3,
+	ACL_TX_PACKETS_3DH5,
+	ACL_RX_PACKETS,
+	ACL_LINK_THROUGHPUT,
+	ACL_MAX_PACKET_LATENCY,
+	ACL_AVG_PACKET_LATENCY,
+};
+
+static const uint8_t intel_stats_sco_subevt_list[] = {
+	SCO_RX_PACKETS,
+	SCO_TX_PACKETS,
+	SCO_RX_PACKETS_LOST,
+	SCO_TX_PACKETS_LOST,
+	SCO_RX_NO_SYNC_ERROR,
+	SCO_RX_HEC_ERROR,
+	SCO_RX_CRC_ERROR,
+	SCO_RX_NAK_ERROR,
+	SCO_TX_FAILED_BY_WIFI,
+	SCO_RX_FAILED_BY_WIFI,
+	SCO_SAMPLES_INSERTED,
+	SCO_SAMPLES_DROPPED,
+	SCO_MUTE_SAMPLES,
+	SCO_PLC_INJECTION_DATA,
+};
+
+#define TELEMETRY_EVT_SYSTEM_EXCEPTION		0x00
+#define TELEMETRY_EVT_FATAL_EXCEPTION		0x01
+#define TELEMETRY_EVT_DEBUG_EXCEPTION		0x02
+#define TELEMETRY_EVT_CONN_BREDR		0x03
+#define TELEMETRY_EVT_DISCONNECT		0x04
+#define TELEMETRY_EVT_QUALITY_REPORT		0x05
+#define TELEMETRY_EVT_STATS_BREDR		0x06
+#define TELEMETRY_EVT_UNKNOWN			0xff
+
+static uint8_t get_ext_evt_type(const struct intel_tlv *tlv)
+{
+	return get_u8(tlv->value);
+}
+
+static bool is_quality_report(const struct intel_tlv *tlv)
+{
+	return get_ext_evt_type(tlv) == TELEMETRY_EVT_QUALITY_REPORT;
+}
+
+static bool is_ext_evt_type(const struct intel_tlv *tlv)
+{
+	return tlv->subevent_id == EXT_EVT_TYPE;
+}
+
+/* --- ext_xxxx functions called from packet.c --- */
+
 static void ext_evt_type(const struct intel_tlv *tlv)
 {
-	uint8_t evt_type = get_u8(tlv->value);
 	const char *str;
+
+	uint8_t evt_type = get_ext_evt_type(tlv);
 
 	switch (evt_type) {
 	case 0x00:
@@ -1290,8 +1405,7 @@ static void ext_acl_evt_num_pkt_from_host(const struct intel_tlv *tlv)
 {
 	uint32_t num = get_le32(tlv->value);
 
-	print_field("Packets from host (0x%2.2x): %d",
-			tlv->subevent_id, num);
+	print_field("Packets from host (0x%2.2x): %d", tlv->subevent_id, num);
 }
 
 static void ext_acl_evt_num_tx_pkt_to_air(const struct intel_tlv *tlv)
@@ -1376,8 +1490,7 @@ static void ext_acl_evt_num_rx_pkt_from_air(const struct intel_tlv *tlv)
 {
 	uint32_t num = get_le32(tlv->value);
 
-	print_field("Rx packets (0x%2.2x): %d",
-			tlv->subevent_id, num);
+	print_field("Rx packets (0x%2.2x): %d", tlv->subevent_id, num);
 }
 
 static void ext_acl_evt_link_throughput(const struct intel_tlv *tlv)
@@ -1435,7 +1548,6 @@ static void ext_sco_evt_num_rx_payloads_lost(const struct intel_tlv *tlv)
 
 static void ext_sco_evt_num_tx_payloads_lost(const struct intel_tlv *tlv)
 {
-
 	uint32_t num = get_le32(tlv->value);
 
 	print_field("Tx payload lost (0x%2.2x): %d", tlv->subevent_id, num);
@@ -1445,19 +1557,16 @@ static void slots_errors(const struct intel_tlv *tlv, const char *type_str)
 {
 	/* The subevent has 5 slots where each slot is of the uint32_t type. */
 	uint32_t num[5];
-	const uint8_t *data = tlv->value;
-	int i;
+	unsigned char i;
 
 	if (tlv->length != 5 * sizeof(uint32_t)) {
 		print_text(COLOR_UNKNOWN_EXT_EVENT,
-				"  Invalid subevent length (%d)", tlv->length);
+			"  Invalid subevent length (%" PRIu8 ")", tlv->length);
 		return;
 	}
 
-	for (i = 0; i < 5; i++) {
-		num[i] = get_le32(data);
-		data += sizeof(uint32_t);
-	}
+	for (i = 0; i < 5; i++)
+		num[i] = get_le32(((uint32_t *)tlv->value) + i);
 
 	print_field("%s (0x%2.2x): %d %d %d %d %d", type_str, tlv->subevent_id,
 			num[0], num[1], num[2], num[3], num[4]);
@@ -1523,58 +1632,196 @@ static void ext_sco_evt_plc_injection_data(const struct intel_tlv *tlv)
 	print_field("PLC injection data (0x%2.2x): %d", tlv->subevent_id, num);
 }
 
+/* --- ana_ext_xxxx functions called from analyze.c --- */
+
+static void ana_ext_evt_type(const struct intel_tlv *tlv)
+{
+}
+
+static void set_current_stats(uint16_t conn_handle, uint8_t link_type)
+{
+	const uint8_t *bqr_stats_subevt_list;
+	uint8_t subevt_list_count;
+
+	if (link_type == ACL_LINK) {
+		bqr_stats_subevt_list = intel_stats_acl_subevt_list;
+		subevt_list_count = ARRAY_SIZE(intel_stats_acl_subevt_list);
+	} else {
+		bqr_stats_subevt_list = intel_stats_sco_subevt_list;
+		subevt_list_count = ARRAY_SIZE(intel_stats_sco_subevt_list);
+	}
+
+	set_bqr_stats_current(conn_handle, bqr_stats_subevt_list,
+							subevt_list_count);
+}
+
+static void ana_ext_acl_evt_conn_handle(const struct intel_tlv *tlv)
+{
+	set_current_stats(get_le16(tlv->value), ACL_LINK);
+}
+
+static void ana_ext_evt_add(const struct intel_tlv *tlv)
+{
+	uint32_t num = get_le32(tlv->value);
+
+	subevt_add(tlv->subevent_id, &num);
+}
+
+static void ana_ext_sco_evt_conn_handle(const struct intel_tlv *tlv)
+{
+	set_current_stats(get_le16(tlv->value), SCO_LINK);
+}
+
+static void ana_ext_sco_evt_slots_errors(const struct intel_tlv *tlv)
+{
+	unsigned char i;
+
+	if (tlv->length != 5 * sizeof(uint32_t)) {
+		print_text(COLOR_UNKNOWN_EXT_EVENT,
+			"  Invalid subevent length (%" PRIu8 ")", tlv->length);
+		return;
+	}
+
+	/* The subevent has 5 slots where each slot is of the uint32_t type. */
+	for (i = 0; i < 5; i++) {
+		uint32_t num = get_le32(((uint32_t *)tlv->value) + i);
+
+		subevt_slot_add(tlv->subevent_id, i, &num);
+	}
+}
+
+/* --- the subevent table for both ext_xxxx and ana_ext_xxxx --- */
+
 static const struct intel_ext_subevent {
 	uint8_t subevent_id;
 	uint8_t length;
+	/* function to call from packet.c */
 	void (*func)(const struct intel_tlv *tlv);
+	/* function to call from analyze.c */
+	void (*ana_func)(const struct intel_tlv *tlv);
+	const char *subevt_name;
+	uint8_t num_slots;
+	enum int_types int_type;
 } intel_ext_subevent_table[] = {
-	{ 0x01, 1, ext_evt_type },
+	{ EXT_EVT_TYPE, 1, ext_evt_type, ana_ext_evt_type,
+				"Extended Event Type", 1, UINT8 },
 
 	/* ACL audio link quality subevents */
-	{ 0x4a, 2, ext_acl_evt_conn_handle },
-	{ 0x4b, 4, ext_acl_evt_hec_errors },
-	{ 0x4c, 4, ext_acl_evt_crc_errors },
-	{ 0x4d, 4, ext_acl_evt_num_pkt_from_host },
-	{ 0x4e, 4, ext_acl_evt_num_tx_pkt_to_air },
-	{ 0x4f, 4, ext_acl_evt_num_tx_pkt_retry },
-	{ 0x50, 4, ext_acl_evt_num_tx_pkt_retry },
-	{ 0x51, 4, ext_acl_evt_num_tx_pkt_retry },
-	{ 0x52, 4, ext_acl_evt_num_tx_pkt_retry },
-	{ 0x53, 4, ext_acl_evt_num_tx_pkt_retry },
-	{ 0x54, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x55, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x56, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x57, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x58, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x59, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x5a, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x5b, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x5c, 4, ext_acl_evt_num_tx_pkt_type },
-	{ 0x5d, 4, ext_acl_evt_num_rx_pkt_from_air },
-	{ 0x5e, 4, ext_acl_evt_link_throughput },
-	{ 0x5f, 4, ext_acl_evt_max_packet_latency },
-	{ 0x60, 4, ext_acl_evt_avg_packet_latency },
+	{ ACL_CONNECTION_HANDLE, 2, ext_acl_evt_conn_handle,
+		ana_ext_acl_evt_conn_handle,
+		"ACL connection handle", 1, UINT16 },
+	{ ACL_HEC_ERRORS, 4, ext_acl_evt_hec_errors,
+		ana_ext_evt_add, "Rx HEC errors", 1, UINT32 },
+	{ ACL_CRC_ERRORS, 4, ext_acl_evt_crc_errors,
+		ana_ext_evt_add, "Rx CRC errors", 1, UINT32 },
+	{ ACL_PACKETS_FROM_HOST, 4, ext_acl_evt_num_pkt_from_host,
+		ana_ext_evt_add, "Packets from host", 1, UINT32 },
+	{ ACL_TX_PACKETS_TO_AIR, 4, ext_acl_evt_num_tx_pkt_to_air,
+		ana_ext_evt_add, "Tx packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_0_RETRY, 4, ext_acl_evt_num_tx_pkt_retry,
+		ana_ext_evt_add, "Tx packets 0 retries", 1, UINT32 },
+	{ ACL_TX_PACKETS_1_RETRY, 4, ext_acl_evt_num_tx_pkt_retry,
+		ana_ext_evt_add, "Tx packets 1 retries", 1, UINT32 },
+	{ ACL_TX_PACKETS_2_RETRY, 4, ext_acl_evt_num_tx_pkt_retry,
+		ana_ext_evt_add, "Tx packets 2 retries", 1, UINT32 },
+	{ ACL_TX_PACKETS_3_RETRY, 4, ext_acl_evt_num_tx_pkt_retry,
+		ana_ext_evt_add, "Tx packets 3 retries", 1, UINT32 },
+	{ ACL_TX_PACKETS_MORE_RETRY, 4, ext_acl_evt_num_tx_pkt_retry,
+		ana_ext_evt_add, "Tx packets 4 retries and more", 1, UINT32 },
+	{ ACL_TX_PACKETS_DH1, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx DH1 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_DH3, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx DH3 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_DH5, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx DH5 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_2DH1, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx 2DH1 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_2DH3, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx 2DH3 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_2DH5, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx 2DH5 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_3DH1, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx 3DH1 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_3DH3, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx 3DH3 packets", 1, UINT32 },
+	{ ACL_TX_PACKETS_3DH5, 4, ext_acl_evt_num_tx_pkt_type,
+		ana_ext_evt_add, "Tx 3DH5 packets", 1, UINT32 },
+	{ ACL_RX_PACKETS, 4, ext_acl_evt_num_rx_pkt_from_air,
+		ana_ext_evt_add, "Rx packets", 1, UINT32 },
+	{ ACL_LINK_THROUGHPUT, 4, ext_acl_evt_link_throughput,
+		ana_ext_evt_add, "ACL link throughput", 1, UINT32 },
+	{ ACL_MAX_PACKET_LATENCY, 4, ext_acl_evt_max_packet_latency,
+		ana_ext_evt_add, "ACL max packet latency", 1, UINT32 },
+	{ ACL_AVG_PACKET_LATENCY, 4, ext_acl_evt_avg_packet_latency,
+		ana_ext_evt_add, "ACL avg packet latency", 1, UINT32 },
 
 	/* SCO/eSCO audio link quality subevents */
-	{ 0x6a, 2, ext_sco_evt_conn_handle },
-	{ 0x6b, 4, ext_sco_evt_num_rx_pkt_from_air },
-	{ 0x6c, 4, ext_sco_evt_num_tx_pkt_to_air },
-	{ 0x6d, 4, ext_sco_evt_num_rx_payloads_lost },
-	{ 0x6e, 4, ext_sco_evt_num_tx_payloads_lost },
-	{ 0x6f, 20, ext_sco_evt_num_no_sync_errors },
-	{ 0x70, 20, ext_sco_evt_num_hec_errors },
-	{ 0x71, 20, ext_sco_evt_num_crc_errors },
-	{ 0x72, 20, ext_sco_evt_num_naks },
-	{ 0x73, 20, ext_sco_evt_num_failed_tx_by_wifi },
-	{ 0x74, 20, ext_sco_evt_num_failed_rx_by_wifi },
-	{ 0x75, 4, ext_sco_evt_samples_inserted },
-	{ 0x76, 4, ext_sco_evt_samples_dropped },
-	{ 0x77, 4, ext_sco_evt_mute_samples },
-	{ 0x78, 4, ext_sco_evt_plc_injection_data },
+	{ SCO_CONNECTION_HANDLE, 2, ext_sco_evt_conn_handle,
+		ana_ext_sco_evt_conn_handle,
+		"SCO/eSCO connection handle", 1, UINT16 },
+	{ SCO_RX_PACKETS, 4, ext_sco_evt_num_rx_pkt_from_air,
+		ana_ext_evt_add, "Packets from host", 1, UINT32 },
+	{ SCO_TX_PACKETS, 4, ext_sco_evt_num_tx_pkt_to_air,
+		ana_ext_evt_add, "Tx packets", 1, UINT32 },
+	{ SCO_RX_PACKETS_LOST, 4, ext_sco_evt_num_rx_payloads_lost,
+		ana_ext_evt_add, "Rx payload lost", 1, UINT32 },
+	{ SCO_TX_PACKETS_LOST, 4, ext_sco_evt_num_tx_payloads_lost,
+		ana_ext_evt_add, "Tx payload lost", 1, UINT32 },
+	{ SCO_RX_NO_SYNC_ERROR, 20, ext_sco_evt_num_no_sync_errors,
+		ana_ext_sco_evt_slots_errors, "Rx No SYNC errors", 5, UINT32 },
+	{ SCO_RX_HEC_ERROR, 20, ext_sco_evt_num_hec_errors,
+		ana_ext_sco_evt_slots_errors, "Rx HEC errors", 5, UINT32 },
+	{ SCO_RX_CRC_ERROR, 20, ext_sco_evt_num_crc_errors,
+		ana_ext_sco_evt_slots_errors, "Rx CRC errors", 5, UINT32 },
+	{ SCO_RX_NAK_ERROR, 20, ext_sco_evt_num_naks,
+		ana_ext_sco_evt_slots_errors, "Rx NAK errors", 5, UINT32 },
+	{ SCO_TX_FAILED_BY_WIFI, 20, ext_sco_evt_num_failed_tx_by_wifi,
+		ana_ext_sco_evt_slots_errors,
+		"Failed Tx due to Wifi coex", 5, UINT32 },
+	{ SCO_RX_FAILED_BY_WIFI, 20, ext_sco_evt_num_failed_rx_by_wifi,
+		ana_ext_sco_evt_slots_errors,
+		"Failed Rx due to Wifi coex", 5, UINT32 },
+	{ SCO_SAMPLES_INSERTED, 4, ext_sco_evt_samples_inserted,
+		ana_ext_evt_add,
+		"Late samples inserted based on CDC", 1, UINT32 },
+	{ SCO_SAMPLES_DROPPED, 4, ext_sco_evt_samples_dropped,
+		ana_ext_evt_add, "Samples dropped", 1, UINT32 },
+	{ SCO_MUTE_SAMPLES, 4, ext_sco_evt_mute_samples,
+		ana_ext_evt_add,
+		"Mute samples sent at initial connection", 1, UINT32 },
+	{ SCO_PLC_INJECTION_DATA, 4, ext_sco_evt_plc_injection_data,
+		ana_ext_evt_add, "PLC injection data", 1, UINT32 },
 
 	/* end */
-	{ 0x0, 0}
+	{ 0x0, 0, NULL, NULL, "None", 1, UINT32 }
 };
+
+static uint32_t get_subevt_idx(uint8_t subevent_id)
+{
+	uint8_t i;
+
+	for (i = 0; intel_ext_subevent_table[i].length; i++) {
+		if (intel_ext_subevent_table[i].subevent_id == subevent_id)
+			return i;
+	}
+
+	printf("Failed to find subevt id %" PRIu8 " in Intel subevt table\n",
+								subevent_id);
+	return i;
+}
+
+void intel_get_subevt_info(uint8_t subevent_id,
+					struct subevt_info_data *subevt_info)
+{
+	uint8_t subevt_idx = get_subevt_idx(subevent_id);
+	const struct intel_ext_subevent *subevt;
+
+	subevt = &intel_ext_subevent_table[subevt_idx];
+	subevt_info->name = subevt->subevt_name;
+	subevt_info->num_slots = subevt->num_slots;
+	subevt_info->int_type = subevt->int_type;
+	subevt_info->size = (get_int_size(subevt->int_type) * subevt->length);
+}
 
 static const struct intel_tlv *process_ext_subevent(const struct intel_tlv *tlv,
 					const struct intel_tlv *last_tlv)
@@ -1592,24 +1839,29 @@ static const struct intel_tlv *process_ext_subevent(const struct intel_tlv *tlv,
 	}
 
 	if (!subevent) {
-		print_text(COLOR_UNKNOWN_EXT_EVENT,
-				"Unknown extended subevent 0x%2.2x",
-				tlv->subevent_id);
+		if (is_packet_mode())
+			print_text(COLOR_UNKNOWN_EXT_EVENT,
+					"Unknown extended subevent 0x%2.2x",
+					tlv->subevent_id);
 		return NULL;
 	}
 
 	if (tlv->length != subevent->length) {
-		print_text(COLOR_ERROR, "Invalid length %d of subevent 0x%2.2x",
-				tlv->length, tlv->subevent_id);
+		if (is_packet_mode())
+			print_text(COLOR_ERROR,
+					"Invalid length %d of subevent 0x%2.2x",
+					tlv->length, tlv->subevent_id);
 		return NULL;
 	}
 
 	if (next_tlv > last_tlv) {
-		print_text(COLOR_ERROR, "Subevent exceeds the buffer size.");
+		if (is_packet_mode())
+			print_text(COLOR_ERROR,
+					"Subevent exceeds the buffer size.");
 		return NULL;
 	}
 
-	subevent->func(tlv);
+	is_packet_mode() ? subevent->func(tlv) : subevent->ana_func(tlv);
 
 	return next_tlv;
 }
@@ -1619,16 +1871,25 @@ static void intel_vendor_ext_evt(const void *data, uint8_t size)
 	/* The data pointer points to a number of tlv.*/
 	const struct intel_tlv *tlv = data;
 	const struct intel_tlv *last_tlv = data + size;
+	uint8_t evt_type;
+	bool quality_report = false;
 
 	/* Process every tlv subevent until reaching last_tlv.
 	 * The decoding process terminates normally when tlv == last_tlv.
 	 */
-	while (tlv && tlv < last_tlv)
+	while (tlv && tlv < last_tlv) {
+		if (is_ext_evt_type(tlv))
+			quality_report = is_quality_report(tlv);
+
 		tlv = process_ext_subevent(tlv, last_tlv);
+	}
 
 	/* If an error occurs in decoding the subevents, hexdump the packet. */
-	if (!tlv)
+	if (!tlv && is_packet_mode())
 		packet_hexdump(data, size);
+
+	if (quality_report)
+		bqr_stats_post();
 }
 
 /* Vendor extended events with a vendor prefix. */
@@ -1637,7 +1898,7 @@ static const struct vendor_evt vendor_prefix_evt_table[] = {
 	{ }
 };
 
-const uint8_t intel_vendor_prefix[] = {0x87, 0x80};
+static const uint8_t intel_vendor_prefix[] = {0x87, 0x80};
 #define INTEL_VENDOR_PREFIX_SIZE sizeof(intel_vendor_prefix)
 
 /*
@@ -1667,7 +1928,9 @@ static const struct vendor_evt *intel_vendor_prefix_evt(const void *data,
 			return NULL;
 		sprintf(prefix_string + i * 2, "%02x", vnd->prefix_data[i]);
 	}
-	print_field("Vendor Prefix (0x%s)", prefix_string);
+
+	if (is_packet_mode())
+		print_field("Vendor Prefix (0x%s)", prefix_string);
 
 	/*
 	 * Handle the vendor event with a vendor prefix.
@@ -1694,15 +1957,22 @@ const struct vendor_evt *intel_vendor_evt(const void *data, int *consumed_size)
 	 * Handle the vendor event without a vendor prefix.
 	 *   0xff <length> <evt> <data>
 	 * This loop checks whether the <evt> exists in the vendor_evt_table.
+	 *
+	 * This table is only used for the packet mode.
 	 */
-	for (i = 0; vendor_evt_table[i].str; i++) {
-		if (vendor_evt_table[i].evt == evt)
-			return &vendor_evt_table[i];
+	if (is_packet_mode()) {
+		for (i = 0; vendor_evt_table[i].str; i++) {
+			if (vendor_evt_table[i].evt == evt)
+				return &vendor_evt_table[i];
+		}
 	}
 
 	/*
 	 * It is not a regular event. Check whether it is a vendor extended
 	 * event that comes with a vendor prefix followed by a subopcode.
+	 *
+	 * The vendor_prefix_evt_table is used for both the packet mode and
+	 * the analyze mode.
 	 */
 	return intel_vendor_prefix_evt(data, consumed_size);
 }

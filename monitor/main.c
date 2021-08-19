@@ -31,6 +31,7 @@
 #include "ellisys.h"
 #include "control.h"
 #include "display.h"
+#include "stats.h"
 
 #define OPT_COMPRESS 1000
 
@@ -122,6 +123,7 @@ int main(int argc, char *argv[])
 	const char *reader_path = NULL;
 	const char *writer_path = NULL;
 	const char *analyze_path = NULL;
+	const char *bqr_path = NULL;
 	const char *ellisys_server = NULL;
 	const char *tty = NULL;
 	unsigned int tty_speed = B115200;
@@ -288,7 +290,20 @@ int main(int argc, char *argv[])
 	packet_set_filter(filter_mask);
 
 	if (analyze_path) {
+		FILE *fp_bqr = NULL;
+
+		if (bqr_path) {
+			fp_bqr = bqr_file_create(bqr_path);
+			if (!fp_bqr)
+				fprintf(stderr, "Failed to create file %s.\n",
+					bqr_path);
+		}
+
 		analyze_trace(analyze_path);
+
+		if (fp_bqr)
+			bqr_file_close();
+
 		return EXIT_SUCCESS;
 	}
 

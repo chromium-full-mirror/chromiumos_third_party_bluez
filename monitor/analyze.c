@@ -27,6 +27,9 @@
 #include "monitor/display.h"
 #include "monitor/packet.h"
 #include "monitor/analyze.h"
+#include "monitor/vendor.h"
+#include "monitor/intel.h"
+#include "monitor/stats.h"
 
 struct hci_dev {
 	uint16_t index;
@@ -54,11 +57,13 @@ struct hci_dev {
 #define CONN_BR_ESCO	0x03
 #define CONN_LE_ACL	0x04
 #define CONN_LE_ISO	0x05
+#define CONN_UNKNOWN	0xff
 
 struct hci_conn {
 	uint16_t handle;
 	uint8_t type;
 	uint8_t bdaddr[6];
+	uint8_t name[248];
 	bool setup_seen;
 	bool terminated;
 	unsigned long rx_num;
@@ -72,6 +77,8 @@ struct hci_conn {
 	uint16_t tx_pkt_min;
 	uint16_t tx_pkt_max;
 	uint16_t tx_pkt_med;
+	struct timeval tv_bgn;
+	struct timeval tv_end;
 	struct queue *chan_list;
 };
 
@@ -83,6 +90,11 @@ struct l2cap_chan {
 };
 
 static struct queue *dev_list;
+
+static struct packet_data {
+	struct hci_dev *dev;
+	struct timeval tv;
+} current_packet;
 
 static void chan_destroy(void *data)
 {
@@ -135,31 +147,30 @@ static struct l2cap_chan *chan_lookup(struct hci_conn *conn, uint16_t cid,
 	return chan;
 }
 
+static const char *get_conn_type_str(uint8_t type)
+{
+	switch (type) {
+	case CONN_BR_ACL:
+		return "BR-ACL";
+	case CONN_BR_SCO:
+		return "BR-SCO";
+	case CONN_BR_ESCO:
+		return "BR-ESCO";
+	case CONN_LE_ACL:
+		return "LE-ACL";
+	case CONN_LE_ISO:
+		return "LE-ISO";
+	default:
+		return "unknown";
+	}
+}
+
 static void conn_destroy(void *data)
 {
 	struct hci_conn *conn = data;
 	const char *str;
 
-	switch (conn->type) {
-	case CONN_BR_ACL:
-		str = "BR-ACL";
-		break;
-	case CONN_BR_SCO:
-		str = "BR-SCO";
-		break;
-	case CONN_BR_ESCO:
-		str = "BR-ESCO";
-		break;
-	case CONN_LE_ACL:
-		str = "LE-ACL";
-		break;
-	case CONN_LE_ISO:
-		str = "LE-ISO";
-		break;
-	default:
-		str = "unknown";
-		break;
-	}
+	str = get_conn_type_str(conn->type);
 
 	if (conn->tx_num > 0)
 		conn->tx_pkt_med = conn->tx_bytes / conn->tx_num;
@@ -211,28 +222,61 @@ static bool conn_match_handle(const void *a, const void *b)
 	const struct hci_conn *conn = a;
 	uint16_t handle = PTR_TO_UINT(b);
 
+	return (conn->handle == handle);
+}
+
+static bool live_conn_match_handle(const void *a, const void *b)
+{
+	const struct hci_conn *conn = a;
+	uint16_t handle = PTR_TO_UINT(b);
+
 	return (conn->handle == handle && !conn->terminated);
 }
 
-static struct hci_conn *conn_lookup(struct hci_dev *dev, uint16_t handle)
+static struct hci_conn *conn_lookup(struct hci_dev *dev, uint16_t handle,
+								bool live)
 {
-	return queue_find(dev->conn_list, conn_match_handle,
-						UINT_TO_PTR(handle));
+	if (!dev)
+		return NULL;
+
+	return queue_find(dev->conn_list,
+			live ? live_conn_match_handle : conn_match_handle,
+			UINT_TO_PTR(handle));
 }
 
 static struct hci_conn *conn_lookup_type(struct hci_dev *dev, uint16_t handle,
-								uint8_t type)
+							uint8_t type, bool live)
 {
 	struct hci_conn *conn;
 
-	conn = queue_find(dev->conn_list, conn_match_handle,
-						UINT_TO_PTR(handle));
+	conn = queue_find(dev->conn_list,
+			live ? live_conn_match_handle : conn_match_handle,
+			UINT_TO_PTR(handle));
+
+	/* If a connection is created in the middle, fill in the type now. */
+	if (conn && conn->type == CONN_UNKNOWN)
+		conn->type = type;
+
 	if (!conn || conn->type != type) {
 		conn = conn_alloc(dev, handle, type);
 		queue_push_tail(dev->conn_list, conn);
 	}
 
 	return conn;
+}
+
+static bool conn_match_bdaddr(const void *a, const void *b)
+{
+	const struct hci_conn *conn = a;
+	uint8_t *bdaddr = ((uint8_t *) b);
+
+	return (!memcmp(conn->bdaddr, bdaddr, 6));
+}
+
+static struct hci_conn *conn_lookup_bdaddr(struct hci_dev *dev,
+							const uint8_t *bdaddr)
+{
+	return queue_find(dev->conn_list, conn_match_bdaddr, bdaddr);
 }
 
 static void dev_destroy(void *data)
@@ -347,12 +391,10 @@ static void new_index(struct timeval *tv, uint16_t index,
 	const struct btsnoop_opcode_new_index *ni = data;
 	struct hci_dev *dev;
 
-	dev = dev_alloc(index);
+	dev = dev_lookup(index);
 
 	dev->type = ni->type;
 	memcpy(dev->bdaddr, ni->bdaddr, 6);
-
-	queue_push_tail(dev_list, dev);
 }
 
 static void del_index(struct timeval *tv, uint16_t index,
@@ -367,6 +409,71 @@ static void del_index(struct timeval *tv, uint16_t index,
 	}
 
 	dev_destroy(dev);
+}
+
+static struct hci_conn *conn_lookup_index(uint16_t index, uint16_t handle,
+								bool live)
+{
+	struct hci_dev *dev;
+
+	dev = dev_lookup(index);
+	if (!dev)
+		return NULL;
+
+	return conn_lookup(dev, handle, live);
+}
+
+void conn_alloc_in_middle(uint16_t index, uint16_t handle)
+{
+	struct hci_conn *conn;
+	struct hci_dev *dev;
+
+	dev = dev_lookup(index);
+	if (!dev)
+		return;
+
+	conn = conn_lookup(dev, handle, false);
+	if (conn)
+		return;
+
+	/* Create and append a new connection if the connection with the handle
+	 * does not exist yet. This happens when the btsnoop log contains the
+	 * log snippet from the middle of the connection.
+	 * In this case, only partial information about the connection, i.e.,
+	 * the connection handle, is available.
+	 */
+	conn = conn_alloc(dev, handle, CONN_UNKNOWN);
+	if (conn)
+		queue_push_tail(dev->conn_list, conn);
+}
+
+static void get_conn_info(uint16_t index, uint16_t handle,
+					struct conn_info_data *conn_info)
+{
+	struct hci_conn *conn;
+
+	conn = conn_lookup_index(index, handle, false);
+	if (!conn) {
+		conn_info->name = NULL;
+		conn_info->bdaddr = NULL;
+		conn_info->link_type_str = (uint8_t *)"UNKNOWN LINK";
+		conn_info->tv_bgn = NULL;
+		conn_info->tv_end = NULL;
+
+	} else {
+		conn_info->name = conn->name;
+		conn_info->bdaddr = conn->bdaddr;
+		conn_info->link_type_str =
+				(uint8_t *)get_conn_type_str(conn->type);
+		conn_info->tv_bgn = &conn->tv_bgn;
+		conn_info->tv_end = &conn->tv_end;
+	}
+}
+
+static void get_packet_info(struct packet_info_data *packet_info)
+{
+	packet_info->index = current_packet.dev->index;
+	packet_info->tv = &current_packet.tv;
 }
 
 static void command_pkt(struct timeval *tv, uint16_t index,
@@ -386,11 +493,25 @@ static void command_pkt(struct timeval *tv, uint16_t index,
 	dev->num_cmd++;
 }
 
+static void conn_complete(struct hci_dev *dev, uint16_t handle,
+				uint8_t link_type, const uint8_t *bdaddr,
+				struct timeval *tv)
+{
+	struct hci_conn *conn;
+
+	conn = conn_lookup_type(dev, le16_to_cpu(handle), link_type, true);
+	if (!conn)
+		return;
+
+	conn->setup_seen = true;
+	conn->tv_bgn = *tv;
+	memcpy(conn->bdaddr, bdaddr, 6);
+}
+
 static void evt_conn_complete(struct hci_dev *dev, struct timeval *tv,
 					const void *data, uint16_t size)
 {
 	const struct bt_hci_evt_conn_complete *evt = data;
-	struct hci_conn *conn;
 
 	data += sizeof(*evt);
 	size -= sizeof(*evt);
@@ -398,12 +519,7 @@ static void evt_conn_complete(struct hci_dev *dev, struct timeval *tv,
 	if (evt->status)
 		return;
 
-	conn = conn_lookup_type(dev, le16_to_cpu(evt->handle), CONN_BR_ACL);
-	if (!conn)
-		return;
-
-	memcpy(conn->bdaddr, evt->bdaddr, 6);
-	conn->setup_seen = true;
+	conn_complete(dev, evt->handle, evt->link_type, evt->bdaddr, tv);
 }
 
 static void evt_disconnect_complete(struct hci_dev *dev, struct timeval *tv,
@@ -418,11 +534,39 @@ static void evt_disconnect_complete(struct hci_dev *dev, struct timeval *tv,
 	if (evt->status)
 		return;
 
-	conn = conn_lookup(dev, le16_to_cpu(evt->handle));
-	if (!conn)
+	conn = conn_lookup(dev, le16_to_cpu(evt->handle), true);
+	if (!conn) {
+		fprintf(stderr, "Disconnecting an unknown handle 0x%2.2x\n",
+						le16_to_cpu(evt->handle));
 		return;
+	}
 
 	conn->terminated = true;
+	conn->tv_end = *tv;
+}
+
+static void evt_sync_conn_complete(struct hci_dev *dev, struct timeval *tv,
+					const void *data, uint16_t size)
+{
+	const struct bt_hci_evt_sync_conn_complete *evt = data;
+
+	if (evt->status)
+		return;
+
+	conn_complete(dev, evt->handle, evt->link_type, evt->bdaddr, tv);
+}
+
+static void evt_remote_name_request_complete(struct hci_dev *dev,
+						struct timeval *tv,
+						const void *data, uint16_t size)
+{
+	const struct bt_hci_evt_remote_name_request_complete *evt = data;
+	struct hci_conn *conn;
+
+	conn = conn_lookup_bdaddr(dev, evt->bdaddr);
+	if (conn) {
+		memcpy(conn->name, evt->name, sizeof(evt->name));
+	}
 }
 
 static void rsp_read_bd_addr(struct hci_dev *dev, struct timeval *tv,
@@ -473,7 +617,7 @@ static void evt_num_completed_packets(struct hci_dev *dev, struct timeval *tv,
 		data += 4;
 		size -= 4;
 
-		conn = conn_lookup(dev, handle);
+		conn = conn_lookup(dev, handle, true);
 		if (!conn)
 			continue;
 
@@ -528,6 +672,32 @@ static void evt_le_meta_event(struct hci_dev *dev, struct timeval *tv,
 	}
 }
 
+static void evt_vendor(struct hci_dev *dev, struct timeval *tv,
+					const void *data, uint16_t size)
+{
+	uint8_t evt = *((uint8_t *) data);
+	const struct vendor_evt *vnd = NULL;
+
+	/*
+	 * In some cases of vendor events, the consumed size is 1
+	 * which is the event code itself. In some other cases,
+	 * the consumed size may be variable owing to, e.g.,
+	 * consuming a vendor prefix in addition to the event code.
+	 */
+	int consumed_size = 1;
+
+	switch (dev->manufacturer) {
+	case COMPANY_ID_INTEL:
+		vnd = intel_vendor_evt(data, &consumed_size);
+		break;
+	default:
+		break;
+	}
+
+	if (vnd)
+		vnd->evt_func(data + consumed_size, size - consumed_size);
+}
+
 static void event_pkt(struct timeval *tv, uint16_t index,
 					const void *data, uint16_t size)
 {
@@ -551,6 +721,9 @@ static void event_pkt(struct timeval *tv, uint16_t index,
 	case BT_HCI_EVT_DISCONNECT_COMPLETE:
 		evt_disconnect_complete(dev, tv, data, size);
 		break;
+	case BT_HCI_EVT_REMOTE_NAME_REQUEST_COMPLETE:
+		evt_remote_name_request_complete(dev, tv, data, size);
+		break;
 	case BT_HCI_EVT_CMD_COMPLETE:
 		evt_cmd_complete(dev, tv, data, size);
 		break;
@@ -560,6 +733,11 @@ static void event_pkt(struct timeval *tv, uint16_t index,
 	case BT_HCI_EVT_LE_META_EVENT:
 		evt_le_meta_event(dev, tv, data, size);
 		break;
+	case BT_HCI_EVT_SYNC_CONN_COMPLETE:
+		evt_sync_conn_complete(dev, tv, data, size);
+		break;
+	case BT_HCI_EVT_VENDOR:
+		evt_vendor(dev, tv, data, size);
 	}
 }
 
@@ -583,7 +761,7 @@ static void acl_pkt(struct timeval *tv, uint16_t index, bool out,
 	dev->num_acl++;
 
 	conn = conn_lookup_type(dev, le16_to_cpu(hdr->handle) & 0x0fff,
-								CONN_BR_ACL);
+							CONN_BR_ACL, true);
 	if (!conn)
 		return;
 
@@ -648,6 +826,14 @@ static void info_index(struct timeval *tv, uint16_t index,
 		return;
 
 	dev->manufacturer = hdr->manufacturer;
+
+	switch (dev->manufacturer) {
+	case COMPANY_ID_INTEL:
+		set_subevt_info_fetch_func(intel_get_subevt_info);
+		break;
+	default:
+		break;
+	}
 }
 
 static void vendor_diag(struct timeval *tv, uint16_t index,
@@ -727,6 +913,20 @@ static void unknown_opcode(struct timeval *tv, uint16_t index,
 	dev->unknown++;
 }
 
+static void bqr_initialize(void)
+{
+	set_analyze_mode();
+	queue_new_bqr_stats();
+	set_conn_info_fetch_func(get_conn_info);
+	set_packet_info_fetch_func(get_packet_info);
+	set_conn_alloc_in_middle_func(conn_alloc_in_middle);
+}
+
+static void bqr_cleanup(void)
+{
+	queue_destroy_bqr_stats();
+}
+
 void analyze_trace(const char *path)
 {
 	struct btsnoop *btsnoop_file;
@@ -750,15 +950,24 @@ void analyze_trace(const char *path)
 	}
 
 	dev_list = queue_new();
+	bqr_initialize();
 
 	while (1) {
 		unsigned char buf[BTSNOOP_MAX_PACKET_SIZE];
 		struct timeval tv;
 		uint16_t index, opcode, pktlen;
+		struct hci_dev *dev;
 
 		if (!btsnoop_read_hci(btsnoop_file, &tv, &index, &opcode,
 								buf, &pktlen))
 			break;
+
+		dev = dev_lookup(index);
+		if (!dev)
+			return;
+
+		current_packet.dev = dev;
+		current_packet.tv = tv;
 
 		switch (opcode) {
 		case BTSNOOP_OPCODE_NEW_INDEX:
@@ -818,6 +1027,7 @@ void analyze_trace(const char *path)
 
 	printf("Trace contains %lu packets\n\n", num_packets);
 
+	bqr_cleanup();
 	queue_destroy(dev_list, dev_destroy);
 
 done:
