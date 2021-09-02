@@ -1642,9 +1642,14 @@ failed:
 
 	/* Capture error in profile connection. A successful profile
 	 * connection will be captured in btd_service_connecting_complete()
+	 * The following conditionals are needed to avoid double-counting
+	 * in metric collection.
 	 */
-	metrics_send_per_profile_enum(PROFILE_CONN_RESULT, ext->p.remote_uuid,
-				      err);
+	if (!conn->service ||
+	    (btd_service_get_state(conn->service) != BTD_SERVICE_STATE_DISCONNECTED &&
+	     btd_service_get_state(conn->service) != BTD_SERVICE_STATE_CONNECTING))
+		metrics_send_per_profile_enum(PROFILE_CONN_RESULT,
+						ext->p.remote_uuid, err);
 
 	ext->conns = g_slist_remove(ext->conns, conn);
 	ext_io_destroy(conn);
