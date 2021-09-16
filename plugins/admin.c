@@ -611,6 +611,7 @@ static void admin_policy_remove(struct btd_adapter *adapter)
 
 	queue_foreach(devices, unregister_device_data, NULL);
 	queue_destroy(devices, g_free);
+	devices = NULL;
 
 	if (policy_data) {
 		admin_policy_destroy(policy_data);
@@ -642,7 +643,6 @@ static void admin_exit(void)
 	DBG("");
 
 	btd_unregister_adapter_driver(&admin_policy_driver);
-	admin_policy_remove(NULL);
 }
 
 BLUETOOTH_PLUGIN_DEFINE(admin, VERSION,
