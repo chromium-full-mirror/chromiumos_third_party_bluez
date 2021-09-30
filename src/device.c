@@ -1785,7 +1785,7 @@ void device_request_disconnect(struct btd_device *device, DBusMessage *msg)
 
 	if (device->connect) {
 		DBusMessage *reply = btd_error_failed(device->connect,
-								"Cancelled");
+						ERR_BREDR_CONN_CANCELED);
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);
 		device->connect = NULL;
@@ -2081,7 +2081,8 @@ done:
 		metrics_cancel_timer(TIMER_CONNECT, timer_data);
 
 		g_dbus_send_message(dbus_conn,
-				btd_error_failed(dev->connect, strerror(-err)));
+			btd_error_failed(dev->connect,
+					btd_error_bredr_conn_from_errno(err)));
 	} else {
 		/* Start passive SDP discovery to update known services */
 		if (dev->bredr && !dev->svc_refreshed && dev->refresh_discovery)
@@ -2367,7 +2368,7 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 				ACL_CONNECTION_OUTGOING,
 				CONN_STATE_BUSY);
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_BUSY, RESULT_TYPE_DEFINED);
-		return btd_error_in_progress(msg);
+		return btd_error_in_progress_str(msg, ERR_BREDR_CONN_BUSY);
 	}
 
 	if (!btd_adapter_get_powered(dev->adapter)) {
@@ -2376,7 +2377,8 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 				CONN_STATE_NONPOWERED);
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, CONN_FAIL_NONPOWERED,
 					RESULT_TYPE_DEFINED);
-		return btd_error_not_ready(msg);
+		return btd_error_not_ready_str(msg,
+					ERR_BREDR_CONN_ADAPTER_NOT_POWERED);
 	}
 
 	btd_device_set_temporary(dev, false);
@@ -2387,7 +2389,9 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 	dev->pending = create_pending_list(dev, uuid);
 	if (!dev->pending) {
 		if (dev->svc_refreshed) {
-			if (find_service_with_state(dev->services,
+			if (dbus_message_is_method_call(msg, DEVICE_INTERFACE,
+				"Connect") &&
+				find_service_with_state(dev->services,
 						BTD_SERVICE_STATE_CONNECTED)) {
 				metrics_acl_connection_state_changed(
 					addr, bdaddr_type,
@@ -2404,7 +2408,8 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 				metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 					CONN_FAIL_BREDR_PROFILE_UNAVAILABLE,
 					RESULT_TYPE_DEFINED);
-				return btd_error_not_available(msg);
+				return btd_error_not_available_str(msg,
+					ERR_BREDR_CONN_PROFILE_UNAVAILABLE);
 			}
 		}
 
@@ -2430,7 +2435,8 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 			metrics_conn_system_err_to_state(err));
 		metrics_send_enum(ENUM_TYPE_CONN_RESULT, result,
 					RESULT_TYPE_DEFINED);
-		return btd_error_failed(msg, strerror(-err));
+		return btd_error_failed(msg,
+					btd_error_bredr_conn_from_errno(err));
 	}
 
 	dev->connect = dbus_message_ref(msg);
@@ -2453,7 +2459,8 @@ resolve_services:
 			bdaddr_type == BDADDR_BREDR ? CONN_FAIL_BROWSE_SDP :
 							CONN_FAIL_BROWSE_GATT,
 			RESULT_TYPE_DEFINED);
-		return btd_error_failed(msg, strerror(-err));
+		return btd_error_failed(msg, bdaddr_type == BDADDR_BREDR ?
+			ERR_BREDR_CONN_SDP_SEARCH : ERR_LE_CONN_GATT_BROWSE);
 	}
 
 	return NULL;
@@ -2598,8 +2605,10 @@ static DBusMessage *connect_profile(DBusConnection *conn, DBusMessage *msg,
 	DBusMessage *reply;
 
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &pattern,
-							DBUS_TYPE_INVALID))
-		return btd_error_invalid_args(msg);
+							DBUS_TYPE_INVALID)) {
+		return btd_error_invalid_args_str(msg,
+					ERR_BREDR_CONN_INVALID_ARGUMENTS);
+	}
 
 	uuid = bt_name2string(pattern);
 	reply = connect_profiles(dev, BDADDR_BREDR, msg, uuid);
@@ -2977,7 +2986,10 @@ static void browse_request_complete(struct browse_req *req, uint8_t type,
 			if (err == 0)
 				goto done;
 		}
-		reply = btd_error_failed(req->msg, strerror(-err));
+		reply = btd_error_failed(req->msg,
+				bdaddr_type == BDADDR_BREDR ?
+				btd_error_bredr_conn_from_errno(err) :
+				btd_error_le_conn_from_errno(err));
 		goto done;
 	}
 
@@ -3925,7 +3937,8 @@ void device_remove_connection(struct btd_device *device, uint8_t bdaddr_type)
 	 */
 	if (device->connect) {
 		DBG("connection removed while Connect() is waiting reply");
-		reply = btd_error_failed(device->connect, "Disconnected early");
+		reply = btd_error_failed(device->connect,
+						ERR_BREDR_CONN_CANCELED);
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);
 		device->connect = NULL;
@@ -6414,7 +6427,7 @@ done:
 		metrics_conn_result result = metrics_le_conn_err_to_result(err);
 		if (err < 0)
 			reply = btd_error_failed(device->connect,
-							strerror(-err));
+					btd_error_le_conn_from_errno(err));
 		else
 			reply = dbus_message_new_method_return(device->connect);
 
