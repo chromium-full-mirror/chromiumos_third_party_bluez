@@ -34,6 +34,8 @@
 #include "stats.h"
 
 #define OPT_COMPRESS 1000
+#define OPT_BQR_BUFFER 1001
+#define OPT_BQR_FILE 1002
 
 static void signal_callback(int signum, void *user_data)
 {
@@ -59,6 +61,9 @@ static void usage(void)
 		"\t                         limit [-l] is reached\n"
 		"\t    --compress         Compress the saved btsnoop\n"
 		"\t-a, --analyze <file>   Analyze traces in btsnoop format\n"
+		"\t    --quality-buffer <num> number of subevents to keep in buffer\n"
+		"\t                         default is 720\n"
+		"\t    --quality-file <file>  Save quality events in the file\n"
 		"\t-s, --server <socket>  Start monitor server socket\n"
 		"\t-p, --priority <level> Show only priority or lower\n"
 		"\t-i, --index <num>      Show only specified controller\n"
@@ -89,6 +94,8 @@ static const struct option main_options[] = {
 	{ "file-rotate",  required_argument, NULL, 'f' },
 	{ "compress",  no_argument,       NULL, OPT_COMPRESS },
 	{ "analyze",   required_argument, NULL, 'a' },
+	{ "quality-buffer", required_argument, NULL, OPT_BQR_BUFFER },
+	{ "quality-file",  required_argument, NULL, OPT_BQR_FILE },
 	{ "server",    required_argument, NULL, 's' },
 	{ "priority",  required_argument, NULL, 'p' },
 	{ "index",     required_argument, NULL, 'i' },
@@ -124,6 +131,7 @@ int main(int argc, char *argv[])
 	const char *writer_path = NULL;
 	const char *analyze_path = NULL;
 	const char *bqr_path = NULL;
+	unsigned int bqr_buffer_length = 0;
 	const char *ellisys_server = NULL;
 	const char *tty = NULL;
 	unsigned int tty_speed = B115200;
@@ -172,6 +180,18 @@ int main(int argc, char *argv[])
 			break;
 		case 'a':
 			analyze_path = optarg;
+			break;
+		case OPT_BQR_BUFFER:
+			bqr_buffer_length = atoi(optarg);
+			if (bqr_buffer_length <= 0) {
+				fprintf(stderr,
+					"invalid quality-buffer value\n");
+				return EXIT_FAILURE;
+			}
+			set_bqr_buffer_length(bqr_buffer_length);
+			break;
+		case OPT_BQR_FILE:
+			bqr_path = optarg;
 			break;
 		case 's':
 			if (strlen(optarg) > sizeof(addr.sun_path) - 1) {
