@@ -41,6 +41,7 @@
 struct btd_opts btd_opts;
 void btd_exit(void) {}
 GKeyFile *btd_get_main_conf(void) {return NULL;}
+bool btd_experimental_enabled(const char *uuid) {return true; }
 
 /* Tests the timer creation with mismatched timer type and the timer data. */
 static void test_timer_type_data_mismatch()
