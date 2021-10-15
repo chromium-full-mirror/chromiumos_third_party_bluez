@@ -96,6 +96,8 @@ static void admin_policy_destroy(struct btd_admin_policy *admin_policy)
 						ADMIN_POLICY_SET_INTERFACE);
 	g_dbus_unregister_interface(dbus_conn, path,
 						ADMIN_POLICY_STATUS_INTERFACE);
+	g_dbus_unregister_interface(dbus_conn, path,
+						MOCK_ADMIN_POLICY_INTERFACE);
 	admin_policy_free(admin_policy);
 }
 
