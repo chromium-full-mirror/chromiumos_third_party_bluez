@@ -4530,7 +4530,14 @@ static struct smp_ltk_info *get_peripheral_ltk_info(GKeyFile *key_file,
 
 	DBG("%s", peer);
 
-	ltk = get_ltk(key_file, peer, bdaddr_type, "SlaveLongTermKey");
+	/* Peripheral* is the proper term, but for now read both entries
+	 * so it won't break when user up/downgrades. Remove the other
+	 * term after a few releases.
+	 */
+	ltk = get_ltk(key_file, peer, bdaddr_type, "PeripheralLongTermKey");
+	if (!ltk)
+		ltk = get_ltk(key_file, peer, bdaddr_type, "SlaveLongTermKey");
+
 	if (ltk)
 		ltk->central = false;
 
@@ -9036,13 +9043,12 @@ static void new_link_key_callback(uint16_t index, uint16_t length,
 	bonding_complete(adapter, &addr->bdaddr, addr->type, 0);
 }
 
-static void store_longtermkey(struct btd_adapter *adapter, const bdaddr_t *peer,
+static void store_ltk_group(struct btd_adapter *adapter, const bdaddr_t *peer,
 				uint8_t bdaddr_type, const unsigned char *key,
-				uint8_t central, uint8_t authenticated,
+				const char *group, uint8_t authenticated,
 				uint8_t enc_size, uint16_t ediv,
 				uint64_t rand)
 {
-	const char *group = central ? "LongTermKey" : "SlaveLongTermKey";
 	char device_addr[18];
 	char filename[PATH_MAX];
 	GKeyFile *key_file;
@@ -9050,11 +9056,6 @@ static void store_longtermkey(struct btd_adapter *adapter, const bdaddr_t *peer,
 	gsize length = 0;
 	char *str;
 	int i;
-
-	if (central != 0x00 && central != 0x01) {
-		error("Unsupported LTK type %u", central);
-		return;
-	}
 
 	ba2str(peer, device_addr);
 
@@ -9085,6 +9086,34 @@ static void store_longtermkey(struct btd_adapter *adapter, const bdaddr_t *peer,
 	g_free(str);
 
 	g_key_file_free(key_file);
+}
+
+static void store_longtermkey(struct btd_adapter *adapter, const bdaddr_t *peer,
+				uint8_t bdaddr_type, const unsigned char *key,
+				uint8_t central, uint8_t authenticated,
+				uint8_t enc_size, uint16_t ediv,
+				uint64_t rand)
+{
+	if (central != 0x00 && central != 0x01) {
+		error("Unsupported LTK type %u", central);
+		return;
+	}
+
+	if (central) {
+		store_ltk_group(adapter, peer, bdaddr_type, key, "LongTermKey",
+				authenticated, enc_size, ediv, rand);
+	} else {
+		/* Peripheral* is the proper term, but for now keep duplicates
+		 * so it won't break when user up/downgrades. Remove the other
+		 * term after a few releases.
+		 */
+		store_ltk_group(adapter, peer, bdaddr_type, key,
+				"PeripheralLongTermKey", authenticated,
+				enc_size, ediv, rand);
+		store_ltk_group(adapter, peer, bdaddr_type, key,
+				"SlaveLongTermKey", authenticated,
+				enc_size, ediv, rand);
+	}
 }
 
 static void new_long_term_key_callback(uint16_t index, uint16_t length,
