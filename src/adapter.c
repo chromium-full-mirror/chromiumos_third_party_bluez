@@ -63,6 +63,7 @@
 #include "src/shared/gatt-db.h"
 #include "src/shared/timeout.h"
 #include "src/shared/aosp.h"
+#include "src/shared/intel.h"
 
 #include "btio/btio.h"
 #include "btd.h"
@@ -9952,6 +9953,9 @@ static void quality_report_callback(uint16_t index, uint16_t length,
 	if (ev->quality_spec == QUALITY_SPEC_AOSP_BQR) {
 		if (!process_aosp_quality_report(ev))
 			error("processing aosp quality report");
+	} else if (ev->quality_spec == QUALITY_SPEC_INTEL_TELEMETRY) {
+		if (!process_intel_telemetry_report(ev))
+			error("processing intel telemetry report");
 	} else {
 		error("quality report spec %u not supported.",
 			ev->quality_spec);
@@ -10542,7 +10546,10 @@ static void quality_report_debug(const char *str, void *user_data)
 
 static void quality_set_debug(struct btd_adapter *adapter)
 {
-	aosp_set_debug(quality_report_debug, "quality: ");
+	if (is_manufacturer_intel(adapter->manufacturer))
+		intel_set_debug(quality_report_debug, "quality: ");
+	else
+		aosp_set_debug(quality_report_debug, "quality: ");
 }
 
 static void read_info_complete(uint8_t status, uint16_t length,
