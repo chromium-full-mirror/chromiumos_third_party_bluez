@@ -36,8 +36,6 @@
 #define ADMIN_POLICY_STATUS_INTERFACE	"org.bluez.AdminPolicyStatus1"
 #define ADMIN_POLICY_STORAGE		STORAGEDIR "/admin_policy_settings"
 
-#define MOCK_ADMIN_POLICY_INTERFACE	"org.bluez.AdminPolicy1"
-
 #define DBUS_BLUEZ_SERVICE		"org.bluez"
 #define BTD_DEVICE_INTERFACE		"org.bluez.Device1"
 
@@ -96,8 +94,6 @@ static void admin_policy_destroy(struct btd_admin_policy *admin_policy)
 						ADMIN_POLICY_SET_INTERFACE);
 	g_dbus_unregister_interface(dbus_conn, path,
 						ADMIN_POLICY_STATUS_INTERFACE);
-	g_dbus_unregister_interface(dbus_conn, path,
-						MOCK_ADMIN_POLICY_INTERFACE);
 	admin_policy_free(admin_policy);
 }
 
@@ -194,8 +190,6 @@ static void update_device_affected(void *data, void *user_data)
 
 	g_dbus_emit_property_changed(dbus_conn, dev_data->path,
 			ADMIN_POLICY_STATUS_INTERFACE, "AffectedByPolicy");
-
-	btd_device_set_is_blocked_by_policy(dev_data->device, affected);
 }
 
 static void free_uuid_strings(char **uuid_strs, gsize num)
@@ -386,11 +380,6 @@ static DBusMessage *set_service_allowlist(DBusConnection *conn,
 					ADMIN_POLICY_STATUS_INTERFACE,
 					"ServiceAllowList");
 
-	g_dbus_emit_property_changed(dbus_conn,
-					adapter_get_path(policy_data->adapter),
-					MOCK_ADMIN_POLICY_INTERFACE,
-					"ServiceAllowList");
-
 	queue_foreach(devices, update_device_affected, NULL);
 
 	return dbus_message_new_method_return(msg);
@@ -540,17 +529,6 @@ static int admin_policy_adapter_probe(struct btd_adapter *adapter)
 	btd_info(policy_data->adapter_id,
 				"Admin Policy Status interface registered");
 
-	if (!g_dbus_register_interface(dbus_conn, adapter_path,
-					MOCK_ADMIN_POLICY_INTERFACE,
-					admin_policy_adapter_methods, NULL,
-					admin_policy_adapter_properties,
-					policy_data, NULL)) {
-		btd_error(policy_data->adapter_id,
-			"Mock Admin Policy interface init failed on path %s",
-								adapter_path);
-		return -EINVAL;
-	}
-
 	return 0;
 }
 
@@ -572,7 +550,6 @@ static void admin_policy_device_added(struct btd_adapter *adapter,
 	data->device = device;
 	data->path = g_strdup(device_get_path(device));
 	data->affected = !btd_device_all_services_allowed(data->device);
-	btd_device_set_is_blocked_by_policy(data->device, data->affected);
 
 	if (!g_dbus_register_interface(dbus_conn, data->path,
 					ADMIN_POLICY_STATUS_INTERFACE,
