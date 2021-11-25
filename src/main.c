@@ -68,9 +68,10 @@
 
 #define BLUEZ_NAME "org.bluez"
 
-#define DEFAULT_PAIRABLE_TIMEOUT       0 /* disabled */
-#define DEFAULT_DISCOVERABLE_TIMEOUT 180 /* 3 minutes */
-#define DEFAULT_TEMPORARY_TIMEOUT     30 /* 30 seconds */
+#define DEFAULT_PAIRABLE_TIMEOUT           0 /* disabled */
+#define DEFAULT_DISCOVERABLE_TIMEOUT     180 /* 3 minutes */
+#define DEFAULT_TEMPORARY_TIMEOUT         30 /* 30 seconds */
+#define DEFAULT_NAME_REQUEST_RETRY_DELAY 300 /* 5 minutes */
 
 #define SHUTDOWN_GRACE_SECONDS 10
 
@@ -94,6 +95,7 @@ static const char *supported_options[] = {
 	"Privacy",
 	"JustWorksRepairing",
 	"TemporaryTimeout",
+	"RemoteNameRequestRetryDelay",
 	NULL
 };
 
@@ -812,6 +814,16 @@ static void parse_config(GKeyFile *config)
 		g_strfreev(strlist);
 	}
 
+	val = g_key_file_get_integer(config, "General",
+					"RemoteNameRequestRetryDelay", &err);
+	if (err) {
+		DBG("%s", err->message);
+		g_clear_error(&err);
+	} else {
+		DBG("RemoteNameRequestRetryDelay=%d", val);
+		btd_opts.name_request_retry_delay = val;
+	}
+
 	str = g_key_file_get_string(config, "GATT", "Cache", &err);
 	if (err) {
 		DBG("%s", err->message);
@@ -923,6 +935,7 @@ static void init_defaults(void)
 	btd_opts.name_resolv = TRUE;
 	btd_opts.debug_keys = FALSE;
 	btd_opts.refresh_discovery = TRUE;
+	btd_opts.name_request_retry_delay = DEFAULT_NAME_REQUEST_RETRY_DELAY;
 
 	btd_opts.defaults.num_entries = 0;
 	btd_opts.defaults.br.page_scan_type = 0xFFFF;
