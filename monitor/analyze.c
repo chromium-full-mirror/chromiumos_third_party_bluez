@@ -691,6 +691,11 @@ static void evt_vendor(struct hci_dev *dev, struct timeval *tv,
 	case COMPANY_ID_INTEL:
 		vnd = intel_vendor_evt(data, &consumed_size);
 		break;
+	case COMPANY_ID_QUALCOMM:
+	case COMPANY_ID_MEDIATEK:
+	case COMPANY_ID_REALTEK:
+		vnd = aosp_vendor_evt(evt);
+		break;
 	default:
 		break;
 	}
