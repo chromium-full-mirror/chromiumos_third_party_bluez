@@ -1164,13 +1164,15 @@ enum metrics_disconn_state metrics_convert_disconn_state(int state)
 
 void metrics_acl_connection_state_changed(const char *device_id,
 		int addr_type, enum metrics_acl_connection_direction direction,
+		enum metrics_acl_connection_initiator initiator,
 		enum metrics_conn_state state)
 {
-	DBG("ACL connection state changed: %s %d %d %d", device_id, addr_type,
-			direction, state);
+	DBG("ACL connection state changed: %s %d %d %d %d", device_id,
+			addr_type, direction, initiator, state);
 	BluetoothAclConnectionStateChanged(get_system_time_micros(), device_id,
 					convert_to_device_type(addr_type),
 					direction,
+					initiator,
 					STATE_CHANGE_TYPE_CONNECT,
 					state);
 }
@@ -1190,13 +1192,15 @@ enum metrics_acl_connection_direction metrics_reason_to_direction(int reason)
 
 void metrics_acl_disconnection_state_changed(const char *device_id,
 		int addr_type, enum metrics_acl_connection_direction direction,
+		enum metrics_acl_connection_initiator initiator,
 		enum metrics_disconn_state state)
 {
-	DBG("ACL disconnection state changed: %s %d %d %d", device_id,
-			addr_type, direction, state);
+	DBG("ACL disconnection state changed: %s %d %d %d %d", device_id,
+			addr_type, direction, initiator, state);
 	BluetoothAclConnectionStateChanged(get_system_time_micros(), device_id,
 					convert_to_device_type(addr_type),
 					direction,
+					initiator,
 					STATE_CHANGE_TYPE_DISCONNECT,
 					state);
 }

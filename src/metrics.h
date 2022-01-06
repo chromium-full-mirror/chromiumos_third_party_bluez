@@ -401,6 +401,12 @@ enum metrics_acl_connection_direction {
 	ACL_CONNECTION_INCOMING = 2,
 };
 
+enum metrics_acl_connection_initiator {
+	ACL_CONNECTION_INITIATOR_UNKNOWN = 0,
+	ACL_CONNECTION_INITIATOR_CLIENT = 1,
+	ACL_CONNECTION_INITIATOR_SYSTEM = 2,
+};
+
 enum metrics_bluetooth_profile {
 	BLUETOOTH_PROFILE_UNKNOWN = 0,
 	BLUETOOTH_PROFILE_HSP = 1,
@@ -487,10 +493,12 @@ void metrics_pairing_state_changed(const char *device_id, int addr_type,
 				metrics_result_type result_type);
 void metrics_acl_connection_state_changed(const char *device_id, int addr_type,
 				enum metrics_acl_connection_direction direction,
+				enum metrics_acl_connection_initiator initiator,
 				enum metrics_conn_state state);
 void metrics_acl_disconnection_state_changed(const char *device_id,
 				int addr_type,
 				enum metrics_acl_connection_direction direction,
+				enum metrics_acl_connection_initiator initiator,
 				enum metrics_disconn_state state);
 void metrics_profile_connection_state_changed(const char *device_id,
 				const char *uuid,

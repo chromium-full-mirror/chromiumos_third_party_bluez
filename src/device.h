@@ -198,3 +198,4 @@ void btd_device_update_allowed_services(struct btd_device *dev);
 void btd_device_init(void);
 void btd_device_cleanup(void);
 bool device_log_devices_info(gpointer user_data);
+int btd_device_get_connect_initiator(struct btd_device *dev);

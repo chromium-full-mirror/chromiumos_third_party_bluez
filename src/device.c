@@ -1973,6 +1973,7 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 	ba2str(&device->bdaddr, addr);
 	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
 	/*
 	 * Disable connections through passive scanning until
@@ -2035,6 +2036,7 @@ static DBusMessage *dev_disconnect_old(DBusConnection *conn, DBusMessage *msg,
 	ba2str(&device->bdaddr, addr);
 	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
 	/*
 	 * Disable connections through passive scanning until
@@ -2096,6 +2098,7 @@ static DBusMessage *dev_disconnect_le(DBusConnection *conn, DBusMessage *msg,
 	ba2str(&device->bdaddr, addr);
 	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
 
 	if (device->att_io) {
@@ -2223,6 +2226,20 @@ done:
 
 	dbus_message_unref(dev->connect);
 	dev->connect = NULL;
+}
+
+int btd_device_get_connect_initiator(struct btd_device *dev)
+{
+	if (!dev)
+		return ACL_CONNECTION_INITIATOR_UNKNOWN;
+	/* A message that waiting for us to reply indicates the current
+	 * connection is initiated by a client. It could be wrong if both
+	 * kernel and clients want to connect/disconnect the device. But in
+	 * that case, there is no way to know who is the initator.
+	 */
+	if (!!dev->connect || !!dev->bonding || !!dev->disconnects)
+		return ACL_CONNECTION_INITIATOR_CLIENT;
+	return ACL_CONNECTION_INITIATOR_SYSTEM;
 }
 
 void device_set_eir(struct btd_device *dev, const uint8_t *data, uint8_t len)
@@ -2489,11 +2506,13 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 
 	metrics_acl_connection_state_changed(addr, bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
 			CONN_STATE_STARTING);
 
 	if (dev->pending || dev->connect || dev->browse) {
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 				ACL_CONNECTION_OUTGOING,
+				ACL_CONNECTION_INITIATOR_CLIENT,
 				CONN_STATE_BUSY);
 		if (is_connect_method(msg)) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -2506,6 +2525,7 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 	if (!btd_adapter_get_powered(dev->adapter)) {
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 				ACL_CONNECTION_OUTGOING,
+				ACL_CONNECTION_INITIATOR_CLIENT,
 				CONN_STATE_NONPOWERED);
 		if (is_connect_method(msg)) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -2531,6 +2551,7 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 				metrics_acl_connection_state_changed(
 					addr, bdaddr_type,
 					ACL_CONNECTION_OUTGOING,
+					ACL_CONNECTION_INITIATOR_CLIENT,
 					CONN_STATE_ALREADY);
 				if (is_connect_method(msg)) {
 					metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -2542,6 +2563,7 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 				metrics_acl_connection_state_changed(
 					addr, bdaddr_type,
 					ACL_CONNECTION_OUTGOING,
+					ACL_CONNECTION_INITIATOR_CLIENT,
 					CONN_STATE_PROFILE_UNAVAILABLE);
 				if (is_connect_method(msg)) {
 					metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -2568,12 +2590,14 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 			metrics_acl_connection_state_changed(addr,
 				bdaddr_type,
 				ACL_CONNECTION_OUTGOING,
+				ACL_CONNECTION_INITIATOR_CLIENT,
 				CONN_STATE_ALREADY);
 			return dbus_message_new_method_return(msg);
 		}
 
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
 			metrics_conn_system_err_to_state(err));
 		return btd_error_failed(msg,
 					btd_error_bredr_conn_from_errno(err));
@@ -2594,6 +2618,7 @@ resolve_services:
 	if (err < 0) {
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
 			metrics_conn_system_err_to_state(err));
 		if (is_connect_method(msg)) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -2675,11 +2700,13 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 	ba2str(&dev->bdaddr, addr);
 	metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
 			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
 			CONN_STATE_STARTING);
 
 	if (dev->le_state.connected) {
 		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
 				ACL_CONNECTION_OUTGOING,
+				ACL_CONNECTION_INITIATOR_CLIENT,
 				CONN_STATE_ALREADY);
 		if (is_connect_method(msg)) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -2699,6 +2726,7 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 	if (err < 0) {
 		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
 				ACL_CONNECTION_OUTGOING,
+				ACL_CONNECTION_INITIATOR_CLIENT,
 				metrics_conn_system_err_to_state(err));
 		if (is_connect_method(msg)) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -2726,6 +2754,7 @@ static DBusMessage *dev_connect_classic(DBusConnection *conn, DBusMessage *msg,
 	if (dev->bredr_state.connected) {
 		metrics_acl_connection_state_changed(addr, BDADDR_BREDR,
 				ACL_CONNECTION_OUTGOING,
+				ACL_CONNECTION_INITIATOR_CLIENT,
 				CONN_STATE_ALREADY);
 		if (is_connect_method(msg)) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
@@ -6690,8 +6719,9 @@ done:
 
 		ba2str(&device->bdaddr, addr);
 		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
-					ACL_CONNECTION_OUTGOING,
-					metrics_conn_system_err_to_state(err));
+				ACL_CONNECTION_OUTGOING,
+				ACL_CONNECTION_INITIATOR_CLIENT,
+				metrics_conn_system_err_to_state(err));
 		if (is_connect_method(device->connect)) {
 			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
 				metrics_le_conn_err_to_result(err),

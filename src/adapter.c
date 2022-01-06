@@ -8902,6 +8902,7 @@ static void dev_disconnected(struct btd_adapter *adapter,
 
 	metrics_acl_disconnection_state_changed(dst, addr->type,
 			metrics_reason_to_direction(reason),
+			btd_device_get_connect_initiator(device),
 			metrics_convert_disconn_state(reason));
 	metrics_send_enum(ENUM_TYPE_DISCONN_REASON, reason, RESULT_TYPE_MGMT);
 }
@@ -9848,6 +9849,7 @@ static void connected_callback(uint16_t index, uint16_t length,
 	uint16_t eir_len;
 	char addr[18];
 	bool name_known;
+	enum metrics_acl_connection_initiator conn_initiator;
 	enum metrics_acl_connection_direction direction;
 
 	if (length < sizeof(*ev)) {
@@ -9861,11 +9863,15 @@ static void connected_callback(uint16_t index, uint16_t length,
 			ACL_CONNECTION_OUTGOING :
 			ACL_CONNECTION_INCOMING;
 
+	device = btd_adapter_get_device(adapter, &ev->addr.bdaddr,
+								ev->addr.type);
+	conn_initiator = btd_device_get_connect_initiator(device);
+
 	eir_len = btohs(ev->eir_len);
 	if (length < sizeof(*ev) + eir_len) {
 		btd_error(adapter->dev_id, "Too small device connected event");
 		metrics_acl_connection_state_changed(addr,
-				ev->addr.type, direction,
+				ev->addr.type, direction, conn_initiator,
 				CONN_STATE_EVENT_INVALID);
 		return;
 	}
@@ -9873,18 +9879,17 @@ static void connected_callback(uint16_t index, uint16_t length,
 	DBG("hci%u device %s connected eir_len %u %u", index,
 			addr, eir_len, ev->flags);
 
-	device = btd_adapter_get_device(adapter, &ev->addr.bdaddr,
-								ev->addr.type);
 	if (!device) {
 		metrics_acl_connection_state_changed(addr, ev->addr.type,
-				direction, CONN_STATE_DEVICE_NOT_FOUND);
+						direction, conn_initiator,
+						CONN_STATE_DEVICE_NOT_FOUND);
 		btd_error(adapter->dev_id,
 				"Unable to get device object for %s", addr);
 		return;
 	}
 
 	metrics_acl_connection_state_changed(addr, ev->addr.type,
-			direction, CONN_STATE_SUCCEED);
+			direction, conn_initiator, CONN_STATE_SUCCEED);
 	device_set_eir(device, ev->eir, eir_len);
 	memset(&eir_data, 0, sizeof(eir_data));
 	if (eir_len > 0)
@@ -10044,12 +10049,13 @@ static void connect_failed_callback(uint16_t index, uint16_t length,
 
 	DBG("hci%u %s status %u", index, addr, ev->status);
 
-	metrics_acl_connection_state_changed(addr, ev->addr.type,
-			ACL_CONNECTION_OUTGOING,
-			metrics_conn_mgmt_err_to_state(ev->status));
-
 	device = btd_adapter_find_device(adapter, &ev->addr.bdaddr,
 								ev->addr.type);
+
+	metrics_acl_connection_state_changed(addr, ev->addr.type,
+			ACL_CONNECTION_OUTGOING,
+			btd_device_get_connect_initiator(device),
+			metrics_conn_mgmt_err_to_state(ev->status));
 	if (device) {
 		conn_fail_notify(device, ev->status);
 
