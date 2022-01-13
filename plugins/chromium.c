@@ -383,8 +383,8 @@ static DBusMessage *set_le_connection_parameters(DBusConnection *conn,
 static const GDBusMethodTable device_methods[] = {
 	/* GetConnInfo is a simple DBus wrapper over the get_conn_info mgmt API.
 	 */
-	{ GDBUS_ASYNC_METHOD("GetConnInfo", NULL, GDBUS_ARGS({"TXPower", "y"},
-					{"MaximumTXPower", "y"}, {"RSSI", "y"}),
+	{ GDBUS_ASYNC_METHOD("GetConnInfo", NULL, GDBUS_ARGS({"TXPower", "n"},
+					{"MaximumTXPower", "n"}, {"RSSI", "n"}),
 		get_conn_info) },
 	{ GDBUS_ASYNC_METHOD("SetLEConnectionParameters",
 		GDBUS_ARGS({ "parameters", "a{sq}"}), NULL,
