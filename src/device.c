@@ -2020,6 +2020,68 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 	return NULL;
 }
 
+/*
+ * This method is deliberately copied to support the old UI's expected behavior
+ * during a transition period.  Once the old UI is adapted to call this
+ * temporary Api, crrev.com/c/2159182 can be reverted.  Additionally, this
+ * method can be deleted once the old UI is removed.
+ */
+static DBusMessage *dev_disconnect_old(DBusConnection *conn, DBusMessage *msg,
+							void *user_data)
+{
+	struct btd_device *device = user_data;
+	char addr[18];
+
+	ba2str(&device->bdaddr, addr);
+	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
+			ACL_CONNECTION_OUTGOING,
+			DISCONN_STATE_STARTING);
+	/*
+	 * Disable connections through passive scanning until
+	 * Device1.Connect is called
+	 */
+	if (device->auto_connect) {
+		device->disable_auto_connect = TRUE;
+		device_set_auto_connect(device, FALSE);
+	}
+
+	DBG("");
+
+	/*
+	 * If the host is still browsing, let the disconnect request
+	 * delay for a while to avoid race conditions.
+	 */
+	if (device->browse) {
+		if (device->delay_disconn_timer) {
+			DBG("Ignore repeated disconnect requests.");
+			return NULL;
+		} else {
+			struct device_msg *dev_msg = g_new0(
+							struct device_msg, 1);
+			dev_msg->device = device;
+			dev_msg->msg = dbus_message_ref(msg);
+
+			DBG("disconnection was delayed.");
+			device->delay_disconn_timer = g_timeout_add_seconds(
+						DELAY_DISCONNECT_TIMER,
+						delay_device_request_disconnect,
+						dev_msg);
+		}
+	} else {
+		/*
+		 * Note: This device_request_disconnect() is invoked by a few
+		 * other functions. Theoretically, it is likely that the
+		 * invocation has to be protected in a similar way as above.
+		 * If this is the case, wrap the "if" logic above with
+		 * device_request_disconnect() into a new function like
+		 * try_device_request_disconnect() to avoid redundancy.
+		 */
+		device_request_disconnect(device, msg);
+	}
+
+	return NULL;
+}
+
 static DBusMessage *dev_disconnect_le(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -3871,6 +3933,7 @@ static DBusMessage *execute_write(DBusConnection *conn,
 
 static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("Disconnect", NULL, NULL, dev_disconnect) },
+	{ GDBUS_ASYNC_METHOD("DisconnectOld", NULL, NULL, dev_disconnect_old) },
 	{ GDBUS_ASYNC_METHOD("DisconnectLE", NULL, NULL, dev_disconnect_le) },
 	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },
 	{ GDBUS_ASYNC_METHOD("ConnectLE", NULL, NULL, dev_connect_le) },

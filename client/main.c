@@ -2163,6 +2163,24 @@ static void cmd_disconn(int argc, char *argv[])
 						proxy_address(proxy));
 }
 
+static void cmd_disconn_old(int argc, char *argv[])
+{
+	GDBusProxy *proxy;
+
+	proxy = find_device(argc, argv);
+	if (!proxy)
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+
+	if (g_dbus_proxy_method_call(proxy, "DisconnectOld", NULL, disconn_reply,
+							proxy, NULL) == FALSE) {
+		bt_shell_printf("Failed to disconnect\n");
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
+
+	bt_shell_printf("Attempting to disconnect using old behavior from %s\n",
+						proxy_address(proxy));
+}
+
 static void cmd_disconn_le(int argc, char *argv[])
 {
 	GDBusProxy *proxy;
@@ -3179,6 +3197,8 @@ static const struct bt_shell_menu main_menu = {
 							dev_generator },
 	{ "disconnect",   "[dev]",    cmd_disconn, "Disconnect device",
 							dev_generator },
+	{ "disconnect-old",   "[dev]",    cmd_disconn_old,
+			  "Disconnect device using old method", dev_generator },
 	{ "disconnect-le",   "[dev]",    cmd_disconn_le, "Disconnect LE bearer",
 							dev_generator },
 	{ } },
