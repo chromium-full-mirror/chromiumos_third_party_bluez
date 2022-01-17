@@ -2102,6 +2102,28 @@ static void cmd_connect(int argc, char *argv[])
 	bt_shell_printf("Attempting to connect to %s\n", argv[1]);
 }
 
+static void cmd_connect_classic(int argc, char *argv[])
+{
+	GDBusProxy *proxy;
+
+	if (check_default_ctrl() == FALSE)
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+
+	proxy = find_proxy_by_address(default_ctrl->devices, argv[1]);
+	if (!proxy) {
+		bt_shell_printf("Device %s not available\n", argv[1]);
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (g_dbus_proxy_method_call(proxy, "ConnectClassic", NULL,
+					connect_reply, proxy, NULL) == FALSE) {
+		bt_shell_printf("Failed to connect\n");
+		return bt_shell_noninteractive_quit(EXIT_FAILURE);
+	}
+
+	bt_shell_printf("Attempting to connect to %s over Classic\n", argv[1]);
+}
+
 static void cmd_connect_le(int argc, char *argv[])
 {
 	GDBusProxy *proxy;
@@ -3191,6 +3213,8 @@ static const struct bt_shell_menu main_menu = {
 								dev_generator },
 	{ "remove",       "<dev>",    cmd_remove, "Remove device",
 							dev_generator },
+	{ "connect-classic", "<dev>", cmd_connect_classic,
+			"Connect device classic bearer", dev_generator },
 	{ "connect-le",   "<dev>",    cmd_connect_le, "Connect device",
 							dev_generator },
 	{ "connect",      "<dev>",    cmd_connect, "Connect device LE bearer",

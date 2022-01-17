@@ -2715,6 +2715,30 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 	return NULL;
 }
 
+static DBusMessage *dev_connect_classic(DBusConnection *conn, DBusMessage *msg,
+							void *user_data)
+{
+	struct btd_device *dev = user_data;
+	struct metrics_timer_data timer_data = {dev->adapter, dev, NULL};
+	char addr[18];
+
+	ba2str(&dev->bdaddr, addr);
+	if (dev->bredr_state.connected) {
+		metrics_acl_connection_state_changed(addr, BDADDR_BREDR,
+				ACL_CONNECTION_OUTGOING,
+				CONN_STATE_ALREADY);
+		if (is_connect_method(msg)) {
+			metrics_send_enum(ENUM_TYPE_CONN_RESULT,
+					CONN_ALREADY_LE, RESULT_TYPE_DEFINED);
+		}
+		return dbus_message_new_method_return(msg);
+	}
+
+	metrics_start_timer(TIMER_CONNECT, timer_data);
+
+	return connect_profiles(dev, BDADDR_BREDR, msg, NULL);
+}
+
 static DBusMessage *dev_connect(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -3154,6 +3178,9 @@ static void browse_request_complete(struct browse_req *req, uint8_t type,
 
 	if (dbus_message_is_method_call(msg, DEVICE_INTERFACE, "Connect"))
 		reply = dev_connect(dbus_conn, msg, dev);
+	else if (dbus_message_is_method_call(msg, DEVICE_INTERFACE,
+							"ConnectClassic"))
+		reply = dev_connect_classic(dbus_conn, msg, dev);
 	else if (dbus_message_is_method_call(msg, DEVICE_INTERFACE,
 								"ConnectLE"))
 		reply = dev_connect_le(dbus_conn, msg, dev);
@@ -3936,6 +3963,8 @@ static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("DisconnectOld", NULL, NULL, dev_disconnect_old) },
 	{ GDBUS_ASYNC_METHOD("DisconnectLE", NULL, NULL, dev_disconnect_le) },
 	{ GDBUS_ASYNC_METHOD("Connect", NULL, NULL, dev_connect) },
+	{ GDBUS_ASYNC_METHOD("ConnectClassic", NULL, NULL,
+						dev_connect_classic) },
 	{ GDBUS_ASYNC_METHOD("ConnectLE", NULL, NULL, dev_connect_le) },
 	{ GDBUS_ASYNC_METHOD("ConnectProfile", GDBUS_ARGS({ "UUID", "s" }),
 						NULL, connect_profile) },
