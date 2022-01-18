@@ -79,6 +79,11 @@ Properties	string Type [read-only]
 			in-range (found). Valid range is 1 to 300 (seconds),
 			while 0 indicates unset.
 
+			NOTE: Controller offloading does not support High RSSI
+			Timeout. So, to provide a consistent behavior between
+			SW based and controller based monitoring, this property
+			has been disabled and deprecated.
+
 		Uint16 RSSISamplingPeriod [read-only, optional]
 
 			Grouping rules on how to propagate the received

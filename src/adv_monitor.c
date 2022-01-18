@@ -888,6 +888,12 @@ static bool parse_rssi_and_timeout(struct adv_monitor *monitor,
 	monitor->rssi.low_rssi_timeout = l_rssi_timeout;
 	monitor->rssi.sampling_period = sampling_period;
 
+	/* Controller offloading does not support High RSSI Timeout. Disable
+	 * High RSSI Timeout for SW based filtering to provide a consistent
+	 * behavior between SW based and controller based monitoring.
+	 */
+	monitor->rssi.high_rssi_timeout = ADV_MONITOR_UNSET_TIMEOUT;
+
 done:
 	DBG("Adv Monitor at %s initiated with high RSSI threshold %d, high "
 		"RSSI threshold timeout %d, low RSSI threshold %d, low RSSI "
