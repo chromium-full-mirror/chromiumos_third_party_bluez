@@ -3489,6 +3489,14 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	device->bonding = bonding;
 	bonding->device = device;
 
+	/* Since bonding triggers ACL connect in the kernel, add a starting
+	 * event so that this connection won't be ignored by the pipeline
+	 * server.
+	 */
+	metrics_acl_connection_state_changed(addr, bdaddr_type,
+					ACL_CONNECTION_OUTGOING,
+					ACL_CONNECTION_INITIATOR_CLIENT,
+					CONN_STATE_STARTING);
 	/* Due to a bug in the kernel we might loose out on ATT commands
 	 * that arrive during the SMP procedure, so connect the ATT
 	 * channel first and only then start pairing (there's code for

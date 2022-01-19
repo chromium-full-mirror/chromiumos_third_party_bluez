@@ -9737,6 +9737,15 @@ static void connected_callback(uint16_t index, uint16_t length,
 								ev->addr.type);
 	conn_initiator = btd_device_get_connect_initiator(device);
 
+	/* Prepend a starting event if the connection was initiated by system to
+	 * ensure that it won't be ignored by the pipeline server.
+	 */
+	if (conn_initiator == ACL_CONNECTION_INITIATOR_SYSTEM) {
+		metrics_acl_connection_state_changed(addr, ev->addr.type,
+						direction, conn_initiator,
+						CONN_STATE_STARTING);
+	}
+
 	eir_len = btohs(ev->eir_len);
 	if (length < sizeof(*ev) + eir_len) {
 		btd_error(adapter->dev_id, "Too small device connected event");
