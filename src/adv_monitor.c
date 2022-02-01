@@ -199,6 +199,11 @@ static void merged_pattern_send_add(
 static void merged_pattern_send_remove(
 			struct adv_monitor_merged_pattern *merged_pattern);
 
+static bool monitor_device_match(const void *a, const void *b);
+static struct adv_monitor_device *monitor_device_create(
+			struct adv_monitor *monitor,
+			struct btd_device *device);
+
 const struct adv_monitor_type {
 	enum monitor_type type;
 	const char *name;
@@ -1594,8 +1599,26 @@ static void notify_device_found_per_monitor(void *data, void *user_data)
 {
 	struct adv_monitor *monitor = data;
 	struct monitored_device_info *info = user_data;
+	struct adv_monitor_device *dev = NULL;
+	uint16_t adapter_id = monitor->app->manager->adapter_id;
 
 	if (monitor->merged_pattern->monitor_handle == info->monitor_handle) {
+		dev = queue_find(monitor->devices, monitor_device_match,
+				 info->device);
+		if (!dev) {
+			dev = monitor_device_create(monitor, info->device);
+			if (!dev) {
+				btd_error(adapter_id, "Failed to create "
+					  "Adv Monitor device object.");
+				return;
+			}
+		}
+
+		if (dev->found)
+			return;
+
+		dev->found = true;
+
 		DBG("Calling DeviceFound() on Adv Monitor of owner %s "
 		    "at path %s", monitor->app->owner, monitor->path);
 
@@ -1691,8 +1714,25 @@ static void notify_device_lost_per_monitor(void *data, void *user_data)
 {
 	struct adv_monitor *monitor = data;
 	struct monitored_device_info *info = user_data;
+	struct adv_monitor_device *dev = NULL;
+	uint16_t adapter_id = monitor->app->manager->adapter_id;
 
 	if (monitor->merged_pattern->monitor_handle == info->monitor_handle) {
+		dev = queue_find(monitor->devices, monitor_device_match,
+				 info->device);
+		if (!dev) {
+			btd_error(adapter_id, "Adv Monitor device object "
+				  "not found.");
+			return;
+		}
+
+		if (!dev->found) {
+			btd_error(adapter_id, "Device not tracked.");
+			return;
+		}
+
+		dev->found = false;
+
 		DBG("Calling DeviceLost() on Adv Monitor of owner %s "
 		    "at path %s", monitor->app->owner, monitor->path);
 
