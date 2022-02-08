@@ -2293,6 +2293,7 @@ static void clear_device_lost_timer(void *data, void *user_data)
 	if (dev->lost_timer) {
 		timeout_remove(dev->lost_timer);
 		dev->lost_timer = 0;
+		dev->found = false;
 
 		monitor = dev->monitor;
 
@@ -2333,6 +2334,24 @@ void btd_adv_monitor_power_down(struct btd_adv_monitor_manager *manager)
 
 	/* Clear any running DeviceLost timers in case of power down */
 	queue_foreach(manager->apps, clear_lost_timers_from_app, NULL);
+}
+
+/* Handles wake from system suspend scenario */
+void btd_adv_monitor_resume(struct btd_adv_monitor_manager *manager)
+{
+	if (!manager) {
+		error("Unexpected NULL btd_adv_monitor_manager object upon "
+				"system resume");
+		return;
+	}
+
+	/* Clear any tracked devices on system resume. Matched devices will be
+	 * found again if they are in range after resume. (No need to do this if
+	 * the controller based monitoring is supported as the kernel clears all
+	 * monitored devices on resume.
+	 */
+	if (!btd_adv_monitor_offload_supported(manager))
+		queue_foreach(manager->apps, clear_lost_timers_from_app, NULL);
 }
 
 bool btd_adv_monitor_get_offload_support(

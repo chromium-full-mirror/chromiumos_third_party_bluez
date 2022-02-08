@@ -51,6 +51,8 @@ void btd_adv_monitor_device_remove(struct btd_adv_monitor_manager *manager,
 
 void btd_adv_monitor_power_down(struct btd_adv_monitor_manager *manager);
 
+void btd_adv_monitor_resume(struct btd_adv_monitor_manager *manager);
+
 bool btd_adv_monitor_get_offload_support(
 				struct btd_adv_monitor_manager *manager);
 
