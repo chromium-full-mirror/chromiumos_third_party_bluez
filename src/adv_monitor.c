@@ -1702,6 +1702,8 @@ static void adv_monitor_device_found_callback(uint16_t index, uint16_t length,
 			return;
 		}
 
+		btd_device_set_monitored(info.device, true);
+
 		/* Check for matched monitor in all apps */
 		info.monitor_handle = handle;
 		queue_foreach(manager->apps, notify_device_found_per_app,
@@ -1784,6 +1786,8 @@ static void adv_monitor_device_lost_callback(uint16_t index, uint16_t length,
 	/* Check for matched monitor in all apps */
 	info.monitor_handle = handle;
 	queue_foreach(manager->apps, notify_device_lost_per_app, &info);
+
+	btd_device_set_monitored(info.device, false);
 }
 
 /* Allocates a manager object */

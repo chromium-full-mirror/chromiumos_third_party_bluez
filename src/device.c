@@ -239,6 +239,7 @@ struct btd_device {
 	GSList		*services;		/* List of btd_service */
 	GSList		*pending;		/* Pending services */
 	GSList		*watches;		/* List of disconnect_data */
+	bool		monitored;		/* Tracked by Adv Monitor */
 	bool		temporary;
 	bool		connectable;
 	guint		delay_disconn_timer;
@@ -5496,9 +5497,28 @@ static bool device_disappeared(gpointer user_data)
 
 	dev->temporary_timer = 0;
 
-	btd_adapter_remove_device(dev->adapter, dev);
+	/* Do not remove the device if it is being tracked by an Advertisement
+	 * Monitor. It will be removed when the Advertisement Monitor stops
+	 * tracking that device.
+	 */
+	if (!dev->monitored)
+		btd_adapter_remove_device(dev->adapter, dev);
 
 	return FALSE;
+}
+
+void btd_device_set_monitored(struct btd_device *device, bool monitored)
+{
+	if (!device)
+		return;
+
+	device->monitored = monitored;
+
+	/* If the device is not being monitored and the temporary_timer has
+	 * already expired, it indicates that the device can be removed.
+	 */
+	if (!monitored && device->temporary && !device->temporary_timer)
+		device_disappeared(device);
 }
 
 void device_update_last_seen(struct btd_device *device, uint8_t bdaddr_type)
