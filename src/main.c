@@ -90,6 +90,7 @@ static const char *supported_options[] = {
 	"NameResolving",
 	"DebugKeys",
 	"ControllerMode",
+	"MaxControllers"
 	"MultiProfile",
 	"FastConnectable",
 	"Privacy",
@@ -773,6 +774,14 @@ static void parse_config(GKeyFile *config)
 		DBG("ControllerMode=%s", str);
 		btd_opts.mode = get_mode(str);
 		g_free(str);
+	}
+
+	val = g_key_file_get_integer(config, "General", "MaxControllers", &err);
+	if (err) {
+		g_clear_error(&err);
+	} else {
+		DBG("MaxControllers=%d", val);
+		btd_opts.max_adapters = val;
 	}
 
 	str = g_key_file_get_string(config, "General", "MultiProfile", &err);
