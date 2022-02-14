@@ -9410,9 +9410,6 @@ static const struct vendor_evt *current_vendor_evt(const void *data,
 		msft_opcode = BT_HCI_CMD_NOP;
 	}
 
-	if (msft_opcode != BT_HCI_CMD_NOP)
-		return NULL;
-
 	switch (manufacturer) {
 	case COMPANY_ID_INTEL:
 		return intel_vendor_evt(data, consumed_size);
