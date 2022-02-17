@@ -46,6 +46,8 @@
 #define DEVICE_CATEGORY_MASK 0xFFC0
 #define DEVICE_CATEGORY_BIT_OFFSET 6
 
+#define BOOT_ID_PROC_PATH "/proc/sys/kernel/random/boot_id"
+
 struct metrics_timer {
 	metrics_timer_type type;
 	struct timespec start;
@@ -68,6 +70,7 @@ struct metrics_periodic_timer {
 static CMetricsLibrary lib = NULL;
 static GSList *timers = NULL;
 static struct queue *periodic_timers;
+static char *boot_id;
 
 static void metrics_free_periodic_timer(void *user_data);
 
@@ -1037,11 +1040,11 @@ bool metrics_send_advmon_enum(struct btd_adv_monitor_manager *manager,
 	return metrics_send_enum(send_type, sample, true);
 }
 
-static inline long get_system_time_micros(void)
+static inline long get_time_since_boot_micros(void)
 {
 	struct timespec current_time;
 
-	clock_gettime(CLOCK_REALTIME, &current_time);
+	clock_gettime(CLOCK_BOOTTIME, &current_time);
 	return current_time.tv_sec * 1000000 + current_time.tv_nsec / 1000;
 }
 
@@ -1058,10 +1061,53 @@ static metrics_conn_type convert_to_device_type(int addr_type)
 	}
 }
 
+static char *get_boot_id()
+{
+	FILE *fp;
+	size_t len = 0;
+	int i, j;
+
+	if (boot_id) {
+		if (boot_id[0] != '\0')
+			return boot_id;
+
+		free(boot_id);
+		boot_id = NULL;
+	}
+
+	fp = fopen(BOOT_ID_PROC_PATH, "r");
+	if (!fp)
+		goto fail;
+
+	// example of boot_id: 80668f2e-da13-4a16-9efb-d91974a023af
+	getline(&boot_id, &len, fp);
+	if (len <= 0) {
+		fclose(fp);
+		goto fail;
+	}
+
+	// strip off new line and dash to construct an alphanumeric boot ID
+	for (i = 0, j = 0; i < len; i++) {
+		if (boot_id[i] != '\n' && boot_id[i] != '-')
+			boot_id[j++] = boot_id[i];
+	}
+	boot_id[j] = '\0';
+
+	fclose(fp);
+	return boot_id;
+
+fail:
+	boot_id = realloc(boot_id, 1);
+	boot_id[0] = '\0';
+
+	return boot_id;
+}
+
 void metrics_adapter_state_changed(bool enabled)
 {
 	DBG("Adapter state changed: %d", enabled);
-	BluetoothAdapterStateChanged(get_system_time_micros(), enabled);
+	BluetoothAdapterStateChanged(get_boot_id(),
+				     get_time_since_boot_micros(), enabled);
 }
 
 void metrics_pairing_state_changed(const char *device_id, int addr_type,
@@ -1072,9 +1118,9 @@ void metrics_pairing_state_changed(const char *device_id, int addr_type,
 	else if (result_type == RESULT_TYPE_SYSTEM)
 		state = convert_system_pair_result(state);
 	DBG("Pairing state changed: %s %d %d", device_id, addr_type, state);
-	BluetoothPairingStateChanged(get_system_time_micros(), device_id,
-					convert_to_device_type(addr_type),
-					state);
+	BluetoothPairingStateChanged(get_boot_id(),
+				     get_time_since_boot_micros(), device_id,
+				     convert_to_device_type(addr_type), state);
 }
 
 enum metrics_conn_state metrics_conn_system_err_to_state(int err)
@@ -1169,12 +1215,10 @@ void metrics_acl_connection_state_changed(const char *device_id,
 {
 	DBG("ACL connection state changed: %s %d %d %d %d", device_id,
 			addr_type, direction, initiator, state);
-	BluetoothAclConnectionStateChanged(get_system_time_micros(), device_id,
-					convert_to_device_type(addr_type),
-					direction,
-					initiator,
-					STATE_CHANGE_TYPE_CONNECT,
-					state);
+	BluetoothAclConnectionStateChanged(
+		get_boot_id(), get_time_since_boot_micros(), device_id,
+		convert_to_device_type(addr_type), direction, initiator,
+		STATE_CHANGE_TYPE_CONNECT, state);
 }
 
 enum metrics_acl_connection_direction metrics_reason_to_direction(int reason)
@@ -1197,12 +1241,10 @@ void metrics_acl_disconnection_state_changed(const char *device_id,
 {
 	DBG("ACL disconnection state changed: %s %d %d %d %d", device_id,
 			addr_type, direction, initiator, state);
-	BluetoothAclConnectionStateChanged(get_system_time_micros(), device_id,
-					convert_to_device_type(addr_type),
-					direction,
-					initiator,
-					STATE_CHANGE_TYPE_DISCONNECT,
-					state);
+	BluetoothAclConnectionStateChanged(
+		get_boot_id(), get_time_since_boot_micros(), device_id,
+		convert_to_device_type(addr_type), direction, initiator,
+		STATE_CHANGE_TYPE_DISCONNECT, state);
 }
 
 static enum metrics_bluetooth_profile uuid_to_profile(const char *uuid)
@@ -1264,9 +1306,9 @@ void metrics_profile_connection_state_changed(const char *device_id,
 
 	DBG("Profile connection state changed: %s %s %d %d", device_id, uuid,
 			profile, state);
-	BluetoothProfileConnectionStateChanged(get_system_time_micros(),
-					device_id, STATE_CHANGE_TYPE_CONNECT,
-					profile, state);
+	BluetoothProfileConnectionStateChanged(
+		get_boot_id(), get_time_since_boot_micros(), device_id,
+		STATE_CHANGE_TYPE_CONNECT, profile, state);
 }
 
 enum metrics_profile_disconn_state metrics_convert_profile_disconn_state(
@@ -1301,9 +1343,9 @@ void metrics_profile_disconnection_state_changed(const char *device_id,
 
 	DBG("Profile disconnection state changed: %s %s %d %d", device_id, uuid,
 			profile, state);
-	BluetoothProfileConnectionStateChanged(get_system_time_micros(),
-					device_id, STATE_CHANGE_TYPE_DISCONNECT,
-					profile, state);
+	BluetoothProfileConnectionStateChanged(
+		get_boot_id(), get_time_since_boot_micros(), device_id,
+		STATE_CHANGE_TYPE_DISCONNECT, profile, state);
 }
 
 void metrics_device_info_report(const char *device_id,
@@ -1324,9 +1366,7 @@ void metrics_device_info_report(const char *device_id,
 			device_id, device_type,
 			major_class, category, vendor_id,
 			vendor_id_source, product_id, version);
-	BluetoothDeviceInfoReport(get_system_time_micros(),
-					device_id, device_type, major_class,
-					category, vendor_id,
-					vendor_id_source, product_id,
-					version);
+	BluetoothDeviceInfoReport(get_boot_id(), get_time_since_boot_micros(),
+				  device_id, device_type, major_class, category,
+				  0, 0, 0, 0);
 }
