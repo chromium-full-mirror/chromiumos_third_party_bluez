@@ -1369,4 +1369,6 @@ void metrics_device_info_report(const char *device_id,
 	BluetoothDeviceInfoReport(get_boot_id(), get_time_since_boot_micros(),
 				  device_id, device_type, major_class, category,
 				  0, 0, 0, 0);
+	BluetoothDeviceInfo(device_type, major_class, category, vendor_id,
+			    vendor_id_source, product_id, version);
 }
