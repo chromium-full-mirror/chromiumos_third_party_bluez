@@ -47,12 +47,6 @@ bool mgmt_set_close_on_unref(struct mgmt *mgmt, bool do_close);
 typedef void (*mgmt_request_func_t)(uint8_t status, uint16_t length,
 					const void *param, void *user_data);
 
-unsigned int mgmt_send_with_timeout(
-			struct mgmt *mgmt, uint16_t opcode, uint16_t index,
-			uint16_t length, const void *param,
-			mgmt_request_func_t callback,
-			void *user_data, mgmt_destroy_func_t destroy,
-			int timeout_seconds);
 struct mgmt_tlv_list *mgmt_tlv_list_new(void);
 void mgmt_tlv_list_free(struct mgmt_tlv_list *tlv_list);
 bool mgmt_tlv_add(struct mgmt_tlv_list *tlv_list, uint16_t type, uint8_t length,
