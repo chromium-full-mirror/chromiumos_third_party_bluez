@@ -96,6 +96,7 @@
 #define IDLE_DISCOV_TIMEOUT (5)
 #define TEMP_DEV_TIMEOUT (3 * 60)
 #define BONDING_TIMEOUT (2 * 60)
+#define UNPAIR_TIMEOUT (2)
 
 #define SCAN_TYPE_BREDR (1 << BDADDR_BREDR)
 #define SCAN_TYPE_LE ((1 << BDADDR_LE_PUBLIC) | (1 << BDADDR_LE_RANDOM))
@@ -8288,9 +8289,9 @@ int btd_adapter_remove_bonding(struct btd_adapter *adapter,
 	cp.addr.type = bdaddr_type;
 	cp.disconnect = 1;
 
-	if (mgmt_send(adapter->mgmt, MGMT_OP_UNPAIR_DEVICE,
+	if (mgmt_send_timeout(adapter->mgmt, MGMT_OP_UNPAIR_DEVICE,
 				adapter->dev_id, sizeof(cp), &cp,
-				NULL, NULL, NULL) > 0)
+				NULL, NULL, NULL, UNPAIR_TIMEOUT) > 0)
 		return 0;
 
 	return -EIO;
