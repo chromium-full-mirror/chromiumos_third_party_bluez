@@ -8,6 +8,7 @@
 
 #include <errno.h>
 #include <glib.h>
+#include <math.h>
 #include <time.h>
 
 #include "lib/bluetooth.h"
@@ -17,6 +18,9 @@
 #include "metrics/c_metrics_library.h"
 #include "metrics/c_structured_metrics.h"
 #include "src/adv_monitor.h"
+#include "src/shared/aosp.h"
+#include "src/shared/bounded-priority-queue.h"
+#include "src/shared/intel.h"
 #include "src/shared/queue.h"
 
 /* The default value of number of buckets used in Count histogram. */
@@ -67,6 +71,9 @@ struct metrics_chipset_info {
 	char *chipset_string;
 };
 
+#define AUDIO_QUALITY_TIME_CHUNK 5.0		// seconds
+#define PERCENTILE95_BUFFER_SIZE 255
+
 struct metrics_timer {
 	metrics_timer_type type;
 	struct timespec start;
@@ -93,6 +100,11 @@ static struct metrics_chipset_info *chipset_info;
 static char *boot_id;
 
 static void metrics_free_periodic_timer(void *user_data);
+
+static void metrics_audio_connect_a2dp(void);
+static void metrics_audio_connect_hfp(void);
+static void metrics_audio_disconnect_a2dp(const char *device_id);
+static void metrics_audio_disconnect_hfp(const char *device_id);
 
 static int metrics_timer_match(gconstpointer a, gconstpointer b)
 {
@@ -1430,6 +1442,13 @@ void metrics_profile_connection_state_changed(const char *device_id,
 {
 	enum metrics_bluetooth_profile profile = uuid_to_profile(uuid);
 
+	if (state == PROFILE_CONN_STATE_SUCCEED) {
+		if (profile == BLUETOOTH_PROFILE_HFP)
+			metrics_audio_connect_hfp();
+		else if (profile == BLUETOOTH_PROFILE_A2DP)
+			metrics_audio_connect_a2dp();
+	}
+
 	DBG("Profile connection state changed: %s %s %d %d", device_id, uuid,
 			profile, state);
 	BluetoothProfileConnectionStateChanged(
@@ -1467,6 +1486,13 @@ void metrics_profile_disconnection_state_changed(const char *device_id,
 {
 	enum metrics_bluetooth_profile profile = uuid_to_profile(uuid);
 
+	if (state == PROFILE_DISCONN_STATE_SUCCEED) {
+		if (profile == BLUETOOTH_PROFILE_HFP)
+			metrics_audio_disconnect_hfp(device_id);
+		else if (profile == BLUETOOTH_PROFILE_A2DP)
+			metrics_audio_disconnect_a2dp(device_id);
+	}
+
 	DBG("Profile disconnection state changed: %s %s %d %d", device_id, uuid,
 			profile, state);
 	BluetoothProfileConnectionStateChanged(
@@ -1497,4 +1523,234 @@ void metrics_device_info_report(const char *device_id,
 				  0, 0, 0, 0);
 	BluetoothDeviceInfo(device_type, major_class, category, vendor_id,
 			    vendor_id_source, product_id, version);
+}
+
+/* higher values get lower priority (first to be kicked out) */
+static bool metrics_audio_worst_case_compare_keep_min(const void *a,
+						      const void *b)
+{
+	return *(double *)a > *(double *)b;
+}
+
+/* smaller values get lower priority (first to be kicked out) */
+static bool metrics_audio_worst_case_compare_keep_max(const void *a,
+						      const void *b)
+{
+	return *(double *)a < *(double *)b;
+}
+
+enum metric_audio_quality_type {
+	AUDIO_QUALITY_TYPE_UNKNOWN = 0,
+	AUDIO_QUALITY_TYPE_RSSI = 1,
+	AUDIO_QUALITY_TYPE_RETRANSMISSION_COUNT = 2,
+	AUDIO_QUALITY_TYPE_NO_RX_COUNT = 3,
+	AUDIO_QUALITY_TYPE_NAK_COUNT = 4,
+	AUDIO_QUALITY_TYPE_CHOPPY_COUNT = 5,
+
+	// TODO: intel fields
+};
+
+/* We want audio quality data for every 5 seconds, but it might come at
+ * irregular intervals depending on the implementation. Therefore we need to
+ * accumulate them and bucket them into 5-second chunks before putting them into
+ * calculations because it's unfair to compare 1 sec vs. 5 secs of data.
+ */
+struct metrics_audio_summary {
+	double acc_time;	/* to accumulate 5 seconds of data */
+	double acc_value;	/* to accumulate 5 seconds of data */
+	int count;
+	double sum;
+	double squared_sum;
+	struct bpqueue *worst_cases;
+};
+
+struct metrics_audio {
+	// TODO: metrics_audio_summary fields for bqr and intel
+	enum metrics_audio_quality_support support;
+};
+
+static struct metrics_audio metrics_audio; /* Only one audio device possible */
+
+static struct metrics_audio_summary *metrics_audio_summary_new(
+					bpqueue_priority_func priority_func)
+{
+	struct metrics_audio_summary *summary =
+					g_new0(struct metrics_audio_summary, 1);
+
+	summary->worst_cases = bpqueue_new(PERCENTILE95_BUFFER_SIZE,
+					   priority_func, g_free);
+	return summary;
+}
+
+static void metrics_audio_summary_free(struct metrics_audio_summary *summary)
+{
+	if (!summary)
+		return;
+
+	bpqueue_free(summary->worst_cases);
+	g_free(summary);
+}
+
+static void metrics_audio_summary_add(struct metrics_audio_summary *summary,
+				      double delta_value, double delta_time)
+{
+	double *copy;
+	double additional_time;
+	double additional_value, value;
+
+	while (summary->acc_time + delta_time >= AUDIO_QUALITY_TIME_CHUNK) {
+		additional_time = AUDIO_QUALITY_TIME_CHUNK - summary->acc_time;
+		additional_value = delta_value * additional_time / delta_time;
+		value = summary->acc_value + additional_value;
+
+		summary->sum += value;
+		summary->squared_sum += value * value;
+
+		copy = g_new0(double, 1);
+		*copy = value;
+		bpqueue_add(summary->worst_cases, copy);
+
+		summary->acc_value = 0;
+		summary->acc_time = 0;
+		summary->count += 1;
+		delta_value -= additional_value;
+		delta_time -= additional_time;
+	}
+
+	summary->acc_time += delta_time;
+	summary->acc_value += delta_value;
+}
+
+/* Percentile95 is calculated by storing the 5% of the worst data inside a
+ * priority queue. Therefore, if the population gets too large, the real
+ * percentile95 might lie outside of the queue, and we have to offer the
+ * closest alternative we have.
+ * Here we are using linear interpolation for the fractional part, similar to
+ * numpy.percentile().
+ * This pops some data from the bpqueue. Watch out!
+ */
+static double metrics_audio_calculate_percentile95(struct bpqueue *q, int count)
+{
+	int idx = (count - 1) * 19 / 20;
+	int offset = (count - 1) * 19 % 20;
+	int already_popped = count - bpqueue_count(q);
+	double value;
+	double next_value;
+
+	idx -= already_popped;
+
+	/* 95th percentile is outside the heap, choose the best we have */
+	if (idx >= bpqueue_capacity(q) - 1) {
+		idx = bpqueue_capacity(q) - 1;
+		offset = 0;
+	}
+
+	/* Safeguard. This should not happen! */
+	if (idx >= bpqueue_count(q)) {
+		warn("desired index larger than count");
+		idx = bpqueue_count(q) - 1;
+		offset = 0;
+	}
+
+	for (; idx > 0; idx -= 1)
+		bpqueue_pop(q);
+
+	value = *(double *) bpqueue_peek(q);
+
+	if (!offset)
+		return value;
+
+	/* Safeguard. This should not happen! */
+	if (bpqueue_count(q) == 0) {
+		warn("desired index larger than count");
+		return value;
+	}
+
+	bpqueue_pop(q);
+	next_value = *(double *) bpqueue_peek(q);
+
+	return (value * (20 - offset) + next_value * offset) / 20;
+}
+
+static void metrics_audio_summarize_and_send(const char *device_id,
+					enum metrics_bluetooth_profile profile,
+					enum metric_audio_quality_type type,
+					struct metrics_audio_summary *summary)
+{
+	const int multiplier = 100;
+	double avg, stddev, percentile95;
+
+	if (summary->count == 0)
+		return;
+
+	avg = summary->sum / summary->count;
+	stddev = sqrt(summary->squared_sum / summary->count - avg * avg);
+	percentile95 = metrics_audio_calculate_percentile95(
+					summary->worst_cases, summary->count);
+
+	/* Structured metric doesn't accept float, need to cast to int.
+	 * Here we multiply by 100 to maintain some precision.
+	 */
+	avg *= multiplier;
+	stddev *= multiplier;
+	percentile95 *= multiplier;
+
+	BluetoothAudioQualityReport(get_boot_id(), get_time_since_boot_micros(),
+				    device_id, profile, type, round(avg),
+				    round(stddev), round(percentile95));
+}
+
+void metrics_audio_setup(enum metrics_audio_quality_support support)
+{
+	metrics_audio.support = support;
+}
+
+void metrics_audio_clean(void)
+{
+
+}
+
+static void metrics_audio_connect_a2dp(void)
+{
+	// TODO: initiate A2DP structure
+}
+
+static void metrics_audio_connect_hfp(void)
+{
+	// TODO: initiate HFP structure
+}
+
+static void metrics_audio_disconnect_a2dp(const char *device_id)
+{
+	// TODO: Send A2DP metrics and free
+}
+
+static void metrics_audio_disconnect_hfp(const char *device_id)
+{
+	// TODO: Send HFP metrics and free
+}
+
+void metrics_report_bqr(struct aosp_bqr *data)
+{
+
+}
+
+void metrics_report_intel_a2dp(struct intel_acl_event *data)
+{
+
+}
+
+void metrics_report_intel_hfp(struct intel_sco_event *data)
+{
+
+}
+
+void metrics_audio_a2dp_play_pause(bool is_play)
+{
+	// TODO: Toggle the play/pause state of A2DP
+}
+
+void metrics_audio_hfp_play_pause(bool is_play)
+{
+	// TODO: Toggle the play/pause state of HFP
 }

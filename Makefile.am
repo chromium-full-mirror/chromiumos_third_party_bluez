@@ -209,6 +209,8 @@ endif
 
 shared_sources = src/shared/io.h src/shared/timeout.h \
 			src/shared/queue.h src/shared/queue.c \
+			src/shared/bounded-priority-queue.h \
+			src/shared/bounded-priority-queue.c \
 			src/shared/util.h src/shared/util.c \
 			src/shared/memtrack.h src/shared/memtrack.c \
 			src/shared/mgmt.h src/shared/mgmt.c \
@@ -330,6 +332,7 @@ src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 			src/libshared-glib.la \
 			-lmetrics \
 			-lstructuredmetrics \
+			-lm \
 			$(BACKTRACE_LIBS) $(GLIB_LIBS) $(DBUS_LIBS) -ldl -lrt \
 			$(builtin_ldadd)
 src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
@@ -375,6 +378,7 @@ unit_metrics_unittests_LDADD = lib/libbluetooth-internal.la \
 			src/libshared-glib.la \
 			-lmetrics \
 			-lstructuredmetrics \
+			-lm \
 			$(BACKTRACE_LIBS) $(GLIB_LIBS) $(DBUS_LIBS) -ldl -lrt \
 			$(builtin_ldadd)
 unit_metrics_unittests_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic

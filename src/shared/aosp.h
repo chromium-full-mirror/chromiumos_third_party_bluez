@@ -22,6 +22,7 @@
 #define __AOSP_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 struct mgmt_ev_quality_report;
 

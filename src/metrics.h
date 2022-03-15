@@ -10,6 +10,9 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#include "src/shared/aosp.h"
+#include "src/shared/intel.h"
+
 /* Names of histograms */
 #define H_NAME_DISCOVERABLE_LEN	"BlueZ.TimeLengthOfDiscoverable"
 #define H_NAME_DISCOVERY_LEN	"BlueZ.TimeLengthOfDiscovering"
@@ -445,6 +448,12 @@ enum metrics_profile_disconn_state {
 	PROFILE_DISCONN_STATE_UNKNOWN_ERROR = 8,
 };
 
+enum metrics_audio_quality_support {
+	AUDIO_QUALITY_SUPPORT_NONE = 0,
+	AUDIO_QUALITY_SUPPORT_BQR = 1,
+	AUDIO_QUALITY_SUPPORT_INTEL = 2,
+};
+
 /* Corresponding methods to C Metrics Library */
 bool metrics_init(void);
 void metrics_deinit(void);
@@ -518,5 +527,13 @@ void metrics_device_info_report(const char *device_id,
 
 metrics_conn_result metrics_bredr_conn_err_to_result(int sample);
 metrics_conn_result metrics_le_conn_err_to_result(int sample);
+
+void metrics_audio_setup(enum metrics_audio_quality_support support);
+void metrics_audio_clean(void);
+void metrics_report_bqr(struct aosp_bqr *data);
+void metrics_report_intel_a2dp(struct intel_acl_event *data);
+void metrics_report_intel_hfp(struct intel_sco_event *data);
+void metrics_audio_a2dp_play_pause(bool is_play);
+void metrics_audio_hfp_play_pause(bool is_play);
 
 #endif  // BLUEZ_METRICS_H_
