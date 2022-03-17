@@ -47,6 +47,25 @@
 #define DEVICE_CATEGORY_BIT_OFFSET 6
 
 #define BOOT_ID_PROC_PATH "/proc/sys/kernel/random/boot_id"
+#define CHIPSET_INFO_WLAN_DIR_PATH "/sys/class/net/wlan0/device"
+#define CHIPSET_INFO_MLAN_DIR_PATH "/sys/class/net/mlan0/device"
+#define CHIPSET_INFO_MODALIAS_PATH "/sys/class/bluetooth/hci0/device/modalias"
+#define CHIPSET_INFO_MODULE_DIR_PATH                                           \
+	"/sys/class/bluetooth/hci0/device/driver/module"
+
+enum metrics_transport_type {
+	TRANSPORT_TYPE_UNKNOWN = 0,
+	TRANSPORT_TYPE_USB = 1,
+	TRANSPORT_TYPE_UART = 2,
+	TRANSPORT_TYPE_SDIO = 3,
+};
+
+struct metrics_chipset_info {
+	int vid;
+	int pid;
+	enum metrics_transport_type transport;
+	char *chipset_string;
+};
 
 struct metrics_timer {
 	metrics_timer_type type;
@@ -70,6 +89,7 @@ struct metrics_periodic_timer {
 static CMetricsLibrary lib = NULL;
 static GSList *timers = NULL;
 static struct queue *periodic_timers;
+static struct metrics_chipset_info *chipset_info;
 static char *boot_id;
 
 static void metrics_free_periodic_timer(void *user_data);
@@ -1065,6 +1085,7 @@ static char *get_boot_id()
 {
 	FILE *fp;
 	size_t len = 0;
+	ssize_t bytes = 0;
 	int i, j;
 
 	if (boot_id) {
@@ -1080,8 +1101,8 @@ static char *get_boot_id()
 		goto fail;
 
 	// example of boot_id: 80668f2e-da13-4a16-9efb-d91974a023af
-	getline(&boot_id, &len, fp);
-	if (len <= 0) {
+	bytes = getline(&boot_id, &len, fp);
+	if (bytes <= 0) {
 		fclose(fp);
 		goto fail;
 	}
@@ -1103,11 +1124,116 @@ fail:
 	return boot_id;
 }
 
+static int metrics_chipset_info_get_id(char *path, char *file)
+{
+	FILE *fp;
+	size_t len = 0;
+	ssize_t bytes = 0;
+	char *line = NULL;
+	int id = 0;
+	char id_path[100] = { 0 };
+
+	snprintf(id_path, 100, "%s/%s", path, file);
+	fp = fopen(id_path, "r");
+
+	if (!fp)
+		return 0;
+
+	bytes = getline(&line, &len, fp);
+	if (bytes > 0)
+		id = (int)strtol(line, NULL, 0);
+
+	free(line);
+	fclose(fp);
+	return id;
+}
+
+static char *metrics_chipset_info_get_module_name(void)
+{
+	FILE *fp;
+	size_t len = 0;
+	ssize_t bytes = 0;
+	char *modalias = NULL;
+
+	fp = fopen(CHIPSET_INFO_MODALIAS_PATH, "r");
+	if (!fp)
+		return modalias;
+
+	bytes = getline(&modalias, &len, fp);
+	fclose(fp);
+	return modalias;
+}
+
+static enum metrics_transport_type get_chipset_transport(void)
+{
+	char *module_realpath;
+	char *transport_string;
+	enum metrics_transport_type transport = TRANSPORT_TYPE_UNKNOWN;
+
+	// examples of moudle_realpath: /sys/module/btusb and
+	// /sys/module/hci_uart
+	module_realpath = realpath(CHIPSET_INFO_MODULE_DIR_PATH, NULL);
+
+	if (!module_realpath)
+		return transport;
+
+	transport_string = strrchr(module_realpath, '/');
+
+	if (transport_string) {
+		if (strstr(module_realpath, "usb"))
+			transport = TRANSPORT_TYPE_USB;
+		else if (strstr(module_realpath, "uart"))
+			transport = TRANSPORT_TYPE_UART;
+		else if (strstr(module_realpath, "sdio"))
+			transport = TRANSPORT_TYPE_SDIO;
+	}
+
+	free(module_realpath);
+	return transport;
+}
+
+static void metrics_chipset_info_report(void)
+{
+	if (chipset_info)
+		return;
+
+	chipset_info = calloc(1, sizeof(struct metrics_chipset_info));
+
+	chipset_info->vid = metrics_chipset_info_get_id(
+		CHIPSET_INFO_WLAN_DIR_PATH, "vendor");
+	chipset_info->pid = metrics_chipset_info_get_id(
+		CHIPSET_INFO_WLAN_DIR_PATH, "device");
+
+	if (!chipset_info->vid || !chipset_info->pid) {
+		chipset_info->vid = metrics_chipset_info_get_id(
+			CHIPSET_INFO_MLAN_DIR_PATH, "vendor");
+		chipset_info->pid = metrics_chipset_info_get_id(
+			CHIPSET_INFO_MLAN_DIR_PATH, "device");
+	}
+
+	if (!chipset_info->vid || !chipset_info->pid) {
+		chipset_info->chipset_string =
+			metrics_chipset_info_get_module_name();
+	}
+
+	chipset_info->transport = get_chipset_transport();
+
+	DBG("Chipset info report: %x %x %d %s", chipset_info->vid,
+	    chipset_info->pid, chipset_info->transport,
+	    chipset_info->chipset_string);
+	BluetoothChipsetInfo(chipset_info->vid, chipset_info->pid,
+			     chipset_info->transport,
+			     chipset_info->chipset_string ?
+				     chipset_info->chipset_string :
+				     "");
+}
+
 void metrics_adapter_state_changed(bool enabled)
 {
 	DBG("Adapter state changed: %d", enabled);
 	BluetoothAdapterStateChanged(get_boot_id(),
 				     get_time_since_boot_micros(), enabled);
+	metrics_chipset_info_report();
 }
 
 void metrics_pairing_state_changed(const char *device_id, int addr_type,
