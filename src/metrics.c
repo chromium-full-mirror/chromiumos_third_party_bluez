@@ -1231,8 +1231,8 @@ static void metrics_chipset_info_report(void)
 void metrics_adapter_state_changed(bool enabled)
 {
 	DBG("Adapter state changed: %d", enabled);
-	BluetoothAdapterStateChanged(get_boot_id(),
-				     get_time_since_boot_micros(), enabled);
+	BluetoothAdapterStateChanged(
+		get_boot_id(), get_time_since_boot_micros(), false, enabled);
 	metrics_chipset_info_report();
 }
 
