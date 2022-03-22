@@ -1106,8 +1106,8 @@ fail:
 void metrics_adapter_state_changed(bool enabled)
 {
 	DBG("Adapter state changed: %d", enabled);
-	BluetoothAdapterStateChanged(get_boot_id(),
-				     get_time_since_boot_micros(), enabled);
+	BluetoothAdapterStateChanged(
+		get_boot_id(), get_time_since_boot_micros(), false, enabled);
 }
 
 void metrics_pairing_state_changed(const char *device_id, int addr_type,
