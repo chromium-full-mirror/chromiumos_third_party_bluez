@@ -45,6 +45,8 @@
 #define DEBUG_BLUEZ_PROPERTY		"BluezLevel"
 #define DEBUG_KERNEL_PROPERTY		"KernelLevel"
 
+#define METRICS_INTERFACE		"org.chromium.Bluetooth.Metrics"
+
 // Kernel only accepts boolean value
 #define MAX_KERNEL_DEBUG_LEVEL 1
 
@@ -735,10 +737,9 @@ static DBusMessage *set_log_levels(DBusConnection *conn, DBusMessage *msg,
 	if (!dbus_message_get_args(msg, &err, DBUS_TYPE_BYTE, &bluez,
 				   DBUS_TYPE_BYTE, &kernel,
 				   DBUS_TYPE_INVALID)) {
-		if (dbus_error_is_set(&err)) {
-			error("read params failed %s", err.message);
-			dbus_error_free(&err);
-		}
+		error("read params failed %s", err.message);
+		dbus_error_free(&err);
+
 		return btd_error_failed(msg, "Failed to read parameters");
 	}
 
@@ -775,6 +776,29 @@ static DBusMessage *set_quality_debug(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+/* API for KPI audio metrics */
+static DBusMessage *report_hfp_status(DBusConnection *conn, DBusMessage *msg,
+				      void *user_data)
+{
+	struct debug_data *debug = user_data;
+	DBusError err;
+	dbus_bool_t status;
+	int32_t sco_handle;
+
+	dbus_error_init(&err);
+
+	if (!dbus_message_get_args(msg, &err, DBUS_TYPE_BOOLEAN, &status,
+				   DBUS_TYPE_INT32, &sco_handle,
+				   DBUS_TYPE_INVALID)) {
+		error("read params failed %s", err.message);
+		dbus_error_free(&err);
+
+		return btd_error_failed(msg, "Failed to read parameters");
+	}
+
+	return dbus_message_new_method_return(msg);
+}
+
 static const GDBusMethodTable debug_methods[] = {
 	{ GDBUS_METHOD("SetLevels", GDBUS_ARGS({ "levels", "yy" }), NULL,
 		       set_log_levels) },
@@ -801,6 +825,12 @@ static const GDBusPropertyTable debug_properties[] = {
 	{ DEBUG_BLUEZ_PROPERTY, "y", property_get_debug_bluez },
 	{ DEBUG_KERNEL_PROPERTY, "y", property_get_debug_kernel },
 	{}
+};
+
+static const GDBusMethodTable metrics_methods[] = {
+	{ GDBUS_METHOD("ReportHfpStatus", GDBUS_ARGS({ "status", "bi" }), NULL,
+		       report_hfp_status) },
+	{},
 };
 
 static struct btd_adapter_driver chromium_driver = {
@@ -846,6 +876,13 @@ static int chromium_init(void)
 		g_free(ddata);
 	}
 
+	/* Register metrics interface*/
+	if (!g_dbus_register_interface(conn, DEBUG_OBJECT_PATH,
+				       METRICS_INTERFACE, metrics_methods,
+				       NULL, NULL, NULL, NULL)) {
+		error("Failed to register metrics interface");
+	}
+
 	return btd_register_adapter_driver(&chromium_driver);
 }
 
@@ -855,6 +892,9 @@ static void chromium_exit(void)
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
 				    DEBUG_OBJECT_PATH, DEBUG_INTERFACE);
+
+	g_dbus_unregister_interface(btd_get_dbus_connection(),
+				    DEBUG_OBJECT_PATH, METRICS_INTERFACE);
 
 	mgmt_unref(mgmt_if);
 	mgmt_if = NULL;
