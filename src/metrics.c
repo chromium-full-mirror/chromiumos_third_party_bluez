@@ -72,7 +72,12 @@ struct metrics_chipset_info {
 };
 
 #define AUDIO_QUALITY_TIME_CHUNK 5.0		// seconds
+#define AUDIO_QUALITY_REPORT_MIN_DELTA_TIME 0.1	// seconds
+#define AUDIO_QUALITY_REPORT_MAX_DELTA_TIME 9.9	// seconds
 #define PERCENTILE95_BUFFER_SIZE 255
+
+#define BQR_QUALITY_ID_A2DP_CHOPPY 0x03
+#define BQR_QUALITY_ID_SCO_CHOPPY 0x04
 
 struct metrics_timer {
 	metrics_timer_type type;
@@ -1564,9 +1569,26 @@ struct metrics_audio_summary {
 	struct bpqueue *worst_cases;
 };
 
+struct metrics_audio_bqr {
+	struct metrics_audio_summary *rssi;
+	struct metrics_audio_summary *retransmission_count;
+	struct metrics_audio_summary *no_rx_count;
+	struct metrics_audio_summary *nak_count;
+	struct metrics_audio_summary *choppy_count;
+	long last_event_in_micros;
+	bool is_skip_first;	/* 1st data tends to be wrong, skip it. */
+	bool is_play;		/* is the audio streaming? */
+};
+
 struct metrics_audio {
-	// TODO: metrics_audio_summary fields for bqr and intel
+	struct metrics_audio_bqr *bqr_a2dp;
+	struct metrics_audio_bqr *bqr_hfp;
+	// TODO: struct metrics_audio_intel_a2dp *intel_a2dp;
+	// TODO: struct metrics_audio_intel_hfp *intel_hfp;
+
 	enum metrics_audio_quality_support support;
+	bool is_hfp;		/* To distinguish hfp/a2dp state of BQR */
+	int sco_handle;		/* Workaround for QCA controllers */
 };
 
 static struct metrics_audio metrics_audio; /* Only one audio device possible */
@@ -1700,6 +1722,59 @@ static void metrics_audio_summarize_and_send(const char *device_id,
 				    round(stddev), round(percentile95));
 }
 
+static void metrics_audio_process_and_send_bqr(const char *device_id,
+					struct metrics_audio_bqr *bqr,
+					enum metrics_bluetooth_profile profile)
+{
+	metrics_audio_summarize_and_send(device_id, profile,
+				AUDIO_QUALITY_TYPE_RSSI,
+				bqr->rssi);
+	metrics_audio_summarize_and_send(device_id, profile,
+				AUDIO_QUALITY_TYPE_RETRANSMISSION_COUNT,
+				bqr->retransmission_count);
+	metrics_audio_summarize_and_send(device_id, profile,
+				AUDIO_QUALITY_TYPE_NO_RX_COUNT,
+				bqr->no_rx_count);
+	metrics_audio_summarize_and_send(device_id, profile,
+				AUDIO_QUALITY_TYPE_NAK_COUNT,
+				bqr->nak_count);
+	metrics_audio_summarize_and_send(device_id, profile,
+				AUDIO_QUALITY_TYPE_CHOPPY_COUNT,
+				bqr->choppy_count);
+}
+
+static struct metrics_audio_bqr *metrics_audio_bqr_new()
+{
+	struct metrics_audio_bqr *bqr = g_new0(struct metrics_audio_bqr, 1);
+
+	bqr->rssi = metrics_audio_summary_new(
+			metrics_audio_worst_case_compare_keep_min);
+	bqr->retransmission_count = metrics_audio_summary_new(
+			metrics_audio_worst_case_compare_keep_max);
+	bqr->no_rx_count = metrics_audio_summary_new(
+			metrics_audio_worst_case_compare_keep_max);
+	bqr->nak_count = metrics_audio_summary_new(
+			metrics_audio_worst_case_compare_keep_max);
+	bqr->choppy_count = metrics_audio_summary_new(
+			metrics_audio_worst_case_compare_keep_max);
+
+	return bqr;
+}
+
+static void metrics_audio_bqr_free(struct metrics_audio_bqr *bqr)
+{
+	if (!bqr)
+		return;
+
+	metrics_audio_summary_free(bqr->rssi);
+	metrics_audio_summary_free(bqr->retransmission_count);
+	metrics_audio_summary_free(bqr->no_rx_count);
+	metrics_audio_summary_free(bqr->nak_count);
+	metrics_audio_summary_free(bqr->choppy_count);
+
+	g_free(bqr);
+}
+
 void metrics_audio_setup(enum metrics_audio_quality_support support)
 {
 	metrics_audio.support = support;
@@ -1707,32 +1782,141 @@ void metrics_audio_setup(enum metrics_audio_quality_support support)
 
 void metrics_audio_clean(void)
 {
-
+	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		metrics_audio_bqr_free(metrics_audio.bqr_a2dp);
+		metrics_audio_bqr_free(metrics_audio.bqr_hfp);
+		metrics_audio.bqr_a2dp = NULL;
+		metrics_audio.bqr_hfp = NULL;
+	} else if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_INTEL) {
+		//TODO intel
+	}
 }
 
 static void metrics_audio_connect_a2dp(void)
 {
-	// TODO: initiate A2DP structure
+	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		if (metrics_audio.bqr_a2dp) {
+			metrics_audio_bqr_free(metrics_audio.bqr_a2dp);
+			warn("unreported BQR A2DP");
+		}
+		metrics_audio.bqr_a2dp = metrics_audio_bqr_new();
+	} else if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_INTEL) {
+		// TODO intel
+	}
 }
 
 static void metrics_audio_connect_hfp(void)
 {
-	// TODO: initiate HFP structure
+	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		if (metrics_audio.bqr_hfp) {
+			metrics_audio_bqr_free(metrics_audio.bqr_hfp);
+			warn("unreported BQR HFP");
+		}
+		metrics_audio.bqr_hfp = metrics_audio_bqr_new();
+	} else if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_INTEL) {
+		// TODO intel
+	}
 }
 
 static void metrics_audio_disconnect_a2dp(const char *device_id)
 {
-	// TODO: Send A2DP metrics and free
+	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		metrics_audio_process_and_send_bqr(device_id,
+						   metrics_audio.bqr_a2dp,
+						   BLUETOOTH_PROFILE_A2DP);
+		metrics_audio_bqr_free(metrics_audio.bqr_a2dp);
+		metrics_audio.bqr_a2dp = NULL;
+	} else {
+		// TODO intel
+	}
 }
 
 static void metrics_audio_disconnect_hfp(const char *device_id)
 {
-	// TODO: Send HFP metrics and free
+	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		metrics_audio_process_and_send_bqr(device_id,
+						   metrics_audio.bqr_hfp,
+						   BLUETOOTH_PROFILE_HFP);
+		metrics_audio_bqr_free(metrics_audio.bqr_hfp);
+		metrics_audio.bqr_hfp = NULL;
+	} else {
+		// TODO intel
+	}
 }
 
 void metrics_report_bqr(struct aosp_bqr *data)
 {
+	struct metrics_audio_bqr *bqr;
+	long time_micros = get_time_since_boot_micros();
+	double delta_time;
 
+	if (metrics_audio.support != AUDIO_QUALITY_SUPPORT_BQR) {
+		warn("audio metric is not BQR");
+		return;
+	}
+
+	if (metrics_audio.is_hfp)
+		bqr = metrics_audio.bqr_hfp;
+	else
+		bqr = metrics_audio.bqr_a2dp;
+
+	if (!bqr) {
+		warn("BQR is NULL");
+		return;
+	}
+
+	/* No audio transmission. Skip. */
+	if (!bqr->is_play)
+		return;
+
+	/* Workaround for QCA: They send events for both ACL and SCO handles.
+	 * However, the SCO BQR events consist of almost all zeros.
+	 * Ignore events from SCO handle to keep data clean and treat them the
+	 * same way as with other vendors, which only have ACL handle.
+	 */
+	if (data->conn_handle == metrics_audio.sco_handle)
+		return;
+
+	delta_time = (time_micros - bqr->last_event_in_micros) * 0.000001;
+	bqr->last_event_in_micros = time_micros;
+
+	/* Some controller reports questionable data on the first report, maybe
+	 * due to unproper initialization. Also, right after switching A2DP to
+	 * HFP, the 1st HFP report might still contain A2DP data. Furthermore,
+	 * we can't directly calculate delta time for the first report.
+	 * Here we always just skip the first report to simplify things.
+	 */
+	if (bqr->is_skip_first) {
+		bqr->is_skip_first = false;
+		return;
+	}
+
+	/* If delta time is too small, probably it's better to skip in order to
+	 * prevent the normalized number become way too high. This is possible
+	 * because AOSP "audio choppy" events can be interpreted to be sent as
+	 * often as possible. Conversely, if delta time is too large probably
+	 * something is wrong, let's skip this event.
+	 */
+	if (delta_time < AUDIO_QUALITY_REPORT_MIN_DELTA_TIME ||
+	    delta_time > AUDIO_QUALITY_REPORT_MAX_DELTA_TIME) {
+		return;
+	}
+
+	/* RSSI should be proportional to time. Count can be directly used. */
+	metrics_audio_summary_add(bqr->rssi,
+		data->rssi * delta_time / AUDIO_QUALITY_TIME_CHUNK, delta_time);
+	metrics_audio_summary_add(bqr->retransmission_count,
+				  data->retransmission_count, delta_time);
+	metrics_audio_summary_add(bqr->no_rx_count,
+				  data->no_rx_count, delta_time);
+	metrics_audio_summary_add(bqr->nak_count,
+				  data->nak_count, delta_time);
+
+	if (data->quality_report_id == BQR_QUALITY_ID_A2DP_CHOPPY ||
+	    data->quality_report_id == BQR_QUALITY_ID_SCO_CHOPPY) {
+		/* Magnify 1000 times to maintain some precision. */
+		metrics_audio_summary_add(bqr->choppy_count, 1000, delta_time);
+	}
 }
 
 void metrics_report_intel_a2dp(struct intel_acl_event *data)
@@ -1747,10 +1931,41 @@ void metrics_report_intel_hfp(struct intel_sco_event *data)
 
 void metrics_audio_a2dp_play_pause(bool is_play)
 {
-	// TODO: Toggle the play/pause state of A2DP
+	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		if (!metrics_audio.bqr_a2dp) {
+			warn("BQR A2DP metric is NULL");
+			return;
+		}
+
+		metrics_audio.bqr_a2dp->is_play = is_play;
+		if (is_play)
+			metrics_audio.bqr_a2dp->is_skip_first = true;
+	} else if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_INTEL) {
+		// TODO intel
+	}
 }
 
-void metrics_audio_hfp_play_pause(bool is_play)
+void metrics_audio_hfp_play_pause(bool is_play, int sco_handle)
 {
-	// TODO: Toggle the play/pause state of HFP
+	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		/* For BQR case, HFP and A2DP packets are indistinguishable.
+		 * Therefore store whether the incoming packets are A2DP or HFP.
+		 * Assume next packet is HFP if HFP is playing, otherwise A2DP.
+		 */
+		metrics_audio.is_hfp = is_play;
+		metrics_audio.sco_handle = -1;
+
+		if (!metrics_audio.bqr_hfp) {
+			warn("BQR HFP metric is NULL");
+			return;
+		}
+
+		metrics_audio.bqr_hfp->is_play = is_play;
+		if (is_play) {
+			metrics_audio.bqr_hfp->is_skip_first = true;
+			metrics_audio.sco_handle = sco_handle;
+		}
+	} else if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_INTEL) {
+		// TODO intel
+	}
 }

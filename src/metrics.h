@@ -534,6 +534,6 @@ void metrics_report_bqr(struct aosp_bqr *data);
 void metrics_report_intel_a2dp(struct intel_acl_event *data);
 void metrics_report_intel_hfp(struct intel_sco_event *data);
 void metrics_audio_a2dp_play_pause(bool is_play);
-void metrics_audio_hfp_play_pause(bool is_play);
+void metrics_audio_hfp_play_pause(bool is_play, int sco_handle);
 
 #endif  // BLUEZ_METRICS_H_
