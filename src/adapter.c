@@ -10496,6 +10496,16 @@ bool quality_set_debug(struct btd_adapter *adapter, bool quality_debug)
 	return true;
 }
 
+static void quality_setup_metrics(struct btd_adapter *adapter)
+{
+	if (!is_quality_report_supported(adapter))
+		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_NONE);
+	else if (is_manufacturer_intel(adapter->manufacturer))
+		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_INTEL);
+	else
+		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_BQR);
+}
+
 static void read_info_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -10786,6 +10796,8 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	 */
 	if (btd_experimental_enabled(quality_report_uuid.str))
 		set_bluetooth_quality_report(adapter, 1);
+
+	quality_setup_metrics(adapter);
 
 	return;
 
@@ -11200,6 +11212,7 @@ void adapter_cleanup(void)
 
 	dbus_conn = NULL;
 
+	metrics_audio_clean();
 	metrics_deinit();
 }
 

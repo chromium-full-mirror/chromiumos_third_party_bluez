@@ -29,6 +29,7 @@
 #include "src/device.h"
 #include "src/error.h"
 #include "src/log.h"
+#include "src/metrics.h"
 #include "src/plugin.h"
 #include "src/profile.h"
 #include "src/service.h"
@@ -752,6 +753,8 @@ static DBusMessage *report_hfp_status(DBusConnection *conn, DBusMessage *msg,
 
 		return btd_error_failed(msg, "Failed to read parameters");
 	}
+
+	metrics_audio_hfp_play_pause(status, sco_handle);
 
 	return dbus_message_new_method_return(msg);
 }

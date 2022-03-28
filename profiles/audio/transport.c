@@ -43,6 +43,7 @@
 
 #include "src/log.h"
 #include "src/error.h"
+#include "src/metrics.h"
 #include "src/shared/queue.h"
 
 #include "avdtp.h"
@@ -168,6 +169,11 @@ static void transport_set_state(struct media_transport *transport,
 						transport->path,
 						MEDIA_TRANSPORT_INTERFACE,
 						"State");
+
+	if (state == TRANSPORT_STATE_ACTIVE)
+		metrics_audio_a2dp_play_pause(true);
+	else if (state == TRANSPORT_STATE_IDLE)
+		metrics_audio_a2dp_play_pause(false);
 }
 
 void media_transport_destroy(struct media_transport *transport)

@@ -26,6 +26,7 @@
 #include "lib/bluetooth.h"
 #include "lib/mgmt.h"
 
+#include "src/metrics.h"
 #include "src/shared/aosp.h"
 #include "src/shared/util.h"
 
@@ -119,6 +120,8 @@ bool process_aosp_quality_report(const struct mgmt_ev_quality_report *ev)
 	bqr.buffer_underflow_bytes = btohl(ev_report->buffer_underflow_bytes);
 
 	print_quality_report_evt(&bqr);
+
+	metrics_report_bqr(&bqr);
 
 	return true;
 }

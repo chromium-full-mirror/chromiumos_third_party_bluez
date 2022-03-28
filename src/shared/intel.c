@@ -26,6 +26,7 @@
 #include "lib/bluetooth.h"
 #include "lib/mgmt.h"
 
+#include "src/metrics.h"
 #include "src/shared/intel.h"
 #include "src/shared/util.h"
 
@@ -308,6 +309,11 @@ bool process_intel_telemetry_report(const struct mgmt_ev_quality_report *ev)
 	/* If the decoding completes successfully, tlv would be non-NULL */
 	if (tlv) {
 		print_intel_telemetry_evt(&tev);
+
+		if (tev.link_type == TELEMETRY_ACL_LINK)
+			metrics_report_intel_a2dp(&tev.conn.acl);
+		else if (tev.link_type == TELEMETRY_SCO_LINK)
+			metrics_report_intel_hfp(&tev.conn.sco);
 		return true;
 	}
 
