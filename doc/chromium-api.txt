@@ -21,7 +21,7 @@ Properties	boolean SupportsLEServices [readonly]
 Chromium Debug Interface
 ========================
 
-Service		org.chromium.Bluetooth
+Service		org.bluez
 Interface	org.chromium.Bluetooth.Debug
 Object path	/org/chromium/Bluetooth
 
@@ -50,6 +50,23 @@ Properties	byte BluezLevel
 		byte KernelLevel
 
 			Get the kernel debug Level
+
+Chromium Metrics Interface
+========================
+
+Service		org.bluez
+Interface	org.chromium.Bluetooth.Metrics
+Object path	/org/chromium/Bluetooth
+
+Methods		void ReportHfpStatus(boolean isStart, uint16_t scoHandle)
+
+			This method is called to signal the state of HFP
+			transmission to BlueZ. The scoHandle parameter is
+			needed to work around some quirks in the AOSP BQR
+			implementation of some controllers. This shall be used
+			only for metrics purposes.
+
+			Possible errors: org.bluez.Error.Failed
 
 Chromium BluetoothDevice Interface
 ==================================
