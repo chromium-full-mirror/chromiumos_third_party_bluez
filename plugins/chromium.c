@@ -54,10 +54,6 @@
 
 #define DBUS_PLUGIN_DEVICE_INTERFACE "org.chromium.BluetoothDevice"
 
-#define DBUS_OBJECT_MANAGER_INTERFACE "org.freedesktop.DBus.ObjectManager"
-
-#define DBUS_BLUEZ_DEVICE_INTERFACE "org.bluez.Device1"
-
 #define SERVICE_RETRIES 1
 #define SERVICE_RETRY_TIMEOUT 2
 
@@ -75,9 +71,6 @@ static struct mgmt *mgmt_if = NULL;
 
 static bool supports_le_services = false;
 static bool supports_conn_info = false;
-
-static int interfaces_added_watch_id = 0;
-static int interfaces_removed_watch_id = 0;
 
 static unsigned int service_id = 0;
 
@@ -392,77 +385,10 @@ static const GDBusMethodTable device_methods[] = {
 	{ }
 };
 
-static bool is_interface_entry_bluez_device(DBusMessageIter *array_iter) {
-	int arg_type;
-	DBusMessageIter dict_iter;
-	char *interface = NULL;
-
-	arg_type = dbus_message_iter_get_arg_type(array_iter);
-	if (arg_type == 'e') {
-		dbus_message_iter_recurse(array_iter, &dict_iter);
-		arg_type = dbus_message_iter_get_arg_type(&dict_iter);
-		if (arg_type == 's')
-			dbus_message_iter_get_basic(&dict_iter, &interface);
-		else
-			error("Expected string in InterfaceAdded signal.");
-
-	} else if (arg_type == 's') {
-		dbus_message_iter_get_basic(array_iter, &interface);
-	} else {
-		error("Expected string in InterfaceRemoved signal.");
-	}
-
-	return interface &&
-			strcmp(interface, DBUS_BLUEZ_DEVICE_INTERFACE) == 0;
-}
-
-/* Given an InterfaceAdded or InterfaceRemoved ObjectManager signal, return
- * the object path if it contains the BlueZ device interface; otherwise, return
- * null.
- *
- * The documentation for these ObjectManager signals can be found at
- * http://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces-objectmanager
- */
-static const char *get_device_path_from_interface_msg(DBusMessage *msg) {
-	int arg_type;
-	char *object_path = NULL;
-	DBusMessageIter args_iter, array_iter;
-
-	dbus_message_iter_init(msg, &args_iter);
-	arg_type = dbus_message_iter_get_arg_type(&args_iter);
-	if (arg_type != 'o') {
-		error("Expected object path in ObjectManager signal.");
-		return NULL;
-	}
-
-	dbus_message_iter_get_basic(&args_iter, &object_path);
-	dbus_message_iter_next(&args_iter);
-	if (!object_path)
-		return NULL;
-
-	arg_type = dbus_message_iter_get_arg_type(&args_iter);
-	if (arg_type != 'a') {
-		error("Expected array in ObjectManager signal.");
-		return NULL;
-	}
-
-	dbus_message_iter_recurse(&args_iter, &array_iter);
-	while (dbus_message_iter_has_next(&array_iter)) {
-		if (is_interface_entry_bluez_device(&array_iter))
-		    return object_path;
-		dbus_message_iter_next(&array_iter);
-	}
-
-	return NULL;
-}
-
-static gboolean interfaces_added(DBusConnection *conn, DBusMessage *msg,
-								void *user_data)
+static gboolean on_device_added(struct btd_adapter *adapter,
+						struct btd_device *device)
 {
-	const char *device_path = get_device_path_from_interface_msg(msg);
-
-	if (!device_path)
-		return TRUE;
+	const char *device_path = device_get_path(device);
 
 	g_dbus_register_interface(btd_get_dbus_connection(),
 					device_path, DBUS_PLUGIN_DEVICE_INTERFACE,
@@ -471,28 +397,15 @@ static gboolean interfaces_added(DBusConnection *conn, DBusMessage *msg,
 	return TRUE;
 }
 
-static gboolean interfaces_removed(DBusConnection *conn, DBusMessage *msg,
-								void *user_data)
+static gboolean on_device_removed(struct btd_adapter *adapter,
+						struct btd_device *device)
 {
-	const char *device_path = get_device_path_from_interface_msg(msg);
-
-	if (!device_path)
-		return TRUE;
+	const char *device_path = device_get_path(device);
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
 				device_path, DBUS_PLUGIN_DEVICE_INTERFACE);
 
 	return TRUE;
-}
-
-static void remove_dbus_watches() {
-	if (interfaces_added_watch_id)
-		g_dbus_remove_watch(btd_get_dbus_connection(),
-						interfaces_added_watch_id);
-
-	if (interfaces_removed_watch_id)
-		g_dbus_remove_watch(btd_get_dbus_connection(),
-						interfaces_removed_watch_id);
 }
 
 static const GDBusPropertyTable chromium_properties[] = {
@@ -862,6 +775,15 @@ static const GDBusPropertyTable debug_properties[] = {
 	{}
 };
 
+static struct btd_adapter_driver chromium_driver = {
+	.name	= "chromium",
+	.probe	= NULL,
+	.resume = NULL,
+	.remove = NULL,
+	.device_added = on_device_added,
+	.device_removed = on_device_removed
+};
+
 static int chromium_init(void)
 {
 	DBusConnection *conn = btd_get_dbus_connection();
@@ -881,27 +803,6 @@ static int chromium_init(void)
 
 	service_id = btd_service_add_state_cb(service_cb, NULL);
 
-	/* Listen for new device objects being added so we can add the plugin
-	 * interface to them.
-	 */
-	interfaces_added_watch_id = g_dbus_add_signal_watch(
-			conn, DBUS_BLUEZ_SERVICE,
-			"/", DBUS_OBJECT_MANAGER_INTERFACE, "InterfacesAdded",
-			interfaces_added, NULL, NULL);
-	if (!interfaces_added_watch_id) {
-		error("Failed to add watch for InterfacesAdded signal");
-		return 0;
-	}
-
-	interfaces_removed_watch_id = g_dbus_add_signal_watch(
-			conn, DBUS_BLUEZ_SERVICE,
-			"/", DBUS_OBJECT_MANAGER_INTERFACE, "InterfacesRemoved",
-			interfaces_removed, NULL, NULL);
-	if (!interfaces_removed_watch_id) {
-		error("Failed to add watch for InterfaceRemoved signal");
-		remove_dbus_watches();
-	}
-
 	struct debug_data *ddata = g_new0(struct debug_data, 1);
 
 	if (read_debug_levels_from_file(ddata))
@@ -917,7 +818,7 @@ static int chromium_init(void)
 		g_free(ddata);
 	}
 
-	return 0;
+	return btd_register_adapter_driver(&chromium_driver);
 }
 
 static void chromium_exit(void)
@@ -933,7 +834,7 @@ static void chromium_exit(void)
 	btd_service_remove_state_cb(service_id);
 	g_slist_free_full(retry_devices, destroy_retry_data);
 
-	remove_dbus_watches();
+	btd_unregister_adapter_driver(&chromium_driver);
 }
 
 BLUETOOTH_PLUGIN_DEFINE(chromium, VERSION, BLUETOOTH_PLUGIN_PRIORITY_HIGH,
