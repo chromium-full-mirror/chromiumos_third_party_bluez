@@ -10430,12 +10430,23 @@ static void quality_report_debug(const char *str, void *user_data)
 	info("%s%s", prefix, str);
 }
 
-static void quality_set_debug(struct btd_adapter *adapter)
+bool quality_set_debug(struct btd_adapter *adapter, bool quality_debug)
 {
-	if (is_manufacturer_intel(adapter->manufacturer))
-		intel_set_debug(quality_report_debug, "quality: ");
-	else
-		aosp_set_debug(quality_report_debug, "quality: ");
+	if (!is_quality_report_supported(adapter))
+		return false;
+
+	if (quality_debug) {
+		if (is_manufacturer_intel(adapter->manufacturer))
+			intel_set_debug(quality_report_debug, "quality: ");
+		else
+			aosp_set_debug(quality_report_debug, "quality: ");
+	} else {
+		if (is_manufacturer_intel(adapter->manufacturer))
+			intel_set_debug(NULL, NULL);
+		else
+			aosp_set_debug(NULL, NULL);
+	}
+	return true;
 }
 
 static void read_info_complete(uint8_t status, uint16_t length,
@@ -10712,9 +10723,6 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 	if (btd_adapter_get_powered(adapter))
 		adapter_start(adapter);
-
-	if (is_quality_report_supported(adapter) && getenv("QUALITY_DEBUG"))
-		quality_set_debug(adapter);
 
 	return;
 

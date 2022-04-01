@@ -749,9 +749,37 @@ static DBusMessage *set_log_levels(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+static DBusMessage *set_quality_debug(DBusConnection *conn, DBusMessage *msg,
+				      void *user_data)
+{
+	dbus_bool_t quality_debug = false;
+	struct btd_adapter *adapter;
+
+	adapter = btd_adapter_get_default();
+	if (!adapter) {
+		error("No default adapter. Skip setting quality debug.");
+		return btd_error_no_such_adapter(msg);
+	}
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN, &quality_debug,
+				   DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	if (!quality_set_debug(adapter, (bool)quality_debug)) {
+		error("quality_set_debug failed");
+		return btd_error_failed(msg, "quality_set_debug");
+	}
+
+	info("quality_set_debug %u", (bool)quality_debug);
+
+	return dbus_message_new_method_return(msg);
+}
+
 static const GDBusMethodTable debug_methods[] = {
 	{ GDBUS_METHOD("SetLevels", GDBUS_ARGS({ "levels", "yy" }), NULL,
 		       set_log_levels) },
+	{ GDBUS_METHOD("SetQualityDebug", GDBUS_ARGS({ "quality_debug", "b" }),
+		       NULL, set_quality_debug) },
 	{},
 };
 

@@ -25,6 +25,24 @@ Service		org.chromium.Bluetooth
 Interface	org.chromium.Bluetooth.Debug
 Object path	/org/chromium/Bluetooth
 
+Methods		void SetLevels(byte bluezLevel, byte kernelLevel)
+
+			This method sets the verbosity levels of BlueZ and
+			kernel debug logs.
+
+			Possible errors: org.bluez.Error.Failed
+
+		void SetQualityDebug(boolean quality_debug)
+
+			This method enables or disables the quality debug flag
+			per the quality_debug parameter. When the flag is true,
+			it will print the Bluetooth quality report events to
+			the log on receiving the events from the kernel.
+
+			Possible errors: org.bluez.Error.Failed
+					 org.bluez.Error.InvalidArguments
+					 org.bluez.Error.NoSuchAdapter
+
 Properties	byte BluezLevel
 
 			Get the Bluez debug Level
