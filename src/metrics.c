@@ -1216,7 +1216,7 @@ void metrics_acl_connection_state_changed(const char *device_id,
 	DBG("ACL connection state changed: %s %d %d %d %d", device_id,
 			addr_type, direction, initiator, state);
 	BluetoothAclConnectionStateChanged(
-		get_boot_id(), get_time_since_boot_micros(), device_id,
+		get_boot_id(), get_time_since_boot_micros(), false, device_id,
 		convert_to_device_type(addr_type), direction, initiator,
 		STATE_CHANGE_TYPE_CONNECT, state);
 }
@@ -1242,7 +1242,7 @@ void metrics_acl_disconnection_state_changed(const char *device_id,
 	DBG("ACL disconnection state changed: %s %d %d %d %d", device_id,
 			addr_type, direction, initiator, state);
 	BluetoothAclConnectionStateChanged(
-		get_boot_id(), get_time_since_boot_micros(), device_id,
+		get_boot_id(), get_time_since_boot_micros(), false, device_id,
 		convert_to_device_type(addr_type), direction, initiator,
 		STATE_CHANGE_TYPE_DISCONNECT, state);
 }
