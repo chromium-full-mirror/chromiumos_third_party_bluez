@@ -580,9 +580,8 @@ static void store_adapter_info(struct btd_adapter *adapter)
 	g_key_file_set_boolean(key_file, "General", "Powered",
 						adapter->desired_powered);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/settings",
+	create_filename(filename, PATH_MAX, "/%s/settings",
 					btd_adapter_get_storage_dir(adapter));
-
 	create_file(filename, 0600);
 
 	str = g_key_file_to_data(key_file, &length, NULL);
@@ -4648,7 +4647,7 @@ static int load_irk(struct btd_adapter *adapter, uint8_t *irk)
 	char *str_irk;
 	int ret;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/identity",
+	create_filename(filename, PATH_MAX, "/%s/identity",
 					btd_adapter_get_storage_dir(adapter));
 
 	key_file = g_key_file_new();
@@ -5309,8 +5308,8 @@ static void load_devices(struct btd_adapter *adapter)
 	DIR *dir;
 	struct dirent *entry;
 
-	snprintf(dirname, PATH_MAX, STORAGEDIR "/%s",
-					btd_adapter_get_storage_dir(adapter));
+	create_filename(dirname, PATH_MAX, "/%s",
+				btd_adapter_get_storage_dir(adapter));
 
 	dir = opendir(dirname);
 	if (!dir) {
@@ -5338,7 +5337,7 @@ static void load_devices(struct btd_adapter *adapter)
 		if (entry->d_type != DT_DIR || bachk(entry->d_name) < 0)
 			continue;
 
-		snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+		create_filename(filename, PATH_MAX, "/%s/%s/info",
 					btd_adapter_get_storage_dir(adapter),
 					entry->d_name);
 
@@ -6387,7 +6386,7 @@ static void convert_names_entry(char *key, char *value, void *user_data)
 	if (bachk(str) != 0)
 		return;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s", address, str);
+	create_filename(filename, PATH_MAX, "/%s/cache/%s", address, str);
 	create_file(filename, 0600);
 
 	key_file = g_key_file_new();
@@ -6612,7 +6611,7 @@ static void convert_entry(char *key, char *value, void *user_data)
 		struct stat st;
 		int err;
 
-		snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s",
+		create_filename(filename, PATH_MAX, "/%s/%s",
 				converter->address, key);
 
 		err = stat(filename, &st);
@@ -6620,7 +6619,7 @@ static void convert_entry(char *key, char *value, void *user_data)
 			return;
 	}
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+	create_filename(filename, PATH_MAX, "/%s/%s/info",
 			converter->address, key);
 
 	key_file = g_key_file_new();
@@ -6656,7 +6655,7 @@ static void convert_file(char *file, char *address,
 	char filename[PATH_MAX];
 	struct device_converter converter;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s", address, file);
+	create_filename(filename, PATH_MAX, "/%s/%s", address, file);
 
 	converter.address = address;
 	converter.cb = cb;
@@ -6727,7 +6726,7 @@ static void store_sdp_record(char *local, char *peer, int handle, char *value)
 	char *data;
 	gsize length = 0;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s", local, peer);
+	create_filename(filename, PATH_MAX, "/%s/cache/%s", local, peer);
 
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
@@ -6784,7 +6783,7 @@ static void convert_sdp_entry(char *key, char *value, void *user_data)
 
 	/* Check if the device directory has been created as records should
 	 * only be converted for known devices */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s", src_addr, dst_addr);
+	create_filename(filename, PATH_MAX, "/%s/%s", src_addr, dst_addr);
 
 	err = stat(filename, &st);
 	if (err || !S_ISDIR(st.st_mode))
@@ -6810,7 +6809,7 @@ static void convert_sdp_entry(char *key, char *value, void *user_data)
 	if (!gatt_parse_record(rec, &uuid, &psm, &start, &end))
 		goto failed;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/attributes", src_addr,
+	create_filename(filename, PATH_MAX, "/%s/%s/attributes", src_addr,
 								dst_addr);
 
 	key_file = g_key_file_new();
@@ -6871,8 +6870,8 @@ static void convert_primaries_entry(char *key, char *value, void *user_data)
 	sdp_uuid16_create(&uuid, GATT_PRIM_SVC_UUID);
 	prim_uuid = bt_uuid2string(&uuid);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/attributes", address,
-									key);
+	create_filename(filename, PATH_MAX, "/%s/%s/attributes", address, key);
+
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
 		error("Unable to load key file from %s: (%s)", filename,
@@ -6911,7 +6910,7 @@ static void convert_primaries_entry(char *key, char *value, void *user_data)
 	g_free(data);
 	g_key_file_free(key_file);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info", address, key);
+	create_filename(filename, PATH_MAX, "/%s/%s/info", address, key);
 
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
@@ -6961,14 +6960,14 @@ static void convert_ccc_entry(char *key, char *value, void *user_data)
 
 	/* Check if the device directory has been created as records should
 	 * only be converted for known devices */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s", src_addr, dst_addr);
+	create_filename(filename, PATH_MAX, "/%s/%s", src_addr, dst_addr);
 
 	err = stat(filename, &st);
 	if (err || !S_ISDIR(st.st_mode))
 		return;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/ccc", src_addr,
-								dst_addr);
+	create_filename(filename, PATH_MAX, "/%s/%s/ccc", src_addr, dst_addr);
+
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
 		error("Unable to load key file from %s: (%s)", filename,
@@ -7017,14 +7016,14 @@ static void convert_gatt_entry(char *key, char *value, void *user_data)
 
 	/* Check if the device directory has been created as records should
 	 * only be converted for known devices */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s", src_addr, dst_addr);
+	create_filename(filename, PATH_MAX, "/%s/%s", src_addr, dst_addr);
 
 	err = stat(filename, &st);
 	if (err || !S_ISDIR(st.st_mode))
 		return;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/gatt", src_addr,
-								dst_addr);
+	create_filename(filename, PATH_MAX, "/%s/%s/gatt", src_addr, dst_addr);
+
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
 		error("Unable to load key file from %s: (%s)", filename,
@@ -7072,14 +7071,14 @@ static void convert_proximity_entry(char *key, char *value, void *user_data)
 
 	/* Check if the device directory has been created as records should
 	 * only be converted for known devices */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s", src_addr, key);
+	create_filename(filename, PATH_MAX, "/%s/%s", src_addr, key);
 
 	err = stat(filename, &st);
 	if (err || !S_ISDIR(st.st_mode))
 		return;
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/proximity", src_addr,
-									key);
+	create_filename(filename, PATH_MAX, "/%s/%s/proximity", src_addr, key);
+
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
 		error("Unable to load key file from %s: (%s)", filename,
@@ -7111,7 +7110,7 @@ static void convert_device_storage(struct btd_adapter *adapter)
 	ba2str(&adapter->bdaddr, address);
 
 	/* Convert device's name cache */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/names", address);
+	create_filename(filename, PATH_MAX, "/%s/names", address);
 	textfile_foreach(filename, convert_names_entry, address);
 
 	/* Convert aliases */
@@ -7127,7 +7126,7 @@ static void convert_device_storage(struct btd_adapter *adapter)
 	convert_file("profiles", address, convert_profiles_entry, TRUE);
 
 	/* Convert primaries */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/primaries", address);
+	create_filename(filename, PATH_MAX, "/%s/primaries", address);
 	textfile_foreach(filename, convert_primaries_entry, address);
 
 	/* Convert linkkeys */
@@ -7143,22 +7142,22 @@ static void convert_device_storage(struct btd_adapter *adapter)
 	convert_file("did", address, convert_did_entry, FALSE);
 
 	/* Convert sdp */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/sdp", address);
+	create_filename(filename, PATH_MAX, "/%s/sdp", address);
 	textfile_foreach(filename, convert_sdp_entry, address);
 
 	/* Convert ccc */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/ccc", address);
+	create_filename(filename, PATH_MAX, "/%s/ccc", address);
 	textfile_foreach(filename, convert_ccc_entry, address);
 
 	/* Convert appearances */
 	convert_file("appearances", address, convert_appearances_entry, FALSE);
 
 	/* Convert gatt */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/gatt", address);
+	create_filename(filename, PATH_MAX, "/%s/gatt", address);
 	textfile_foreach(filename, convert_gatt_entry, address);
 
 	/* Convert proximity */
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/proximity", address);
+	create_filename(filename, PATH_MAX, "/%s/proximity", address);
 	textfile_foreach(filename, convert_proximity_entry, address);
 }
 
@@ -7175,7 +7174,7 @@ static void convert_config(struct btd_adapter *adapter, const char *filename,
 	GError *gerr = NULL;
 
 	ba2str(&adapter->bdaddr, address);
-	snprintf(config_path, PATH_MAX, STORAGEDIR "/%s/config", address);
+	create_filename(config_path, PATH_MAX, "/%s/config", address);
 
 	if (read_pairable_timeout(address, &timeout) == 0)
 		g_key_file_set_integer(key_file, "General",
@@ -7215,7 +7214,8 @@ static void fix_storage(struct btd_adapter *adapter)
 
 	ba2str(&adapter->bdaddr, address);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/config", address);
+	create_filename(filename, PATH_MAX, "/%s/config", address);
+
 	converted = textfile_get(filename, "converted");
 	if (!converted)
 		return;
@@ -7224,49 +7224,49 @@ static void fix_storage(struct btd_adapter *adapter)
 
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/names", address);
+	create_filename(filename, PATH_MAX, "/%s/names", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/aliases", address);
+	create_filename(filename, PATH_MAX, "/%s/aliases", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/trusts", address);
+	create_filename(filename, PATH_MAX, "/%s/trusts", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/blocked", address);
+	create_filename(filename, PATH_MAX, "/%s/blocked", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/profiles", address);
+	create_filename(filename, PATH_MAX, "/%s/profiles", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/primaries", address);
+	create_filename(filename, PATH_MAX, "/%s/primaries", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/linkkeys", address);
+	create_filename(filename, PATH_MAX, "/%s/linkkeys", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/longtermkeys", address);
+	create_filename(filename, PATH_MAX, "/%s/longtermkeys", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/classes", address);
+	create_filename(filename, PATH_MAX, "/%s/classes", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/did", address);
+	create_filename(filename, PATH_MAX, "/%s/did", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/sdp", address);
+	create_filename(filename, PATH_MAX, "/%s/sdp", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/ccc", address);
+	create_filename(filename, PATH_MAX, "/%s/ccc", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/appearances", address);
+	create_filename(filename, PATH_MAX, "/%s/appearances", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/gatt", address);
+	create_filename(filename, PATH_MAX, "/%s/gatt", address);
 	textfile_del(filename, "converted");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/proximity", address);
+	create_filename(filename, PATH_MAX, "/%s/proximity", address);
 	textfile_del(filename, "converted");
 }
 
@@ -7280,7 +7280,7 @@ static void load_config(struct btd_adapter *adapter)
 
 	key_file = g_key_file_new();
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/settings",
+	create_filename(filename, PATH_MAX, "/%s/settings",
 					btd_adapter_get_storage_dir(adapter));
 
 	if (stat(filename, &st) < 0) {
@@ -8964,7 +8964,7 @@ static void store_link_key(struct btd_adapter *adapter,
 
 	ba2str(device_get_address(device), device_addr);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+	create_filename(filename, PATH_MAX, "/%s/%s/info",
 			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
@@ -9060,7 +9060,7 @@ static void store_ltk_group(struct btd_adapter *adapter, const bdaddr_t *peer,
 
 	ba2str(peer, device_addr);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+	create_filename(filename, PATH_MAX, "/%s/%s/info",
 			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
@@ -9228,7 +9228,7 @@ static void store_csrk(struct btd_adapter *adapter, const bdaddr_t *peer,
 
 	ba2str(peer, device_addr);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+	create_filename(filename, PATH_MAX, "/%s/%s/info",
 			btd_adapter_get_storage_dir(adapter), device_addr);
 
 	key_file = g_key_file_new();
@@ -9308,7 +9308,7 @@ static void store_irk(struct btd_adapter *adapter, const bdaddr_t *peer,
 
 	ba2str(peer, device_addr);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+	create_filename(filename, PATH_MAX, "/%s/%s/info",
 			btd_adapter_get_storage_dir(adapter), device_addr);
 	create_file(filename, 0600);
 
@@ -9407,7 +9407,7 @@ static void store_conn_param(struct btd_adapter *adapter, const bdaddr_t *peer,
 
 	DBG("");
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+	create_filename(filename, PATH_MAX, "/%s/%s/info",
 			btd_adapter_get_storage_dir(adapter), device_addr);
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
@@ -10130,8 +10130,9 @@ static void remove_keys(struct btd_adapter *adapter,
 
 	ba2str(device_get_address(device), device_addr);
 
-	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
+	create_filename(filename, PATH_MAX, "/%s/%s/info",
 			btd_adapter_get_storage_dir(adapter), device_addr);
+
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
 		error("Unable to load key file from %s: (%s)", filename,
@@ -10225,6 +10226,7 @@ static bool get_static_addr(struct btd_adapter *adapter)
 	struct bt_crypto *crypto;
 	GKeyFile *file;
 	GError *gerr = NULL;
+	char filename[PATH_MAX];
 	char **addrs;
 	char mfg[7];
 	char *str;
@@ -10233,11 +10235,12 @@ static bool get_static_addr(struct btd_adapter *adapter)
 
 	snprintf(mfg, sizeof(mfg), "0x%04x", adapter->manufacturer);
 
+	create_filename(filename, PATH_MAX, "/addresses");
+
 	file = g_key_file_new();
-	if (!g_key_file_load_from_file(file, STORAGEDIR "/addresses", 0,
-								&gerr)) {
+	if (!g_key_file_load_from_file(file, filename, 0, &gerr)) {
 		error("Unable to load key file from %s: (%s)",
-					STORAGEDIR "/addresses", gerr->message);
+					filename, gerr->message);
 		g_clear_error(&gerr);
 	}
 	addrs = g_key_file_get_string_list(file, "Static", mfg, &len, NULL);
@@ -10293,9 +10296,9 @@ static bool get_static_addr(struct btd_adapter *adapter)
 						(const char **)addrs, len);
 
 	str = g_key_file_to_data(file, &len, NULL);
-	if (!g_file_set_contents(STORAGEDIR "/addresses", str, len, &gerr)) {
+	if (!g_file_set_contents(filename, str, len, &gerr)) {
 		error("Unable set contents for %s: (%s)",
-					STORAGEDIR "/addresses", gerr->message);
+					filename, gerr->message);
 		g_error_free(gerr);
 	}
 	g_free(str);

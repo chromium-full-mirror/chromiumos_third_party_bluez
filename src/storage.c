@@ -56,21 +56,11 @@ struct match {
 	char *pattern;
 };
 
-static inline int create_filename(char *buf, size_t size,
-				const bdaddr_t *bdaddr, const char *name)
-{
-	char addr[18];
-
-	ba2str(bdaddr, addr);
-
-	return create_name(buf, size, STORAGEDIR, addr, name);
-}
-
 int read_discoverable_timeout(const char *src, int *timeout)
 {
 	char filename[PATH_MAX], *str;
 
-	create_name(filename, PATH_MAX, STORAGEDIR, src, "config");
+	create_name(filename, PATH_MAX, src, "config");
 
 	str = textfile_get(filename, "discovto");
 	if (!str)
@@ -90,7 +80,7 @@ int read_pairable_timeout(const char *src, int *timeout)
 {
 	char filename[PATH_MAX], *str;
 
-	create_name(filename, PATH_MAX, STORAGEDIR, src, "config");
+	create_name(filename, PATH_MAX, src, "config");
 
 	str = textfile_get(filename, "pairto");
 	if (!str)
@@ -110,7 +100,7 @@ int read_on_mode(const char *src, char *mode, int length)
 {
 	char filename[PATH_MAX], *str;
 
-	create_name(filename, PATH_MAX, STORAGEDIR, src, "config");
+	create_name(filename, PATH_MAX, src, "config");
 
 	str = textfile_get(filename, "onmode");
 	if (!str)
@@ -128,8 +118,11 @@ int read_local_name(const bdaddr_t *bdaddr, char *name)
 {
 	char filename[PATH_MAX], *str;
 	int len;
+	char addr[18];
 
-	create_filename(filename, PATH_MAX, bdaddr, "config");
+	ba2str(bdaddr, addr);
+
+	create_filename(filename, PATH_MAX, "/%s/config", addr);
 
 	str = textfile_get(filename, "name");
 	if (!str)
