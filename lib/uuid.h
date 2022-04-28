@@ -158,6 +158,9 @@ extern "C" {
 /* GATT Server Supported features */
 #define GATT_CHARAC_SERVER_FEAT				0x2B3A
 
+/* Chromium Services */
+#define NEARBY_UUID		"a82efa21-ae5c-3dde-9bbc-f16da7b16c5a"
+#define PHONEHUB_UUID		"a384bd4f-41ea-3b02-8901-8c2ed9a79970"
 typedef struct {
 	enum {
 		BT_UUID_UNSPEC = 0,

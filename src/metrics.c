@@ -1410,6 +1410,10 @@ static enum metrics_bluetooth_profile uuid_to_profile(const char *uuid)
 		return BLUETOOTH_PROFILE_DEVICE_INFO;
 	} else if (bt_uuid_strcmp(uuid, BATTERY_UUID) == 0) {
 		return BLUETOOTH_PROFILE_BATTERY;
+	} else if (bt_uuid_strcmp(uuid, NEARBY_UUID) == 0) {
+		return BLUETOOTH_PROFILE_NEARBY;
+	} else if (bt_uuid_strcmp(uuid, PHONEHUB_UUID) == 0) {
+		return BLUETOOTH_PROFILE_PHONEHUB;
 	}
 	return BLUETOOTH_PROFILE_UNKNOWN;
 }

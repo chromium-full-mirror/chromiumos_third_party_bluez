@@ -422,6 +422,8 @@ enum metrics_bluetooth_profile {
 	BLUETOOTH_PROFILE_GAP = 8,
 	BLUETOOTH_PROFILE_DEVICE_INFO = 9,
 	BLUETOOTH_PROFILE_BATTERY = 10,
+	BLUETOOTH_PROFILE_NEARBY = 11,
+	BLUETOOTH_PROFILE_PHONEHUB = 12,
 };
 
 enum metrics_profile_conn_state {
