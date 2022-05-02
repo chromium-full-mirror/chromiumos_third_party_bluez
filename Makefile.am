@@ -324,6 +324,7 @@ bluetoothd_sources = $(builtin_sources) \
 			src/dbus-common.c src/dbus-common.h \
 			src/eir.h src/eir.c \
 			src/metrics.h src/metrics.c \
+			src/metrics_allowlist.h src/metrics_allowlist.c\
 			src/adv_monitor.h src/adv_monitor.c \
 			src/battery.h src/battery.c
 src_bluetoothd_SOURCES = $(bluetoothd_sources) src/main.c

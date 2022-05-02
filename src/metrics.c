@@ -18,6 +18,7 @@
 #include "metrics/c_metrics_library.h"
 #include "metrics/c_structured_metrics.h"
 #include "src/adv_monitor.h"
+#include "src/metrics_allowlist.h"
 #include "src/shared/aosp.h"
 #include "src/shared/bounded-priority-queue.h"
 #include "src/shared/intel.h"
@@ -1523,13 +1524,23 @@ void metrics_device_info_report(const char *device_id,
 	int category = (appearance & DEVICE_CATEGORY_MASK)
 			>> DEVICE_CATEGORY_BIT_OFFSET;
 
-	DBG("Device info report: %s %d %d %d %d %d %d %d",
-			device_id, device_type,
-			major_class, category, vendor_id,
-			vendor_id_source, product_id, version);
-	BluetoothDeviceInfoReport(get_boot_id(), get_time_since_boot_micros(),
-				  device_id, device_type, major_class, category,
-				  0, 0, 0, 0);
+	DBG("Device info report: %s %d %d %d %d %d %d %d", device_id,
+	    device_type, major_class, category, vendor_id, vendor_id_source,
+	    product_id, version);
+	if (is_device_info_in_allowlist(vendor_id_source, vendor_id,
+					product_id)) {
+		BluetoothDeviceInfoReport(get_boot_id(),
+					  get_time_since_boot_micros(),
+					  device_id, device_type, major_class,
+					  category, vendor_id, vendor_id_source,
+					  product_id, version);
+	} else {
+		BluetoothDeviceInfoReport(get_boot_id(),
+					  get_time_since_boot_micros(),
+					  device_id, device_type, major_class,
+					  category, 0, 0, 0, 0);
+	}
+
 	BluetoothDeviceInfo(device_type, major_class, category, vendor_id,
 			    vendor_id_source, product_id, version);
 }
