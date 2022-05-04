@@ -280,6 +280,7 @@ bool btd_has_kernel_features(uint32_t feature);
 void btd_adapter_set_keep_connectable(struct btd_adapter *adapter,
 						bool connectable);
 
+void set_bluetooth_quality_report_conditionally(uint8_t action);
 bool quality_set_debug(struct btd_adapter *adapter, bool quality_debug);
 
 bool btd_adapter_set_allowed_uuids(struct btd_adapter *adapter,

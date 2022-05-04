@@ -10301,6 +10301,26 @@ static void set_bluetooth_quality_report(struct btd_adapter *adapter,
 			dev_id, cp.action);
 }
 
+void set_bluetooth_quality_report_conditionally(uint8_t action)
+{
+	struct btd_adapter *adapter;
+
+	/* If the feature has been set per the config or the command option,
+	 * no need to do anything.
+	 */
+	if (btd_experimental_enabled(quality_report_uuid.str))
+		return;
+
+	adapter = btd_adapter_get_default();
+	if (!adapter) {
+		info("No default adapter. Skip setting quality report %u.",
+			action);
+		return;
+	}
+
+	set_bluetooth_quality_report(adapter, action);
+}
+
 static void set_rpa_resolution_complete(uint8_t status, uint16_t len,
 					const void *param, void *user_data)
 {
