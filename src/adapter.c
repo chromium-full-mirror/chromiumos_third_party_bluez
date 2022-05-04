@@ -10274,6 +10274,33 @@ static void quality_report_func(struct btd_adapter *adapter, uint8_t action)
 		queue_push_tail(adapter->exps, (void *)quality_report_uuid.val);
 }
 
+static void set_bluetooth_quality_report(struct btd_adapter *adapter,
+						uint8_t action)
+{
+	struct mgmt_cp_set_exp_feature cp;
+	uint16_t dev_id;
+
+	if (action != 0 && action != 1) {
+		error("Unexpected quality report action %u", cp.action);
+		return;
+	}
+
+	dev_id = btd_adapter_get_index(adapter);
+	if (dev_id == MGMT_INDEX_NONE) {
+		info("Adapter index is NA. Skip enabling quality report.");
+		return;
+	}
+
+	memset(&cp, 0, sizeof(cp));
+	memcpy(cp.uuid, quality_report_uuid.val, 16);
+	cp.action = action;
+
+	mgmt_send(adapter->mgmt, MGMT_OP_SET_EXP_FEATURE, dev_id,
+			sizeof(cp), &cp, NULL, NULL, NULL);
+	info("set bluetooth quality report default adapter %d enable %d",
+			dev_id, cp.action);
+}
+
 static void set_rpa_resolution_complete(uint8_t status, uint16_t len,
 					const void *param, void *user_data)
 {
@@ -10733,6 +10760,12 @@ static void read_info_complete(uint8_t status, uint16_t length,
 
 	if (btd_adapter_get_powered(adapter))
 		adapter_start(adapter);
+
+	/* After the adapter is started, enable bluetooth quality report
+	 * per the config or the command option.
+	 */
+	if (btd_experimental_enabled(quality_report_uuid.str))
+		set_bluetooth_quality_report(adapter, 1);
 
 	return;
 
