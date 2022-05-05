@@ -10262,7 +10262,7 @@ static bool is_exp_feature_uuid_the_same(const void *data,
 	return memcmp(data, match_data, sizeof(data)) == 0;
 }
 
-bool is_quality_report_supported(struct btd_adapter *adapter)
+static bool is_quality_report_supported(struct btd_adapter *adapter)
 {
 	return queue_find(adapter->exps, is_exp_feature_uuid_the_same,
 				(void *)quality_report_uuid.val) != NULL;
