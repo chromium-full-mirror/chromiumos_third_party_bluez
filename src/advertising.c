@@ -97,6 +97,7 @@ struct btd_adv_client {
 	uint32_t max_interval;
 	int8_t tx_power;
 	mgmt_request_func_t refresh_done_func;
+	bool add_adv_retried;
 };
 
 struct dbus_obj_match {
@@ -1240,8 +1241,29 @@ static void add_adv_callback(uint8_t status, uint16_t length,
 {
 	struct btd_adv_client *client = user_data;
 	const struct mgmt_rp_add_advertising *rp = param;
+	int err;
 
 	client->add_adv_id = 0;
+
+	/* This is a workaround for a race condition in kernel space.
+	 * With low probability the MGMT_OP_ADD_EXT_ADV_DATA command may race
+	 * with the software rotation mechanism and fail. In that case the
+	 * whole advertising instance in the kernel space would be removed, so
+	 * we simply retry the whole refresh process once more here.
+	 */
+	if (status == MGMT_STATUS_BUSY) {
+		if (client->add_adv_retried) {
+			/* Already retried but still failed, clear the flag. */
+			client->add_adv_retried = false;
+		} else {
+			/* Not yet retried, reschedule the tasks and return. */
+			client->add_adv_retried = true;
+			err = refresh_advertisement(client, add_adv_callback,
+						    &client->add_adv_id);
+			if (!err)
+				return;
+		}
+	}
 
 	if (status)
 		goto done;
@@ -1511,6 +1533,8 @@ static struct btd_adv_client *client_create(struct btd_adv_manager *manager,
 						LE_ADVERTISEMENT_IFACE);
 	if (!client->proxy)
 		goto fail;
+
+	client->add_adv_retried = false;
 
 	g_dbus_client_set_proxy_handlers(client->client, client_proxy_added,
 							NULL, NULL, client);
