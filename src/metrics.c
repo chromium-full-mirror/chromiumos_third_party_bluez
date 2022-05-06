@@ -1747,26 +1747,31 @@ static void metrics_audio_summarize_and_send(const char *device_id,
 					struct metrics_audio_summary *summary)
 {
 	const int multiplier = 100;
-	double avg, stddev, percentile95;
+	double avg, stddev, variance, percentile95;
+	int64_t roundAvg, roundStddev, roundPercentile95;
 
 	if (summary->count == 0)
 		return;
 
 	avg = summary->sum / summary->count;
-	stddev = sqrt(summary->squared_sum / summary->count - avg * avg);
+	variance = summary->squared_sum / summary->count - avg * avg;
+	/* Beware of negative variance caused by imprecision */
+	stddev = variance > 0 ? sqrt(variance) : 0;
 	percentile95 = metrics_audio_calculate_percentile95(
 					summary->worst_cases, summary->count);
 
 	/* Structured metric doesn't accept float, need to cast to int.
 	 * Here we multiply by 100 to maintain some precision.
 	 */
-	avg *= multiplier;
-	stddev *= multiplier;
-	percentile95 *= multiplier;
+	roundAvg = round(avg * multiplier);
+	roundStddev = round(stddev * multiplier);
+	roundPercentile95 = round(percentile95 * multiplier);
 
+	DBG("Audio quality report: %s %d %d %lld %lld %lld",
+	    device_id, profile, type, roundAvg, roundStddev, roundPercentile95);
 	BluetoothAudioQualityReport(get_boot_id(), get_time_since_boot_micros(),
-				    device_id, profile, type, round(avg),
-				    round(stddev), round(percentile95));
+				    device_id, profile, type, roundAvg,
+				    roundStddev, roundPercentile95);
 }
 
 static void metrics_audio_process_and_send_bqr(const char *device_id,
