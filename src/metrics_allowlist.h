@@ -25,4 +25,6 @@
 
 bool is_device_info_in_allowlist(int vendor_id_source, int vendor_id,
 				 int product_id);
+bool is_chipset_info_in_allowlist(int vendor_id, int product_id, int transport,
+				  const char *chipset_string, uint64_t *hval);
 #endif // BLUEZ_METRICS_ALLOWLIST_H_

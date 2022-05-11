@@ -1212,6 +1212,8 @@ static enum metrics_transport_type get_chipset_transport(void)
 
 static void metrics_chipset_info_report(void)
 {
+	uint64_t chipset_string_hval = 0;
+
 	if (chipset_info)
 		return;
 
@@ -1244,6 +1246,16 @@ static void metrics_chipset_info_report(void)
 			     chipset_info->chipset_string ?
 				     chipset_info->chipset_string :
 				     "");
+
+	if (is_chipset_info_in_allowlist(chipset_info->vid, chipset_info->pid,
+					 chipset_info->transport,
+					 chipset_info->chipset_string,
+					 &chipset_string_hval)) {
+		BluetoothChipsetInfoReport(get_boot_id(),
+					   chipset_info->vid, chipset_info->pid,
+					   chipset_info->transport,
+					   chipset_string_hval);
+	}
 }
 
 void metrics_adapter_state_changed(bool enabled)
