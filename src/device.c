@@ -1988,7 +1988,15 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 	char addr[18];
 
 	ba2str(&device->bdaddr, addr);
-	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
+	if (device->bredr_state.connected)
+		metrics_acl_disconnection_state_changed(addr,
+			BDADDR_BREDR,
+			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
+			DISCONN_STATE_STARTING);
+	if (device->le_state.connected)
+		metrics_acl_disconnection_state_changed(addr,
+			device->bdaddr_type,
 			ACL_CONNECTION_OUTGOING,
 			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
@@ -2052,10 +2060,19 @@ static DBusMessage *dev_disconnect_old(DBusConnection *conn, DBusMessage *msg,
 	char addr[18];
 
 	ba2str(&device->bdaddr, addr);
-	metrics_acl_disconnection_state_changed(addr, device->bdaddr_type,
+	if (device->bredr_state.connected)
+		metrics_acl_disconnection_state_changed(addr,
+			BDADDR_BREDR,
 			ACL_CONNECTION_OUTGOING,
 			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
+	if (device->le_state.connected)
+		metrics_acl_disconnection_state_changed(addr,
+			device->bdaddr_type,
+			ACL_CONNECTION_OUTGOING,
+			ACL_CONNECTION_INITIATOR_CLIENT,
+			DISCONN_STATE_STARTING);
+
 	/*
 	 * Disable connections through passive scanning until
 	 * Device1.Connect is called

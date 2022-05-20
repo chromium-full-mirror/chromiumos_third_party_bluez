@@ -8762,6 +8762,12 @@ static void dev_disconnected(struct btd_adapter *adapter,
 	DBG("Device %s disconnected, reason %u", dst, reason);
 
 	device = btd_adapter_find_device(adapter, &addr->bdaddr, addr->type);
+
+	metrics_acl_disconnection_state_changed(dst, addr->type,
+			metrics_reason_to_direction(reason),
+			btd_device_get_connect_initiator(device),
+			metrics_convert_disconn_state(reason));
+
 	if (device) {
 		adapter_remove_connection(adapter, device, addr->type);
 		disconnect_notify(device, reason);
@@ -8770,10 +8776,6 @@ static void dev_disconnected(struct btd_adapter *adapter,
 	bonding_attempt_complete(adapter, &addr->bdaddr, addr->type,
 						MGMT_STATUS_DISCONNECTED);
 
-	metrics_acl_disconnection_state_changed(dst, addr->type,
-			metrics_reason_to_direction(reason),
-			btd_device_get_connect_initiator(device),
-			metrics_convert_disconn_state(reason));
 	metrics_send_enum(ENUM_TYPE_DISCONN_REASON, reason, RESULT_TYPE_MGMT);
 }
 
