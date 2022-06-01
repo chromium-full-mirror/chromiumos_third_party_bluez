@@ -148,6 +148,8 @@ struct btd_opts {
 	enum jw_repairing_t jw_repairing;
 
 	struct btd_advmon_opts	advmon;
+
+	gboolean	disallow_bqr;
 };
 
 extern struct btd_opts btd_opts;

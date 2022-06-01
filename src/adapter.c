@@ -10282,6 +10282,11 @@ static void set_bluetooth_quality_report(struct btd_adapter *adapter,
 	struct mgmt_cp_set_exp_feature cp;
 	uint16_t dev_id;
 
+	if (btd_opts.disallow_bqr) {
+		info("Quality report is disallowed for this platform.");
+		return;
+	}
+
 	if (action != 0 && action != 1) {
 		error("Unexpected quality report action %u", cp.action);
 		return;
