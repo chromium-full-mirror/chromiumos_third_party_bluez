@@ -97,6 +97,7 @@ static const char *supported_options[] = {
 	"JustWorksRepairing",
 	"TemporaryTimeout",
 	"RemoteNameRequestRetryDelay",
+	"DisallowBQR",
 	NULL
 };
 
@@ -932,6 +933,16 @@ static void parse_config(GKeyFile *config)
 		val = MAX(val, 0);
 		DBG("RSSISamplingPeriod=%d", val);
 		btd_opts.advmon.rssi_sampling_period = val;
+	}
+
+	boolean = g_key_file_get_boolean(config, "General", "DisallowBQR",
+									&err);
+	if (err) {
+		DBG("%s", err->message);
+		g_clear_error(&err);
+	} else {
+		DBG("DisallowBQR=%s", boolean ? "true" : "false");
+		btd_opts.disallow_bqr = boolean;
 	}
 
 	parse_br_config(config);
