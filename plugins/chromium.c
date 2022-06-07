@@ -41,6 +41,7 @@
 #define DBUS_PLUGIN_INTERFACE "org.chromium.Bluetooth"
 
 #define DEBUG_CONF_FILE_PATH		"/var/lib/bluetooth/debug.conf"
+#define DEBUG_LL_PRIVACY_CONF_PATH      "/var/lib/bluetooth/bluetooth-llprivacy.experimental"
 #define DEBUG_OBJECT_PATH		"/org/chromium/Bluetooth"
 #define DEBUG_INTERFACE			"org.chromium.Bluetooth.Debug"
 #define DEBUG_BLUEZ_PROPERTY		"BluezLevel"
@@ -757,6 +758,132 @@ static DBusMessage *set_quality(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+static bool write_value_to_conf_file(dbus_bool_t enabled)
+{
+	FILE *fp;
+
+	fp = fopen(DEBUG_LL_PRIVACY_CONF_PATH, "w");
+	if (!fp)
+		return false;
+
+	if (enabled)
+		fprintf(fp, "%s\n", "enable");
+	else
+		fprintf(fp, "%s\n", "disable");
+
+	fclose(fp);
+	return true;
+}
+
+static bool read_llprivacy_status_from_file(bool *status)
+{
+	FILE *fp;
+	ssize_t bytes;
+	char *line = NULL;
+	size_t len = 0;
+
+	fp = fopen(DEBUG_LL_PRIVACY_CONF_PATH, "r");
+	// if file does not exist, return false
+	// because the file cannot be read by 'grep'
+	if (!fp) {
+		*status = false;
+		return false;
+	}
+	bytes = getline(&line, &len, fp);
+
+	// Anything not enable is considered as disable
+	*status = !(bytes < 0 || strcmp(line, "enable\n"));
+
+	// Free allocation by getline
+	if (line)
+		free(line);
+
+	fclose(fp);
+	return true;
+}
+
+static DBusMessage *set_ll_privacy(DBusConnection *conn,
+			DBusMessage *msg, void *user_data)
+{
+	/* 15c0a148-c273-11ea-b3de-0242ac130004 */
+	static const uint8_t uuid[16] = {
+				0x04, 0x00, 0x13, 0xac, 0x42, 0x02, 0xde, 0xb3,
+				0xea, 0x11, 0x73, 0xc2, 0x48, 0xa1, 0xc0, 0x15,
+	};
+	struct mgmt_cp_set_exp_feature cp;
+
+	dbus_bool_t ll_privacy = false;
+	struct btd_adapter *adapter;
+	unsigned int id;
+	bool old_ll_privacy;
+	uint8_t power_val;
+	bool power_status;
+
+	if (!read_llprivacy_status_from_file(&old_ll_privacy))
+		warn("Cannot open configure file for read.");
+
+	if (!mgmt_if)
+		return btd_error_not_ready(msg);
+
+	adapter = btd_adapter_get_default();
+	if (!adapter) {
+		error("No default adapter. Skip setting ll privacy.");
+		return btd_error_no_such_adapter(msg);
+	}
+	power_status = btd_adapter_get_powered(adapter);
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN, &ll_privacy,
+				   DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	if (ll_privacy == old_ll_privacy) {
+		info("LL Privacy status not changed: %u", ll_privacy);
+		return dbus_message_new_method_return(msg);
+	}
+
+	// Write to file DEBUG_LL_PRIVACY_CONF_PATH
+	if (!write_value_to_conf_file(ll_privacy)) {
+		error("Cannot open configure file for write.");
+		return btd_error_failed(msg, "File cannot open for write.");
+	}
+
+	info("Store LL Privacy status to file %u", ll_privacy);
+
+	if (power_status) {
+		power_val = 0;
+		id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
+			       btd_adapter_get_index(adapter),
+			       sizeof(power_val), &power_val,
+			       NULL, NULL, NULL);
+		if (!id)
+			return btd_error_failed(msg, "Failed to power off.");
+	}
+
+	memset(&cp, 0, sizeof(cp));
+	memcpy(cp.uuid, uuid, 16);
+	if (ll_privacy)
+		cp.action = 1;
+	else
+		cp.action = 0;
+
+	id = mgmt_send(mgmt_if, MGMT_OP_SET_EXP_FEATURE,
+		       btd_adapter_get_index(adapter),
+		       sizeof(cp), &cp, NULL, NULL, NULL);
+	if (!id)
+		return btd_error_failed(msg, "Failed to set LL privacy.");
+
+	if (power_status) {
+		power_val = 1;
+		id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
+			       btd_adapter_get_index(adapter),
+			       sizeof(power_val), &power_val,
+			       NULL, NULL, NULL);
+		if (!id)
+			return btd_error_failed(msg, "Failed to power on.");
+	}
+	return dbus_message_new_method_return(msg);
+}
+
 /* API for KPI audio metrics */
 static DBusMessage *report_hfp_status(DBusConnection *conn, DBusMessage *msg,
 				      void *user_data)
@@ -789,6 +916,8 @@ static const GDBusMethodTable debug_methods[] = {
 		       NULL, set_quality_debug) },
 	{ GDBUS_METHOD("SetQuality", GDBUS_ARGS({ "action", "y" }),
 		       NULL, set_quality) },
+	{ GDBUS_METHOD("SetLLPrivacy", GDBUS_ARGS({ "ll_privacy",
+		       "b" }), NULL, set_ll_privacy) },
 	{},
 };
 
