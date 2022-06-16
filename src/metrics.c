@@ -2025,12 +2025,22 @@ static void metrics_audio_connect_hfp(void)
 static void metrics_audio_disconnect_a2dp(const char *device_id)
 {
 	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		if (!metrics_audio.bqr_a2dp) {
+			warn("BQR A2DP disconnection without connection");
+			return;
+		}
+
 		metrics_audio_process_and_send_bqr(device_id,
 						   metrics_audio.bqr_a2dp,
 						   BLUETOOTH_PROFILE_A2DP);
 		metrics_audio_bqr_free(metrics_audio.bqr_a2dp);
 		metrics_audio.bqr_a2dp = NULL;
 	} else if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_INTEL) {
+		if (!metrics_audio.intel_a2dp) {
+			warn("Intel A2DP disconnection without connection");
+			return;
+		}
+
 		metrics_audio_process_and_send_intel_a2dp(
 					device_id, metrics_audio.intel_a2dp);
 		metrics_audio_intel_a2dp_free(metrics_audio.intel_a2dp);
@@ -2041,12 +2051,22 @@ static void metrics_audio_disconnect_a2dp(const char *device_id)
 static void metrics_audio_disconnect_hfp(const char *device_id)
 {
 	if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_BQR) {
+		if (!metrics_audio.bqr_hfp) {
+			warn("BQR HFP disconnection without connection");
+			return;
+		}
+
 		metrics_audio_process_and_send_bqr(device_id,
 						   metrics_audio.bqr_hfp,
 						   BLUETOOTH_PROFILE_HFP);
 		metrics_audio_bqr_free(metrics_audio.bqr_hfp);
 		metrics_audio.bqr_hfp = NULL;
 	} else if (metrics_audio.support == AUDIO_QUALITY_SUPPORT_INTEL) {
+		if (!metrics_audio.intel_hfp) {
+			warn("Intel HFP disconnection without connection");
+			return;
+		}
+
 		metrics_audio_process_and_send_intel_hfp(
 					device_id, metrics_audio.intel_hfp);
 		metrics_audio_intel_hfp_free(metrics_audio.intel_hfp);
