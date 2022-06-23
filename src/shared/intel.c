@@ -292,7 +292,7 @@ static const struct intel_tlv *process_ext_subevent(
 	return next_tlv;
 }
 
-bool process_intel_telemetry_report(const struct mgmt_ev_quality_report *ev)
+void process_intel_telemetry_report(const struct mgmt_ev_quality_report *ev)
 {
 	/* The ev->report points to a number of consecutive tlv.*/
 	const struct intel_tlv *tlv = (const struct intel_tlv *)ev->report;
@@ -314,8 +314,5 @@ bool process_intel_telemetry_report(const struct mgmt_ev_quality_report *ev)
 			metrics_report_intel_a2dp(&tev.conn.acl);
 		else if (tev.link_type == TELEMETRY_SCO_LINK)
 			metrics_report_intel_hfp(&tev.conn.sco);
-		return true;
 	}
-
-	return false;
 }

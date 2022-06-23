@@ -9838,11 +9838,9 @@ static void quality_report_callback(uint16_t index, uint16_t length,
 	}
 
 	if (ev->quality_spec == QUALITY_SPEC_AOSP_BQR) {
-		if (!process_aosp_quality_report(ev))
-			error("processing aosp quality report");
+		process_aosp_quality_report(ev);
 	} else if (ev->quality_spec == QUALITY_SPEC_INTEL_TELEMETRY) {
-		if (!process_intel_telemetry_report(ev))
-			error("processing intel telemetry report");
+		process_intel_telemetry_report(ev);
 	} else {
 		error("quality report spec %u not supported.",
 			ev->quality_spec);

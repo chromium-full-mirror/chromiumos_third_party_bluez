@@ -53,6 +53,6 @@ struct aosp_bqr {
 typedef void (*aosp_debug_func_t)(const char *str, void *user_data);
 void aosp_set_debug(aosp_debug_func_t callback, void *user_data);
 
-bool process_aosp_quality_report(const struct mgmt_ev_quality_report *ev);
+void process_aosp_quality_report(const struct mgmt_ev_quality_report *ev);
 
 #endif /* __AOSP_H */

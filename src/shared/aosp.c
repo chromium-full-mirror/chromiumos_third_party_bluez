@@ -82,7 +82,7 @@ static void print_quality_report_evt(const struct aosp_bqr *bqr)
 	debug("  buffer_underflow_bytes %u", bqr->buffer_underflow_bytes);
 }
 
-bool process_aosp_quality_report(const struct mgmt_ev_quality_report *ev)
+void process_aosp_quality_report(const struct mgmt_ev_quality_report *ev)
 {
 	const struct aosp_bqr *ev_report;
 	struct aosp_bqr bqr;
@@ -90,7 +90,7 @@ bool process_aosp_quality_report(const struct mgmt_ev_quality_report *ev)
 	if (ev->report_len < sizeof(struct aosp_bqr)) {
 		debug("error: AOSP report size %u too small (expect >= %u).",
 				ev->report_len, sizeof(struct aosp_bqr));
-		return false;
+		return;
 	}
 
 	ev_report = (struct aosp_bqr *)ev->report;
@@ -122,6 +122,4 @@ bool process_aosp_quality_report(const struct mgmt_ev_quality_report *ev)
 	print_quality_report_evt(&bqr);
 
 	metrics_report_bqr(&bqr);
-
-	return true;
 }

@@ -166,6 +166,6 @@ typedef void (*intel_debug_func_t)(const char *str, void *user_data);
 bool is_manufacturer_intel(uint16_t manufacturer);
 void intel_set_debug(intel_debug_func_t callback, void *user_data);
 
-bool process_intel_telemetry_report(const struct mgmt_ev_quality_report *ev);
+void process_intel_telemetry_report(const struct mgmt_ev_quality_report *ev);
 
 #endif /* __INTEL_H */
