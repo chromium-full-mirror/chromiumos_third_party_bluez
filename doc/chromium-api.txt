@@ -32,6 +32,15 @@ Methods		void SetLevels(byte bluezLevel, byte kernelLevel)
 
 			Possible errors: org.bluez.Error.Failed
 
+		void SetQuality(byte action)
+
+			This method enables or disables Bluetooth Quality
+			Report per the action parameter.
+
+			Possible errors: org.bluez.Error.Failed
+					 org.bluez.Error.InvalidArguments
+					 org.bluez.Error.NoSuchAdapter
+
 		void SetQualityDebug(boolean quality_debug)
 
 			This method enables or disables the quality debug flag

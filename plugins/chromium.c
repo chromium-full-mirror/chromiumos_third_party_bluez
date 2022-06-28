@@ -733,6 +733,30 @@ static DBusMessage *set_quality_debug(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+static DBusMessage *set_quality(DBusConnection *conn, DBusMessage *msg,
+			    void *user_data)
+{
+	uint8_t action;
+	struct btd_adapter *adapter;
+
+	adapter = btd_adapter_get_default();
+	if (!adapter) {
+		error("No default adapter. Skip setting quality debug.");
+		return btd_error_no_such_adapter(msg);
+	}
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BYTE, &action,
+				   DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	if (!set_bluetooth_quality_report(adapter, action))
+		return btd_error_failed(msg, "SetQuality");
+
+	info("SetQuality action %u succeeded", action);
+
+	return dbus_message_new_method_return(msg);
+}
+
 /* API for KPI audio metrics */
 static DBusMessage *report_hfp_status(DBusConnection *conn, DBusMessage *msg,
 				      void *user_data)
@@ -763,6 +787,8 @@ static const GDBusMethodTable debug_methods[] = {
 		       set_log_levels) },
 	{ GDBUS_METHOD("SetQualityDebug", GDBUS_ARGS({ "quality_debug", "b" }),
 		       NULL, set_quality_debug) },
+	{ GDBUS_METHOD("SetQuality", GDBUS_ARGS({ "action", "y" }),
+		       NULL, set_quality) },
 	{},
 };
 
