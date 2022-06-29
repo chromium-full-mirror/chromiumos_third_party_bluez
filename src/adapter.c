@@ -10280,11 +10280,6 @@ static void set_bluetooth_quality_report(struct btd_adapter *adapter,
 	struct mgmt_cp_set_exp_feature cp;
 	uint16_t dev_id;
 
-	if (btd_opts.disallow_bqr) {
-		info("Quality report is disallowed for this platform.");
-		return;
-	}
-
 	if (action != 0 && action != 1) {
 		error("Unexpected quality report action %u", cp.action);
 		return;
@@ -10304,26 +10299,6 @@ static void set_bluetooth_quality_report(struct btd_adapter *adapter,
 			sizeof(cp), &cp, NULL, NULL, NULL);
 	info("set bluetooth quality report default adapter %d enable %d",
 			dev_id, cp.action);
-}
-
-void set_bluetooth_quality_report_conditionally(uint8_t action)
-{
-	struct btd_adapter *adapter;
-
-	/* If the feature has been set per the config or the command option,
-	 * no need to do anything.
-	 */
-	if (btd_experimental_enabled(quality_report_uuid.str))
-		return;
-
-	adapter = btd_adapter_get_default();
-	if (!adapter) {
-		info("No default adapter. Skip setting quality report %u.",
-			action);
-		return;
-	}
-
-	set_bluetooth_quality_report(adapter, action);
 }
 
 static void set_rpa_resolution_complete(uint8_t status, uint16_t len,
@@ -10796,10 +10771,13 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	if (btd_adapter_get_powered(adapter))
 		adapter_start(adapter);
 
-	/* After the adapter is started, enable bluetooth quality report
-	 * per the config or the command option.
+	/* The Bluetooth quality report can be enabled/disabled globally in
+	 * the experimental command option in start_bluetoothd.sh.
+	 * The Bluetooth quality report can be disabled on a board/model basis
+	 * through the DisallowBQR option in main.conf.
 	 */
-	if (btd_experimental_enabled(quality_report_uuid.str))
+	if (btd_experimental_enabled(quality_report_uuid.str) &&
+	    !btd_opts.disallow_bqr)
 		set_bluetooth_quality_report(adapter, 1);
 
 	quality_setup_metrics(adapter);

@@ -661,7 +661,6 @@ void apply_debug_levels(struct debug_data *debug, uint8_t bluez, uint8_t kernel)
 	debug->kernel = kernel;
 
 	btd_set_debug_level(bluez);
-	set_bluetooth_quality_report_conditionally(!!bluez);
 	update_kernel_debug(kernel);
 
 	info("Applied debug levels: bluez(%u), kernel(%u)", bluez, kernel);
