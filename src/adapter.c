@@ -10949,10 +10949,16 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	 * the experimental command option in start_bluetoothd.sh.
 	 * The Bluetooth quality report can be disabled on a board/model basis
 	 * through the DisallowBQR option in main.conf.
+	 *
+	 * Always respect the bluetoothd settings above by calling
+	 * set_bluetooth_quality_report to enable and disable the
+	 * feature in order to override the driver's behavior.
 	 */
 	if (btd_experimental_enabled(quality_report_uuid.str) &&
 	    !btd_opts.disallow_bqr)
 		set_bluetooth_quality_report(adapter, 1);
+	else
+		set_bluetooth_quality_report(adapter, 0);
 
 	quality_setup_metrics(adapter);
 
