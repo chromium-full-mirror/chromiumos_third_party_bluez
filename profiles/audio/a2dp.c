@@ -53,7 +53,6 @@
 #include "src/service.h"
 #include "src/log.h"
 #include "src/sdpd.h"
-#include "src/textfile.h"
 #include "src/shared/queue.h"
 #include "src/shared/timeout.h"
 #include "src/shared/util.h"
@@ -843,10 +842,9 @@ static void store_remote_seps(struct a2dp_channel *chan)
 
 	ba2str(device_get_address(device), dst_addr);
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 			btd_adapter_get_storage_dir(device_get_adapter(device)),
 			dst_addr);
-
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 
@@ -1009,10 +1007,9 @@ static void store_last_used(struct a2dp_channel *chan, uint8_t lseid,
 
 	ba2str(device_get_address(chan->device), dst_addr);
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 		btd_adapter_get_storage_dir(device_get_adapter(chan->device)),
 		dst_addr);
-
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 
@@ -2264,10 +2261,9 @@ static void load_remote_seps(struct a2dp_channel *chan)
 
 	ba2str(device_get_address(device), dst_addr);
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 			btd_adapter_get_storage_dir(device_get_adapter(device)),
 			dst_addr);
-
 	key_file = g_key_file_new();
 	g_key_file_load_from_file(key_file, filename, 0, NULL);
 	keys = g_key_file_get_keys(key_file, "Endpoints", NULL, NULL);
