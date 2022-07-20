@@ -448,7 +448,7 @@ static gboolean store_device_info_cb(gpointer user_data)
 	device->store_id = 0;
 
 	ba2str(&device->bdaddr, device_addr);
-	create_filename(filename, PATH_MAX, "/%s/%s/info",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
 				btd_adapter_get_storage_dir(device->adapter),
 				device_addr);
 	create_file(filename, 0600);
@@ -638,7 +638,7 @@ void device_store_cached_name(struct btd_device *dev, const char *name)
 	}
 
 	ba2str(&dev->bdaddr, d_addr);
-	create_filename(filename, PATH_MAX, "/%s/cache/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 			btd_adapter_get_storage_dir(dev->adapter), d_addr);
 	create_file(filename, 0600);
 
@@ -687,7 +687,7 @@ static void device_store_cached_name_resolve(struct btd_device *dev)
 	}
 
 	ba2str(&dev->bdaddr, d_addr);
-	create_filename(filename, PATH_MAX, "/%s/cache/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 			btd_adapter_get_storage_dir(dev->adapter), d_addr);
 	create_file(filename, 0600);
 
@@ -2997,7 +2997,7 @@ static void store_services(struct btd_device *device)
 
 	ba2str(&device->bdaddr, dst_addr);
 
-	create_filename(filename, PATH_MAX, "/%s/%s/attributes",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/attributes",
 				btd_adapter_get_storage_dir(device->adapter),
 				dst_addr);
 	key_file = g_key_file_new();
@@ -3226,7 +3226,7 @@ static void store_gatt_db(struct btd_device *device)
 
 	ba2str(&device->bdaddr, dst_addr);
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 				btd_adapter_get_storage_dir(device->adapter),
 				dst_addr);
 	create_file(filename, 0600);
@@ -4363,7 +4363,7 @@ static char *load_cached_name(struct btd_device *device, const char *local,
 	if (device_address_is_private(device))
 		return NULL;
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s", local, peer);
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s", local, peer);
 
 	key_file = g_key_file_new();
 
@@ -4393,7 +4393,7 @@ static void load_cached_name_resolve(struct btd_device *device,
 	if (device_address_is_private(device))
 		return;
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s", local, peer);
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s", local, peer);
 
 	key_file = g_key_file_new();
 
@@ -4489,7 +4489,7 @@ static void convert_info(struct btd_device *device, GKeyFile *key_file)
 
 	ba2str(btd_adapter_get_address(device->adapter), adapter_addr);
 	ba2str(&device->bdaddr, device_addr);
-	create_filename(filename, PATH_MAX, "/%s/%s/info", adapter_addr,
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info", adapter_addr,
 			device_addr);
 
 	str = g_key_file_to_data(key_file, &length, NULL);
@@ -4652,7 +4652,8 @@ static void load_att_info(struct btd_device *device, const char *local,
 	char tmp[3];
 	int i;
 
-	create_filename(filename, PATH_MAX, "/%s/%s/attributes", local, peer);
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/attributes", local,
+			peer);
 
 	/* Check if attributes file exists */
 	if (stat(filename, &st) < 0)
@@ -5049,7 +5050,7 @@ static void load_gatt_db(struct btd_device *device, const char *local,
 
 	DBG("Restoring %s gatt database from file", peer);
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s", local, peer);
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s", local, peer);
 
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
@@ -5457,9 +5458,9 @@ struct btd_device *device_create(struct btd_adapter *adapter,
 	return device;
 }
 
-char *btd_device_get_storage_path(struct btd_device *device, const char *name)
+char *btd_device_get_storage_path(struct btd_device *device,
+				const char *filename)
 {
-	char filename[PATH_MAX];
 	char dstaddr[18];
 
 	if (device_address_is_private(device)) {
@@ -5470,16 +5471,14 @@ char *btd_device_get_storage_path(struct btd_device *device, const char *name)
 
 	ba2str(&device->bdaddr, dstaddr);
 
-	if (!name)
-		create_filename(filename, PATH_MAX, "/%s/%s",
+	if (!filename)
+		return g_strdup_printf(STORAGEDIR "/%s/%s",
 				btd_adapter_get_storage_dir(device->adapter),
 				dstaddr);
-	else
-		create_filename(filename, PATH_MAX, "/%s/%s/%s",
-				btd_adapter_get_storage_dir(device->adapter),
-				dstaddr, name);
 
-	return strdup(filename);
+	return g_strdup_printf(STORAGEDIR "/%s/%s/%s",
+				btd_adapter_get_storage_dir(device->adapter),
+				dstaddr, filename);
 }
 
 void btd_device_device_set_name(struct btd_device *device, const char *name)
@@ -5764,8 +5763,7 @@ static void delete_folder_tree(const char *dirname)
 		if (entry->d_type == DT_UNKNOWN)
 			entry->d_type = util_get_dt(dirname, entry->d_name);
 
-		create_filename(filename, PATH_MAX, "%s/%s", dirname,
-				entry->d_name);
+		snprintf(filename, PATH_MAX, "%s/%s", dirname, entry->d_name);
 
 		if (entry->d_type == DT_DIR)
 			delete_folder_tree(filename);
@@ -5814,12 +5812,12 @@ static void device_remove_stored(struct btd_device *device)
 
 	ba2str(&device->bdaddr, device_addr);
 
-	create_filename(filename, PATH_MAX, "/%s/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s",
 				btd_adapter_get_storage_dir(device->adapter),
 				device_addr);
 	delete_folder_tree(filename);
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s",
 				btd_adapter_get_storage_dir(device->adapter),
 				device_addr);
 
@@ -6237,7 +6235,8 @@ static void update_bredr_services(struct browse_req *req, sdp_list_t *recs)
 	ba2str(btd_adapter_get_address(device->adapter), srcaddr);
 	ba2str(&device->bdaddr, dstaddr);
 
-	create_filename(sdp_file, PATH_MAX, "/%s/cache/%s", srcaddr, dstaddr);
+	snprintf(sdp_file, PATH_MAX, STORAGEDIR "/%s/cache/%s", srcaddr,
+								dstaddr);
 	create_file(sdp_file, 0600);
 
 	sdp_key_file = g_key_file_new();
@@ -6249,8 +6248,8 @@ static void update_bredr_services(struct browse_req *req, sdp_list_t *recs)
 		sdp_key_file = NULL;
 	}
 
-	create_filename(att_file, PATH_MAX, "/%s/%s/attributes", srcaddr,
-							dstaddr);
+	snprintf(att_file, PATH_MAX, STORAGEDIR "/%s/%s/attributes", srcaddr,
+								dstaddr);
 	create_file(att_file, 0600);
 
 	att_key_file = g_key_file_new();
@@ -7287,7 +7286,7 @@ void device_store_svc_chng_ccc(struct btd_device *device, uint8_t bdaddr_type,
 	char *str;
 
 	ba2str(&device->bdaddr, device_addr);
-	create_filename(filename, PATH_MAX, "/%s/%s/info",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
 				btd_adapter_get_storage_dir(device->adapter),
 				device_addr);
 
@@ -7341,7 +7340,7 @@ void device_load_svc_chng_ccc(struct btd_device *device, uint16_t *ccc_le,
 	GError *gerr = NULL;
 
 	ba2str(&device->bdaddr, device_addr);
-	create_filename(filename, PATH_MAX, "/%s/%s/info",
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info",
 				btd_adapter_get_storage_dir(device->adapter),
 				device_addr);
 
@@ -8219,7 +8218,7 @@ static sdp_list_t *read_device_records(struct btd_device *device)
 	ba2str(btd_adapter_get_address(device->adapter), local);
 	ba2str(&device->bdaddr, peer);
 
-	create_filename(filename, PATH_MAX, "/%s/cache/%s", local, peer);
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s", local, peer);
 
 	key_file = g_key_file_new();
 	if (!g_key_file_load_from_file(key_file, filename, 0, &gerr)) {
