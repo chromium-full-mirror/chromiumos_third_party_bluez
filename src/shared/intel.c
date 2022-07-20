@@ -213,6 +213,12 @@ static const struct intel_tlv *process_ext_subevent(
 	const struct intel_ext_subevent *subevent = NULL;
 	int i;
 
+	if (next_tlv > last_tlv) {
+		debug("error: subevent 0x%2.2x exceeds the buffer size.",
+			tlv->id);
+		return NULL;
+	}
+
 	for (i = 0; intel_ext_subevent_table[i].size > 0; i++) {
 		if (intel_ext_subevent_table[i].id == tlv->id) {
 			subevent = &intel_ext_subevent_table[i];
@@ -221,20 +227,16 @@ static const struct intel_tlv *process_ext_subevent(
 	}
 
 	if (!subevent) {
-		debug("error: unknown Intel telemetry subevent 0x%2.2x",
+		debug("warn: unknown Intel telemetry subevent 0x%2.2x",
 			tlv->id);
-		return NULL;
+
+		/* It is likely a new unknown subevent. Just skip it. */
+		return next_tlv;
 	}
 
 	if (tlv->length != subevent->size * subevent->elements) {
 		debug("error: invalid length %d of subevent 0x%2.2x",
 			tlv->length, tlv->id);
-		return NULL;
-	}
-
-	if (next_tlv > last_tlv) {
-		debug("error: subevent 0x%2.2x exceeds the buffer size.",
-			tlv->id);
 		return NULL;
 	}
 
