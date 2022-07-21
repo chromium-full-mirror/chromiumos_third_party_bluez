@@ -84,6 +84,13 @@ static const char *services_to_reconnect[] = {
 		HSP_AG_UUID, HFP_AG_UUID, NULL };
 static GSList *retry_devices = NULL;
 
+/* 15c0a148-c273-11ea-b3de-0242ac130004 */
+static const uint8_t ll_privacy_uuid[16] = {
+	0x04, 0x00, 0x13, 0xac, 0x42, 0x02, 0xde, 0xb3,
+	0xea, 0x11, 0x73, 0xc2, 0x48, 0xa1, 0xc0, 0x15,
+};
+
+
 struct retry_data {
 	struct btd_device *dev;
 	uint8_t retries;
@@ -822,16 +829,102 @@ static bool read_llprivacy_status_from_file(bool *status)
 	return true;
 }
 
-static DBusMessage *set_ll_privacy(DBusConnection *conn,
-			DBusMessage *msg, void *user_data)
+static void set_llp_power_on_cb(uint8_t status, uint16_t length,
+				const void *param, void *user_data)
 {
-	/* 15c0a148-c273-11ea-b3de-0242ac130004 */
-	static const uint8_t uuid[16] = {
-				0x04, 0x00, 0x13, 0xac, 0x42, 0x02, 0xde, 0xb3,
-				0xea, 0x11, 0x73, 0xc2, 0x48, 0xa1, 0xc0, 0x15,
-	};
+	DBusMessage *msg = user_data;
+	DBusMessage *reply;
+	struct btd_adapter *adapter;
+	unsigned int id;
+	uint8_t power_val;
+
+	// Power on the controller regardless of the status
+	adapter = btd_adapter_get_default();
+	power_val = 1;
+	id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
+		       btd_adapter_get_index(adapter),
+		       sizeof(power_val), &power_val,
+		       NULL, NULL, NULL);
+	if (!id) {
+		reply = btd_error_failed(msg, "Failed to power on.");
+		if (!reply) {
+			error("Failed to create dbus error reply message.");
+			goto failed;
+		}
+	}
+
+	if (status)
+		reply = btd_error_failed(msg, mgmt_errstr(status));
+	else
+		reply = dbus_message_new_method_return(msg);
+
+	if (reply == NULL) {
+		error("Failed to create dbus reply message.");
+		goto failed;
+	}
+	if (!g_dbus_send_message(btd_get_dbus_connection(), reply))
+		error("D-Bus send failed.");
+
+failed:
+	dbus_message_unref(msg);
+}
+
+static void power_off_set_llp_cb(uint8_t status, uint16_t length,
+				 const void *param, void *user_data,
+				 uint8_t value)
+{
+	DBusMessage *msg = user_data;
+	DBusMessage *reply;
+	struct btd_adapter *adapter;
+	unsigned int id;
 	struct mgmt_cp_set_exp_feature cp;
 
+	adapter = btd_adapter_get_default();
+	memset(&cp, 0, sizeof(cp));
+	memcpy(cp.uuid, ll_privacy_uuid, 16);
+	cp.action = value;
+
+	dbus_message_ref(msg);
+	id = mgmt_send(mgmt_if, MGMT_OP_SET_EXP_FEATURE,
+		       btd_adapter_get_index(adapter),
+		       sizeof(cp), &cp, set_llp_power_on_cb, msg, NULL);
+	if (!id) {
+		reply = btd_error_failed(msg, "Failed to set LL privacy.");
+		if (!reply) {
+			error("Failed to create dbus error reply message.");
+			goto failed;
+		}
+	}
+	if (status)
+		reply = btd_error_failed(msg, mgmt_errstr(status));
+	else
+		reply = dbus_message_new_method_return(msg);
+	if (reply == NULL) {
+		error("Failed to create dbus reply message.");
+		goto failed;
+	}
+	if (!g_dbus_send_message(btd_get_dbus_connection(), reply))
+		error("D-Bus send failed.");
+
+failed:
+	dbus_message_unref(msg);
+}
+
+static void power_off_enable_llp_cb(uint8_t status, uint16_t length,
+				    const void *param, void *user_data)
+{
+	power_off_set_llp_cb(status, length, param, user_data, 1);
+}
+
+static void power_off_disable_llp_cb(uint8_t status, uint16_t length,
+				     const void *param, void *user_data)
+{
+	power_off_set_llp_cb(status, length, param, user_data, 0);
+}
+
+static DBusMessage *set_ll_privacy(DBusConnection *conn,
+				   DBusMessage *msg, void *user_data)
+{
 	dbus_bool_t ll_privacy = false;
 	struct btd_adapter *adapter;
 	unsigned int id;
@@ -871,35 +964,34 @@ static DBusMessage *set_ll_privacy(DBusConnection *conn,
 
 	if (power_status) {
 		power_val = 0;
-		id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
-			       btd_adapter_get_index(adapter),
-			       sizeof(power_val), &power_val,
-			       NULL, NULL, NULL);
+		dbus_message_ref(msg);
+		if (ll_privacy)
+			id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
+				       btd_adapter_get_index(adapter),
+				       sizeof(power_val), &power_val,
+				       power_off_enable_llp_cb, msg, NULL);
+		else
+			id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
+				       btd_adapter_get_index(adapter),
+				       sizeof(power_val), &power_val,
+				       power_off_disable_llp_cb, msg, NULL);
 		if (!id)
 			return btd_error_failed(msg, "Failed to power off.");
-	}
+	} else {
+		struct mgmt_cp_set_exp_feature cp;
 
-	memset(&cp, 0, sizeof(cp));
-	memcpy(cp.uuid, uuid, 16);
-	if (ll_privacy)
-		cp.action = 1;
-	else
-		cp.action = 0;
-
-	id = mgmt_send(mgmt_if, MGMT_OP_SET_EXP_FEATURE,
-		       btd_adapter_get_index(adapter),
-		       sizeof(cp), &cp, NULL, NULL, NULL);
-	if (!id)
-		return btd_error_failed(msg, "Failed to set LL privacy.");
-
-	if (power_status) {
-		power_val = 1;
-		id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
-			       btd_adapter_get_index(adapter),
-			       sizeof(power_val), &power_val,
-			       NULL, NULL, NULL);
+		memset(&cp, 0, sizeof(cp));
+		memcpy(cp.uuid, ll_privacy_uuid, 16);
+		if (ll_privacy)
+			cp.action = 1;
+		else
+			cp.action = 0;
+		id = mgmt_send(mgmt_if, MGMT_OP_SET_EXP_FEATURE,
+				btd_adapter_get_index(adapter),
+				sizeof(cp), &cp, NULL, NULL, NULL);
 		if (!id)
-			return btd_error_failed(msg, "Failed to power on.");
+			return btd_error_failed(msg,
+						"Failed to set LL privacy.");
 	}
 	return dbus_message_new_method_return(msg);
 }
