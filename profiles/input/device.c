@@ -1373,6 +1373,14 @@ static void input_device_enter_reconnect_mode(struct input_device *idev)
 					btd_device_is_connected(idev->device))
 		return;
 
+	/* Do not reconnect to Allegro through input profile.
+	 * Let re/connection fully handled by audio profiles so that the
+	 * behavior is consistent with the previous products.
+	 */
+	if (btd_device_get_vendor(idev->device) == 0x00e0 &&
+	    btd_device_get_product(idev->device) == 0x3004)
+		return;
+
 	if (idev->reconnect_timer > 0)
 		timeout_remove(idev->reconnect_timer);
 
