@@ -197,6 +197,8 @@ static time_t last_system_resume_time;
 
 static bool keep_connectable = false;
 
+static bool coredump_enabled = false;
+
 struct link_key_info {
 	bdaddr_t bdaddr;
 	unsigned char key[16];
@@ -11431,4 +11433,38 @@ void btd_adapter_set_keep_connectable(struct btd_adapter *adapter,
 
 	set_mode(adapter, MGMT_OP_SET_CONNECTABLE,
 			keep_connectable ? 0x01 : 0x00);
+}
+
+static void configure_devcoredump(uint16_t index)
+{
+	char path[80];
+	FILE *fp;
+
+	snprintf(path, sizeof(path),
+			"/sys/class/bluetooth/hci%d/device/coredump_disabled",
+			index);
+
+	fp = fopen(path, "w");
+	if (!fp) {
+		error("Failed to open %s: %s", path, strerror(errno));
+		return;
+	}
+
+	fprintf(fp, "%d", !coredump_enabled);
+	fclose(fp);
+}
+
+/* Enables or disables devcoredump for all adapters based on a flag */
+void set_adapter_coredump_state(bool enabled)
+{
+	GList *list;
+
+	coredump_enabled = enabled;
+
+	for (list = g_list_first(adapter_list); list;
+						list = g_list_next(list)) {
+		struct btd_adapter *adapter = list->data;
+
+		configure_devcoredump(adapter->dev_id);
+	}
 }

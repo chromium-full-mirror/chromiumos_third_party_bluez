@@ -42,6 +42,7 @@
 
 #define DEBUG_CONF_FILE_PATH		"/var/lib/bluetooth/debug.conf"
 #define DEBUG_LL_PRIVACY_CONF_PATH      "/var/lib/bluetooth/bluetooth-llprivacy.experimental"
+#define DEBUG_COREDUMP_CONF_PATH	"/run/bluetooth/coredump_disabled"
 #define DEBUG_OBJECT_PATH		"/org/chromium/Bluetooth"
 #define DEBUG_INTERFACE			"org.chromium.Bluetooth.Debug"
 #define DEBUG_BLUEZ_PROPERTY		"BluezLevel"
@@ -884,6 +885,38 @@ static DBusMessage *set_ll_privacy(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+static void write_coredump_state_to_file(bool enabled)
+{
+	FILE *fp;
+
+	fp = fopen(DEBUG_COREDUMP_CONF_PATH, "w");
+	if (!fp) {
+		error("Failed to open %s: %s", DEBUG_COREDUMP_CONF_PATH,
+		      strerror(errno));
+		return;
+	}
+
+	fprintf(fp, "%d\n", !enabled);
+	fclose(fp);
+}
+
+static DBusMessage *set_devcoredump(DBusConnection *conn,
+				    DBusMessage *msg, void *user_data)
+{
+	dbus_bool_t coredump_enabled = false;
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN,
+				   &coredump_enabled, DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	write_coredump_state_to_file(coredump_enabled);
+	set_adapter_coredump_state(coredump_enabled);
+
+	info("Bluetooth devcoredump state set to %d", coredump_enabled);
+
+	return dbus_message_new_method_return(msg);
+}
+
 /* API for KPI audio metrics */
 static DBusMessage *report_hfp_status(DBusConnection *conn, DBusMessage *msg,
 				      void *user_data)
@@ -918,6 +951,8 @@ static const GDBusMethodTable debug_methods[] = {
 		       NULL, set_quality) },
 	{ GDBUS_METHOD("SetLLPrivacy", GDBUS_ARGS({ "ll_privacy",
 		       "b" }), NULL, set_ll_privacy) },
+	{ GDBUS_METHOD("SetDevCoredump", GDBUS_ARGS({ "coredump_enabled",
+		       "b" }), NULL, set_devcoredump) },
 	{},
 };
 
