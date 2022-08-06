@@ -842,16 +842,6 @@ static DBusMessage *set_ll_privacy(DBusConnection *conn,
 	if (!read_llprivacy_status_from_file(&old_ll_privacy))
 		warn("Cannot open configure file for read.");
 
-	if (!mgmt_if)
-		return btd_error_not_ready(msg);
-
-	adapter = btd_adapter_get_default();
-	if (!adapter) {
-		error("No default adapter. Skip setting ll privacy.");
-		return btd_error_no_such_adapter(msg);
-	}
-	power_status = btd_adapter_get_powered(adapter);
-
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN, &ll_privacy,
 				   DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
@@ -868,6 +858,16 @@ static DBusMessage *set_ll_privacy(DBusConnection *conn,
 	}
 
 	info("Store LL Privacy status to file %u", ll_privacy);
+
+	if (!mgmt_if)
+		return btd_error_not_ready(msg);
+
+	adapter = btd_adapter_get_default();
+	if (!adapter) {
+		error("No default adapter. Skip setting ll privacy.");
+		return btd_error_no_such_adapter(msg);
+	}
+	power_status = btd_adapter_get_powered(adapter);
 
 	if (power_status) {
 		power_val = 0;
