@@ -40,6 +40,7 @@
 
 #define DBUS_PLUGIN_INTERFACE "org.chromium.Bluetooth"
 
+#define DEBUG_QUALITY_FILE_PATH		"/var/lib/bluetooth/quality.conf"
 #define DEBUG_CONF_FILE_PATH		"/var/lib/bluetooth/debug.conf"
 #define DEBUG_LL_PRIVACY_CONF_PATH      "/var/lib/bluetooth/bluetooth-llprivacy.experimental"
 #define DEBUG_COREDUMP_CONF_PATH	"/run/bluetooth/coredump_disabled"
@@ -735,6 +736,20 @@ static DBusMessage *set_quality_debug(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+static bool store_quality_conf(uint8_t action)
+{
+	FILE *fp;
+
+	fp = fopen(DEBUG_QUALITY_FILE_PATH, "w");
+	if (!fp)
+		return false;
+
+	fprintf(fp, "%u\n", action);
+
+	fclose(fp);
+	return true;
+}
+
 static DBusMessage *set_quality(DBusConnection *conn, DBusMessage *msg,
 			    void *user_data)
 {
@@ -755,6 +770,10 @@ static DBusMessage *set_quality(DBusConnection *conn, DBusMessage *msg,
 		return btd_error_failed(msg, "SetQuality");
 
 	info("SetQuality action %u succeeded", action);
+
+	/* Always overwrite the quality conf file with the latest value.*/
+	if (!store_quality_conf(action))
+		warn("Unable to save %s", DEBUG_QUALITY_FILE_PATH);
 
 	return dbus_message_new_method_return(msg);
 }
