@@ -6014,6 +6014,35 @@ static void add_device_complete(uint8_t status, uint16_t length,
 	}
 }
 
+void adapter_set_device_privacy_flags_all(void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	struct btd_device *dev;
+	GSList *l;
+	uint32_t flags;
+
+	if (!btd_opts.device_privacy)
+		return;
+
+	if (!adapter)
+		return;
+
+	for (l = adapter->devices; l; l = l->next) {
+		dev = l->data;
+		if (!device_is_paired(dev, btd_device_get_bdaddr_type(dev)))
+			continue;
+		flags = btd_device_get_current_flags(dev);
+
+		/* Set Device Privacy Mode has not set the flag yet. */
+		if (!(flags & DEVICE_FLAG_DEVICE_PRIVACY)) {
+			adapter_set_device_flags(adapter, dev, flags |
+						 DEVICE_FLAG_DEVICE_PRIVACY,
+						 set_device_privacy_complete,
+						 NULL);
+		}
+	}
+}
+
 void adapter_auto_connect_add(struct btd_adapter *adapter,
 					struct btd_device *device)
 {

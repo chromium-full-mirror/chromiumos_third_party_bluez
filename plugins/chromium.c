@@ -829,6 +829,14 @@ static bool read_llprivacy_status_from_file(bool *status)
 	return true;
 }
 
+static void set_device_privacy_cb(uint8_t status, uint16_t length,
+				  const void *param, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+
+	adapter_set_device_privacy_flags_all(adapter);
+}
+
 static void set_llp_power_on_cb(uint8_t status, uint16_t length,
 				const void *param, void *user_data)
 {
@@ -841,10 +849,11 @@ static void set_llp_power_on_cb(uint8_t status, uint16_t length,
 	// Power on the controller regardless of the status
 	adapter = btd_adapter_get_default();
 	power_val = 1;
+
 	id = mgmt_send(mgmt_if, MGMT_OP_SET_POWERED,
 		       btd_adapter_get_index(adapter),
 		       sizeof(power_val), &power_val,
-		       NULL, NULL, NULL);
+		       set_device_privacy_cb, adapter, NULL);
 	if (!id) {
 		reply = btd_error_failed(msg, "Failed to power on.");
 		if (!reply) {
@@ -987,8 +996,9 @@ static DBusMessage *set_ll_privacy(DBusConnection *conn,
 		else
 			cp.action = 0;
 		id = mgmt_send(mgmt_if, MGMT_OP_SET_EXP_FEATURE,
-				btd_adapter_get_index(adapter),
-				sizeof(cp), &cp, NULL, NULL, NULL);
+			       btd_adapter_get_index(adapter),
+			       sizeof(cp), &cp, set_device_privacy_cb,
+			       adapter, NULL);
 		if (!id)
 			return btd_error_failed(msg,
 						"Failed to set LL privacy.");
