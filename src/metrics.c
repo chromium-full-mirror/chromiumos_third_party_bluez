@@ -1375,6 +1375,9 @@ void metrics_acl_connection_state_changed(const char *device_id,
 		get_boot_id(), get_time_since_boot_micros(), false, device_id,
 		convert_to_device_type(addr_type), direction, initiator,
 		STATE_CHANGE_TYPE_CONNECT, state);
+
+	if (state == CONN_STATE_STARTING)
+		metrics_chipset_info_report();
 }
 
 enum metrics_acl_connection_direction metrics_reason_to_direction(int reason)
@@ -1401,6 +1404,9 @@ void metrics_acl_disconnection_state_changed(const char *device_id,
 		get_boot_id(), get_time_since_boot_micros(), false, device_id,
 		convert_to_device_type(addr_type), direction, initiator,
 		STATE_CHANGE_TYPE_DISCONNECT, state);
+
+	if (state == DISCONN_STATE_STARTING)
+		metrics_chipset_info_report();
 }
 
 static enum metrics_bluetooth_profile uuid_to_profile(const char *uuid)

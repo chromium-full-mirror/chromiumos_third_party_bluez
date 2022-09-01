@@ -8911,16 +8911,30 @@ static void dev_disconnected(struct btd_adapter *adapter,
 {
 	struct btd_device *device;
 	char dst[18];
+	enum metrics_acl_connection_initiator conn_initiator;
 
 	ba2str(&addr->bdaddr, dst);
 
 	DBG("Device %s disconnected, reason %u", dst, reason);
 
 	device = btd_adapter_find_device(adapter, &addr->bdaddr, addr->type);
+	conn_initiator = btd_device_get_connect_initiator(device);
+
+	/* Prepend a starting event if the connection was initiated by system to
+	 * ensure that it won't be ignored by the pipeline server.
+	 */
+	if (conn_initiator == ACL_CONNECTION_INITIATOR_SYSTEM) {
+		metrics_acl_disconnection_state_changed(dst, addr->type,
+					metrics_reason_to_direction(reason),
+					conn_initiator,
+					DISCONN_STATE_STARTING);
+		if (device)
+			device_log_device_info(device);
+	}
 
 	metrics_acl_disconnection_state_changed(dst, addr->type,
 			metrics_reason_to_direction(reason),
-			btd_device_get_connect_initiator(device),
+			conn_initiator,
 			metrics_convert_disconn_state(reason));
 
 	if (device) {
@@ -9950,6 +9964,8 @@ static void connected_callback(uint16_t index, uint16_t length,
 		metrics_acl_connection_state_changed(addr, ev->addr.type,
 						direction, conn_initiator,
 						CONN_STATE_STARTING);
+		if (device)
+			device_log_device_info(device);
 	}
 
 	eir_len = btohs(ev->eir_len);

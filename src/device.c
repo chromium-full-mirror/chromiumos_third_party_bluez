@@ -559,7 +559,7 @@ static bool device_address_is_private(struct btd_device *dev)
 	}
 }
 
-static void log_device_info(struct btd_device *device)
+void device_log_device_info(struct btd_device *device)
 {
 	int vendor_id = 0;
 	int product_id = 0;
@@ -600,7 +600,7 @@ bool device_log_devices_info(gpointer user_data)
 	for (l = user_data; l != NULL; l = g_slist_next(l)) {
 		struct btd_device *device = l->data;
 
-		log_device_info(device);
+		device_log_device_info(device);
 	}
 
 	return TRUE;
@@ -2058,6 +2058,7 @@ static DBusMessage *dev_disconnect(DBusConnection *conn, DBusMessage *msg,
 			ACL_CONNECTION_OUTGOING,
 			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
+	device_log_device_info(device);
 
 	/*
 	 * If device is not trusted disable connections through passive
@@ -2130,6 +2131,7 @@ static DBusMessage *dev_disconnect_old(DBusConnection *conn, DBusMessage *msg,
 			ACL_CONNECTION_OUTGOING,
 			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
+	device_log_device_info(device);
 
 	/*
 	 * Disable connections through passive scanning until
@@ -2193,6 +2195,7 @@ static DBusMessage *dev_disconnect_le(DBusConnection *conn, DBusMessage *msg,
 			ACL_CONNECTION_OUTGOING,
 			ACL_CONNECTION_INITIATOR_CLIENT,
 			DISCONN_STATE_STARTING);
+	device_log_device_info(device);
 
 	if (device->att_io) {
 		g_io_channel_shutdown(device->att_io, FALSE, NULL);
@@ -2601,6 +2604,7 @@ static DBusMessage *connect_profiles(struct btd_device *dev, uint8_t bdaddr_type
 			ACL_CONNECTION_OUTGOING,
 			ACL_CONNECTION_INITIATOR_CLIENT,
 			CONN_STATE_STARTING);
+	device_log_device_info(dev);
 
 	if (dev->pending || dev->connect || dev->browse) {
 		metrics_acl_connection_state_changed(addr, bdaddr_type,
@@ -2795,6 +2799,7 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 			ACL_CONNECTION_OUTGOING,
 			ACL_CONNECTION_INITIATOR_CLIENT,
 			CONN_STATE_STARTING);
+	device_log_device_info(dev);
 
 	if (dev->le_state.connected) {
 		metrics_acl_connection_state_changed(addr, BDADDR_LE_PUBLIC,
@@ -3602,6 +3607,8 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 					ACL_CONNECTION_OUTGOING,
 					ACL_CONNECTION_INITIATOR_CLIENT,
 					CONN_STATE_STARTING);
+	device_log_device_info(device);
+
 	/* Due to a bug in the kernel we might loose out on ATT commands
 	 * that arrive during the SMP procedure, so connect the ATT
 	 * channel first and only then start pairing (there's code for
@@ -5566,7 +5573,7 @@ void device_set_class(struct btd_device *device, uint32_t class)
 
 	device->class = class;
 
-	log_device_info(device);
+	device_log_device_info(device);
 	store_device_info(device);
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
@@ -5598,7 +5605,7 @@ void device_update_addr(struct btd_device *device, const bdaddr_t *bdaddr,
 	bacpy(&device->bdaddr, bdaddr);
 	device->bdaddr_type = bdaddr_type;
 
-	log_device_info(device);
+	device_log_device_info(device);
 	store_device_info(device);
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
@@ -5616,7 +5623,7 @@ void device_set_bredr_support(struct btd_device *device)
 		return;
 
 	device->bredr = true;
-	log_device_info(device);
+	device_log_device_info(device);
 	store_device_info(device);
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 					DEVICE_INTERFACE, "Type");
@@ -5630,7 +5637,7 @@ void device_set_le_support(struct btd_device *device, uint8_t bdaddr_type)
 	device->le = true;
 	device->bdaddr_type = bdaddr_type;
 
-	log_device_info(device);
+	device_log_device_info(device);
 	store_device_info(device);
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 					DEVICE_INTERFACE, "Type");
@@ -8340,7 +8347,7 @@ void device_set_appearance(struct btd_device *device, uint16_t value)
 
 	device->appearance = value;
 	store_device_info(device);
-	log_device_info(device);
+	device_log_device_info(device);
 }
 
 void btd_device_set_pnpid(struct btd_device *device, uint16_t source,
@@ -8362,7 +8369,7 @@ void btd_device_set_pnpid(struct btd_device *device, uint16_t source,
 						DEVICE_INTERFACE, "Modalias");
 
 	store_device_info(device);
-	log_device_info(device);
+	device_log_device_info(device);
 }
 
 uint32_t btd_device_get_current_flags(struct btd_device *dev)
