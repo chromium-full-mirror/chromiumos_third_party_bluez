@@ -10513,6 +10513,16 @@ static void quality_report_func(struct btd_adapter *adapter, uint8_t action)
 		queue_push_tail(adapter->exps, (void *)quality_report_uuid.val);
 }
 
+static void quality_setup_metrics(struct btd_adapter *adapter, bool enabled)
+{
+	if (!enabled)
+		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_NONE);
+	else if (is_manufacturer_intel(adapter->manufacturer))
+		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_INTEL);
+	else
+		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_BQR);
+}
+
 bool set_bluetooth_quality_report(struct btd_adapter *adapter, uint8_t action)
 {
 	struct mgmt_cp_set_exp_feature cp;
@@ -10537,6 +10547,8 @@ bool set_bluetooth_quality_report(struct btd_adapter *adapter, uint8_t action)
 			sizeof(cp), &cp, NULL, NULL, NULL)) {
 		btd_info(dev_id, "Set quality report adapter %u enable %u",
 			 dev_id, cp.action);
+
+		quality_setup_metrics(adapter, action == 1);
 		return true;
 	}
 
@@ -10717,16 +10729,6 @@ bool quality_set_debug(struct btd_adapter *adapter, bool quality_debug)
 			aosp_set_debug(NULL, NULL);
 	}
 	return true;
-}
-
-static void quality_setup_metrics(struct btd_adapter *adapter)
-{
-	if (!is_quality_report_supported(adapter))
-		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_NONE);
-	else if (is_manufacturer_intel(adapter->manufacturer))
-		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_INTEL);
-	else
-		metrics_audio_setup(AUDIO_QUALITY_SUPPORT_BQR);
 }
 
 static void read_info_complete(uint8_t status, uint16_t length,
@@ -11028,8 +11030,6 @@ static void read_info_complete(uint8_t status, uint16_t length,
 		set_bluetooth_quality_report(adapter, 1);
 	else
 		set_bluetooth_quality_report(adapter, 0);
-
-	quality_setup_metrics(adapter);
 
 	return;
 
