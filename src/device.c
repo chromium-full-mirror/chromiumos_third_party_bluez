@@ -567,7 +567,7 @@ void device_log_device_info(struct btd_device *device)
 	char addr[18];
 	metrics_discovery_type device_type = DISCOVERY_TYPE_END;
 
-	if (device && device->temporary || device_address_is_private(device))
+	if (!device || device->temporary || device_address_is_private(device))
 		return;
 
 	DBG("Log device info: %s", device->name);
