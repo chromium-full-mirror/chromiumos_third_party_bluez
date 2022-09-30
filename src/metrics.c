@@ -1215,7 +1215,7 @@ static void metrics_chipset_info_report(void)
 	uint64_t chipset_string_hval = 0;
 
 	if (chipset_info)
-		return;
+		goto report;
 
 	chipset_info = calloc(1, sizeof(struct metrics_chipset_info));
 
@@ -1247,6 +1247,7 @@ static void metrics_chipset_info_report(void)
 				     chipset_info->chipset_string :
 				     "");
 
+report:
 	if (is_chipset_info_in_allowlist(chipset_info->vid, chipset_info->pid,
 					 chipset_info->transport,
 					 chipset_info->chipset_string,
