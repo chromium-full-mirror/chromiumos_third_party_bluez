@@ -211,6 +211,7 @@ static const struct intel_tlv *process_ext_subevent(
 {
 	const struct intel_tlv *next_tlv = NEXT_TLV(tlv);
 	const struct intel_ext_subevent *subevent = NULL;
+	uint8_t derived_subevent_size;
 	int i;
 
 	if (next_tlv > last_tlv) {
@@ -234,20 +235,53 @@ static const struct intel_tlv *process_ext_subevent(
 		return next_tlv;
 	}
 
-	if (tlv->length != subevent->size * subevent->elements) {
+	/* TODO(b/249208143): Intel changes the element size of arrays from
+	 * 4 octets to 2 octets. Here is a temporary work-around to fix the
+	 * element size issue. Intel should fix this issue in a formal way.
+	 * The intel_ext_subevent_table has to be fixed accordingly too.
+	 */
+	if (tlv->length == subevent->size * subevent->elements) {
+		derived_subevent_size = subevent->size;
+	} else if (tlv->length % subevent->elements == 0) {
+		derived_subevent_size =
+			(uint8_t)(tlv->length / subevent->elements);
+		debug("warn: Intel subevent 0x%2.2x has new element size %u",
+			tlv->id, derived_subevent_size);
+		/* Should return NULL when this issue is resolved formally. */
+		/* return NULL; */
+	} else {
 		debug("error: invalid length %d of subevent 0x%2.2x",
 			tlv->length, tlv->id);
 		return NULL;
 	}
 
 	/* Assign tlv value to the corresponding attribute of acl/sco struct. */
-	switch (subevent->size) {
+	switch (derived_subevent_size) {
 	case 1:
 		*subevent->attr = get_u8(tlv->value);
 		break;
 
 	case 2:
-		*((uint16_t *)subevent->attr) = get_le16(tlv->value);
+		if (subevent->size == 2) {
+			*((uint16_t *)subevent->attr) = get_le16(tlv->value);
+			break;
+		} else if (subevent->size == 4) {
+			/* The case that the original subevent->size is 4. */
+			for (i = 0; i < subevent->elements; i++) {
+				/* The 2-octet elements are read into the
+				 * original 4-octet elements so that the
+				 * struct intel_sco_event can keep unchanged.
+				 * In this way, there is no need to change the
+				 * event printing function and the metrics.
+				 */
+				*((uint32_t *)subevent->attr + i) =
+					get_le16((uint16_t *)tlv->value + i);
+			}
+		} else {
+			debug("error: invalid length %d of subevent 0x%2.2x",
+				tlv->length, tlv->id);
+			return NULL;
+		}
 		break;
 
 	case 4:
@@ -267,7 +301,7 @@ static const struct intel_tlv *process_ext_subevent(
 
 	default:
 		debug("error: subevent id %u: size %u not supported",
-			subevent->id, subevent->size);
+			subevent->id, derived_subevent_size);
 		break;
 
 	}
