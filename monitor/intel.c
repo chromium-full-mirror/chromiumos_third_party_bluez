@@ -1555,18 +1555,36 @@ static void ext_sco_evt_num_tx_payloads_lost(const struct intel_tlv *tlv)
 
 static void slots_errors(const struct intel_tlv *tlv, const char *type_str)
 {
-	/* The subevent has 5 slots where each slot is of the uint32_t type. */
+	/* TODO(b/249208143): Intel changes the element size of arrays from
+	 * 4 octets to 2 octets. Here is a temporary work-around to fix the
+	 * element size issue. Intel should fix this issue in a formal way.
+	 * The intel_ext_subevent_table has to be fixed accordingly too.
+	 *
+	 * The subevent has 5 slots where each slot takes 4 octets originally.
+	 * Intel has new firmware that uses uint16_t type. This function
+	 * assumes that the number of elements is still 5.
+	 * Case 1: tlv->length == 20, the element size is 4 octets.
+	 * Case 2: tlv->length == 10, the element size is 2 octets.
+	 */
 	uint32_t num[5];
 	unsigned char i;
+	uint8_t element_size;
 
-	if (tlv->length != 5 * sizeof(uint32_t)) {
+	if (tlv->length == 5 * sizeof(uint16_t)) {
+		element_size = 2;
+	} else if (tlv->length == 5 * sizeof(uint32_t)) {
+		element_size = 4;
+	} else {
 		print_text(COLOR_UNKNOWN_EXT_EVENT,
 			"  Invalid subevent length (%" PRIu8 ")", tlv->length);
 		return;
 	}
 
 	for (i = 0; i < 5; i++)
-		num[i] = get_le32(((uint32_t *)tlv->value) + i);
+		if (element_size == 4)
+			num[i] = get_le32(((uint32_t *)tlv->value) + i);
+		else if (element_size == 2)
+			num[i] = get_le16(((uint16_t *)tlv->value) + i);
 
 	print_field("%s (0x%2.2x): %d %d %d %d %d", type_str, tlv->subevent_id,
 			num[0], num[1], num[2], num[3], num[4]);
@@ -1674,17 +1692,40 @@ static void ana_ext_sco_evt_conn_handle(const struct intel_tlv *tlv)
 
 static void ana_ext_sco_evt_slots_errors(const struct intel_tlv *tlv)
 {
+	/* TODO(b/249208143): Intel changes the element size of arrays from
+	 * 4 octets to 2 octets. Here is a temporary work-around to fix the
+	 * element size issue. Intel should fix this issue in a formal way.
+	 * The intel_ext_subevent_table has to be fixed accordingly too.
+	 *
+	 * The subevent has 5 slots where each slot takes 4 octets originally.
+	 * Intel has new firmware that uses uint16_t type. This function
+	 * assumes that the number of elements is still 5.
+	 * Case 1: tlv->length == 20, the element size is 4 octets.
+	 * Case 2: tlv->length == 10, the element size is 2 octets.
+	 */
 	unsigned char i;
+	uint8_t element_size;
 
-	if (tlv->length != 5 * sizeof(uint32_t)) {
+	if (tlv->length == 5 * sizeof(uint16_t)) {
+		element_size = 2;
+	} else if (tlv->length == 5 * sizeof(uint32_t)) {
+		element_size = 4;
+	} else {
 		print_text(COLOR_UNKNOWN_EXT_EVENT,
 			"  Invalid subevent length (%" PRIu8 ")", tlv->length);
 		return;
 	}
 
-	/* The subevent has 5 slots where each slot is of the uint32_t type. */
+	/* The subevent has 5 slots where each slot is of either uint32_t or
+	 * uint16_t type.
+	 */
 	for (i = 0; i < 5; i++) {
-		uint32_t num = get_le32(((uint32_t *)tlv->value) + i);
+		uint32_t num;
+
+		if (element_size == 4)
+			num = get_le32(((uint32_t *)tlv->value) + i);
+		else if (element_size == 2)
+			num = get_le16(((uint16_t *)tlv->value) + i);
 
 		subevt_slot_add(tlv->subevent_id, i, &num);
 	}
@@ -1846,6 +1887,14 @@ static const struct intel_tlv *process_ext_subevent(const struct intel_tlv *tlv,
 		return NULL;
 	}
 
+	/* TODO(b/249208143): Intel changes the element size of arrays from
+	 * 4 octets to 2 octets. Here is a temporary work-around to fix the
+	 * element size issue. Intel should fix this issue in a formal way.
+	 * The intel_ext_subevent_table has to be fixed accordingly too.
+	 *
+	 * Unmark the following length check when the formal solution is ready.
+	 */
+	/*
 	if (tlv->length != subevent->length) {
 		if (is_packet_mode())
 			print_text(COLOR_ERROR,
@@ -1853,6 +1902,7 @@ static const struct intel_tlv *process_ext_subevent(const struct intel_tlv *tlv,
 					tlv->length, tlv->subevent_id);
 		return NULL;
 	}
+	*/
 
 	if (next_tlv > last_tlv) {
 		if (is_packet_mode())
