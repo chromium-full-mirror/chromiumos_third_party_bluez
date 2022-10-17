@@ -2831,7 +2831,8 @@ static DBusMessage *dev_connect_le(DBusConnection *conn, DBusMessage *msg,
 				metrics_le_conn_err_to_result(err),
 				RESULT_TYPE_DEFINED);
 		}
-		return btd_error_failed(msg, strerror(-err));
+		return btd_error_failed(msg,
+					btd_error_le_conn_from_errno(err));
 	}
 
 	metrics_start_timer(TIMER_CONNECT, timer_data);
@@ -6468,7 +6469,8 @@ send_reply:
 	 */
 	if (err < 0 && device->connect) {
 		DBG("SDP failed during connection");
-		reply = btd_error_failed(device->connect, strerror(-err));
+		reply = btd_error_failed(device->connect,
+					btd_error_bredr_conn_from_errno(err));
 		g_dbus_send_message(dbus_conn, reply);
 		dbus_message_unref(device->connect);
 		device->connect = NULL;
