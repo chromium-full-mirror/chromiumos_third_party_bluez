@@ -1179,6 +1179,12 @@ static char *metrics_chipset_info_get_module_name(void)
 
 	bytes = getline(&modalias, &len, fp);
 	fclose(fp);
+
+	if (bytes > 0) {
+		// remove newline from getline()
+		modalias[strcspn(modalias, "\n")] = '\0';
+	}
+
 	return modalias;
 }
 
