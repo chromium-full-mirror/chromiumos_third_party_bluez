@@ -296,12 +296,13 @@ static gboolean get_track(const GDBusPropertyTable *property,
 	struct media_player *mp = data;
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return FALSE;
 
 	g_hash_table_foreach(mp->track, append_track, &dict);
 
@@ -637,8 +638,9 @@ static void parse_folder_list(gpointer data, gpointer user_data)
 	DBusMessageIter *array = user_data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL,
-								&entry);
+	if (!dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL,
+								&entry))
+		return;
 
 	dbus_message_iter_append_basic(&entry, DBUS_TYPE_OBJECT_PATH,
 								&item->path);
@@ -668,7 +670,7 @@ void media_player_list_complete(struct media_player *mp, GSList *items,
 
 	dbus_message_iter_init_append(reply, &iter);
 
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_OBJECT_PATH_AS_STRING
 					DBUS_TYPE_ARRAY_AS_STRING
@@ -677,13 +679,15 @@ void media_player_list_complete(struct media_player *mp, GSList *items,
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&array);
+					&array))
+		goto cleanup;
 
 	g_slist_foreach(items, parse_folder_list, &array);
 	dbus_message_iter_close_container(&iter, &array);
 
 done:
 	g_dbus_send_message(btd_get_dbus_connection(), reply);
+cleanup:
 	dbus_message_unref(folder->msg);
 	folder->msg = NULL;
 }
@@ -1777,12 +1781,13 @@ static gboolean get_metadata(const GDBusPropertyTable *property,
 	struct media_item *item = data;
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return FALSE;
 
 	if (g_hash_table_size(item->metadata) > 0)
 		g_hash_table_foreach(item->metadata, append_metadata, &dict);

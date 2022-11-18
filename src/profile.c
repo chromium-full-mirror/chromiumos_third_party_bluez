@@ -900,7 +900,9 @@ static void append_prop(gpointer a, gpointer b)
 {
 	struct btd_profile_custom_property *p = a;
 	struct prop_append_data *data = b;
-	DBusMessageIter entry, value, *dict = data->dict;
+	DBusMessageIter entry = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter value = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter *dict = data->dict;
 	struct btd_device *dev = data->io->device;
 	struct ext_profile *ext = data->io->ext;
 	const char *uuid = ext->service ? ext->service : ext->uuid;
@@ -911,16 +913,23 @@ static void append_prop(gpointer a, gpointer b)
 	if (p->exists && !p->exists(p->uuid, dev, p->user_data))
 		return;
 
-	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL,
-								&entry);
-	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &p->name);
-	dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, p->type,
-								&value);
+	if (!dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL,
+								&entry))
+		goto error;
+	if (!dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &p->name))
+		goto error;
+	if (!dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT,
+							p->type, &value))
+		goto error;
 
 	p->get(p->uuid, dev, &value, p->user_data);
 
 	dbus_message_iter_close_container(&entry, &value);
 	dbus_message_iter_close_container(dict, &entry);
+	return;
+error:
+	dbus_message_iter_abandon_container_if_open(&entry, &value);
+	dbus_message_iter_abandon_container_if_open(dict, &entry);
 }
 
 static uint16_t get_supported_features(const sdp_record_t *rec)
@@ -988,7 +997,12 @@ static bool send_new_connection(struct ext_profile *ext, struct ext_io *conn)
 	fd = g_io_channel_unix_get_fd(conn->io);
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_UNIX_FD, &fd);
 
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}", &dict);
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "{sv}",
+								&dict)) {
+		error("Unable to create NewConnection call for %s", ext->name);
+		dbus_message_unref(msg);
+		return false;
+	}
 
 	if (conn->version)
 		dict_append_entry(&dict, "Version", DBUS_TYPE_UINT16,

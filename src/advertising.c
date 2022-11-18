@@ -1687,8 +1687,9 @@ static gboolean get_supported_includes(const GDBusPropertyTable *property,
 	struct btd_adv_manager *manager = data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry))
+		return FALSE;
 
 	append_include(manager, &entry);
 
@@ -1724,8 +1725,9 @@ static gboolean get_supported_secondary(const GDBusPropertyTable *property,
 	struct btd_adv_manager *manager = data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry))
+		return FALSE;
 
 	append_secondary(manager, &entry);
 
@@ -1761,8 +1763,9 @@ static gboolean get_supported_features(const GDBusPropertyTable *property,
 	struct btd_adv_manager *manager = data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry))
+		return FALSE;
 
 	append_features(manager, &entry);
 
@@ -1779,12 +1782,13 @@ static gboolean get_supported_cap(const GDBusPropertyTable *property,
 	int16_t min_tx_power = manager->min_tx_power;
 	int16_t max_tx_power = manager->max_tx_power;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return FALSE;
 
 	if (min_tx_power != ADV_TX_POWER_NO_PREFERENCE)
 		dict_append_entry(&dict, "MinTxPower", DBUS_TYPE_INT16,

@@ -3396,8 +3396,11 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 	if (db)
 		gatt_db_foreach_service(db, NULL, add_gatt_uuid, uuids);
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry)) {
+		g_hash_table_destroy(uuids);
+		return FALSE;
+	}
 	g_hash_table_foreach(uuids, iter_append_uuid, &entry);
 	dbus_message_iter_close_container(iter, &entry);
 
@@ -3431,8 +3434,9 @@ static gboolean property_get_roles(const GDBusPropertyTable *property,
 	struct btd_adapter *adapter = user_data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry))
+		return FALSE;
 
 	if (adapter->supported_settings & MGMT_SETTING_LE) {
 		const char *str = "central";
@@ -3479,8 +3483,9 @@ static gboolean property_get_experimental(const GDBusPropertyTable *property,
 	struct btd_adapter *adapter = user_data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry))
+		return FALSE;
 
 	queue_foreach(adapter->exps, property_append_experimental, &entry);
 
@@ -3541,8 +3546,11 @@ static DBusMessage *get_discovery_filters(DBusConnection *conn,
 
 	dbus_message_iter_init_append(reply, &iter);
 
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &array);
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &array)) {
+		dbus_message_unref(reply);
+		return btd_error_failed(msg, "DBus error");
+	}
 
 	for (parser = parsers; parser && parser->name; parser++) {
 		dbus_message_iter_append_basic(&array, DBUS_TYPE_STRING,

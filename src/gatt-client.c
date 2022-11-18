@@ -189,7 +189,9 @@ static gboolean descriptor_get_value(const GDBusPropertyTable *property,
 	struct descriptor *desc = data;
 	DBusMessageIter array;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y", &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y",
+								&array))
+		return FALSE;
 
 	gatt_db_attribute_read(desc->attr, 0, 0, NULL, read_cb, &array);
 
@@ -270,7 +272,9 @@ static void message_append_byte_array(DBusMessage *msg, const uint8_t *bytes,
 	DBusMessageIter iter, array;
 
 	dbus_message_iter_init_append(msg, &iter);
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "y", &array);
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY, "y",
+								&array))
+		return;
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &bytes,
 									len);
 	dbus_message_iter_close_container(&iter, &array);
@@ -776,7 +780,9 @@ static gboolean characteristic_get_value(const GDBusPropertyTable *property,
 	struct characteristic *chrc = data;
 	DBusMessageIter array;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y", &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y",
+								&array))
+		return FALSE;
 
 	gatt_db_attribute_read(chrc->attr, 0, 0, NULL, read_cb, &array);
 
@@ -848,7 +854,9 @@ static gboolean characteristic_get_flags(const GDBusPropertyTable *property,
 	DBusMessageIter array;
 	unsigned i;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "s", &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "s",
+								&array))
+		return FALSE;
 
 	for (i = 0; i < NELEM(chrc_props); i++) {
 		if (chrc->props & chrc_props[i].prop)
@@ -1914,7 +1922,9 @@ static gboolean service_get_includes(const GDBusPropertyTable *property,
 	struct service *service = data;
 	DBusMessageIter array;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "{o}", &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "{o}",
+								&array))
+		return FALSE;
 
 	queue_foreach(service->incl_services, append_incl_service_path, &array);
 

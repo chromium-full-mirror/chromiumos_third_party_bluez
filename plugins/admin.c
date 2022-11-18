@@ -414,8 +414,10 @@ static gboolean property_get_service_allowlist(
 	struct btd_admin_policy *admin_policy = user_data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry))
+		return FALSE;
+
 	queue_foreach(admin_policy->service_allowlist, append_service_uuid,
 									&entry);
 	dbus_message_iter_close_container(iter, &entry);
