@@ -500,18 +500,26 @@ static void reset_parent(gpointer data, gpointer user_data)
 static void append_property(struct interface_data *iface,
 			const GDBusPropertyTable *p, DBusMessageIter *dict)
 {
-	DBusMessageIter entry, value;
+	DBusMessageIter entry = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter value = DBUS_MESSAGE_ITER_INIT_CLOSED;
 
-	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL,
-								&entry);
-	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &p->name);
-	dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, p->type,
-								&value);
+	if (!dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL,
+								&entry))
+		goto error;
+	if (!dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &p->name))
+		goto error;
+	if (!dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT,
+							p->type, &value))
+		goto error;
 
 	p->get(p, &value, iface->user_data);
 
 	dbus_message_iter_close_container(&entry, &value);
 	dbus_message_iter_close_container(dict, &entry);
+	return;
+error:
+	dbus_message_iter_abandon_container_if_open(&entry, &value);
+	dbus_message_iter_abandon_container_if_open(dict, &entry);
 }
 
 static void append_properties(struct interface_data *data,
@@ -520,11 +528,12 @@ static void append_properties(struct interface_data *data,
 	DBusMessageIter dict;
 	const GDBusPropertyTable *p;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 				DBUS_TYPE_STRING_AS_STRING
 				DBUS_TYPE_VARIANT_AS_STRING
-				DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict);
+				DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict))
+		return;
 
 	for (p = data->properties; p && p->name; p++) {
 		if (check_experimental(p->flags,
@@ -549,8 +558,10 @@ static void append_interface(gpointer data, gpointer user_data)
 	DBusMessageIter *array = user_data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL,
-								&entry);
+	if (!dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL,
+								&entry))
+		return;
+
 	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &iface->name);
 	append_properties(data, &entry);
 	dbus_message_iter_close_container(array, &entry);
@@ -580,7 +591,7 @@ static void emit_interfaces_added(struct generic_data *data)
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_OBJECT_PATH,
 								&data->path);
 
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
 				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 				DBUS_TYPE_STRING_AS_STRING
 				DBUS_TYPE_ARRAY_AS_STRING
@@ -588,7 +599,10 @@ static void emit_interfaces_added(struct generic_data *data)
 				DBUS_TYPE_STRING_AS_STRING
 				DBUS_TYPE_VARIANT_AS_STRING
 				DBUS_DICT_ENTRY_END_CHAR_AS_STRING
-				DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &array);
+				DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &array)) {
+		dbus_message_unref(signal);
+		return;
+	}
 
 	g_slist_foreach(data->added, append_interface, &array);
 	g_slist_free(data->added);
@@ -775,7 +789,7 @@ static DBusMessage *properties_get(DBusConnection *connection,
 	struct interface_data *iface;
 	const GDBusPropertyTable *property;
 	const char *interface, *name;
-	DBusMessageIter iter, value;
+	DBusMessageIter iter, value = DBUS_MESSAGE_ITER_INIT_CLOSED;
 	DBusMessage *reply;
 
 	if (!dbus_message_get_args(message, NULL,
@@ -808,10 +822,14 @@ static DBusMessage *properties_get(DBusConnection *connection,
 		return NULL;
 
 	dbus_message_iter_init_append(reply, &iter);
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT,
-						property->type, &value);
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT,
+						property->type, &value)) {
+		dbus_message_unref(reply);
+		return NULL;
+	}
 
 	if (!property->get(property, &value, iface->user_data)) {
+		dbus_message_iter_abandon_container_if_open(&iter, &value);
 		dbus_message_unref(reply);
 		return NULL;
 	}
@@ -981,8 +999,11 @@ static void emit_interfaces_removed(struct generic_data *data)
 	dbus_message_iter_init_append(signal, &iter);
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_OBJECT_PATH,
 								&data->path);
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &array);
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &array)) {
+		dbus_message_unref(signal);
+		return;
+	}
 
 	g_slist_foreach(data->removed, append_name, &array);
 	g_slist_free_full(data->removed, g_free);
@@ -1104,7 +1125,7 @@ static void append_interfaces(struct generic_data *data, DBusMessageIter *iter)
 {
 	DBusMessageIter array;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 				DBUS_TYPE_STRING_AS_STRING
 				DBUS_TYPE_ARRAY_AS_STRING
@@ -1112,7 +1133,8 @@ static void append_interfaces(struct generic_data *data, DBusMessageIter *iter)
 				DBUS_TYPE_STRING_AS_STRING
 				DBUS_TYPE_VARIANT_AS_STRING
 				DBUS_DICT_ENTRY_END_CHAR_AS_STRING
-				DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &array);
+				DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &array))
+		return;
 
 	g_slist_foreach(data->interfaces, append_interface, &array);
 
@@ -1125,8 +1147,10 @@ static void append_object(gpointer data, gpointer user_data)
 	DBusMessageIter *array = user_data;
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL,
-								&entry);
+	if (!dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL,
+								&entry))
+		return;
+
 	dbus_message_iter_append_basic(&entry, DBUS_TYPE_OBJECT_PATH,
 								&child->path);
 	append_interfaces(child, &entry);
@@ -1149,7 +1173,7 @@ static DBusMessage *get_objects(DBusConnection *connection,
 
 	dbus_message_iter_init_append(reply, &iter);
 
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_OBJECT_PATH_AS_STRING
 					DBUS_TYPE_ARRAY_AS_STRING
@@ -1162,7 +1186,11 @@ static DBusMessage *get_objects(DBusConnection *connection,
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&array);
+					&array)) {
+		dbus_message_unref(reply);
+		return g_dbus_create_error(message, DBUS_ERROR_NO_MEMORY,
+						"no memory");
+	}
 
 	g_slist_foreach(data->objects, append_object, &array);
 
@@ -1679,7 +1707,7 @@ static void process_properties_from_interface(struct generic_data *data,
 	GSList *l;
 	DBusMessage *signal;
 	DBusMessageIter iter, dict, array;
-	GSList *invalidated;
+	GSList *invalidated = NULL;
 
 	if (iface->pending_prop == NULL)
 		return;
@@ -1696,12 +1724,11 @@ static void process_properties_from_interface(struct generic_data *data,
 
 	dbus_message_iter_init_append(signal, &iter);
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING,	&iface->name);
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
 			DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 			DBUS_TYPE_STRING_AS_STRING DBUS_TYPE_VARIANT_AS_STRING
-			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict);
-
-	invalidated = NULL;
+			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict))
+		goto cleanup;
 
 	for (l = iface->pending_prop; l != NULL; l = l->next) {
 		GDBusPropertyTable *p = l->data;
@@ -1719,22 +1746,24 @@ static void process_properties_from_interface(struct generic_data *data,
 
 	dbus_message_iter_close_container(&iter, &dict);
 
-	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
-				DBUS_TYPE_STRING_AS_STRING, &array);
+	if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+				DBUS_TYPE_STRING_AS_STRING, &array))
+		goto cleanup;
+
 	for (l = invalidated; l != NULL; l = g_slist_next(l)) {
 		GDBusPropertyTable *p = l->data;
 
 		dbus_message_iter_append_basic(&array, DBUS_TYPE_STRING,
 								&p->name);
 	}
-	g_slist_free(invalidated);
 	dbus_message_iter_close_container(&iter, &array);
-
-	g_slist_free(iface->pending_prop);
-	iface->pending_prop = NULL;
 
 	/* Use dbus_connection_send to avoid recursive calls to g_dbus_flush */
 	dbus_connection_send(data->conn, signal, NULL);
+cleanup:
+	g_slist_free(invalidated);
+	g_slist_free(iface->pending_prop);
+	iface->pending_prop = NULL;
 	dbus_message_unref(signal);
 }
 

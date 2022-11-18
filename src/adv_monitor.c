@@ -1473,9 +1473,10 @@ static gboolean get_supported_monitor_types(const GDBusPropertyTable *property,
 	DBusMessageIter entry;
 	const struct adv_monitor_type *t;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 						DBUS_TYPE_STRING_AS_STRING,
-						&entry);
+						&entry))
+		return FALSE;
 
 	for (t = supported_types; t->name; t++) {
 		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
@@ -1504,9 +1505,10 @@ static gboolean get_supported_features(const GDBusPropertyTable *property,
 	const struct adv_monitor_feature *f;
 	struct btd_adv_monitor_manager *manager = data;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 						DBUS_TYPE_STRING_AS_STRING,
-						&entry);
+						&entry))
+		return FALSE;
 
 	for (f = supported_features; f->name; f++) {
 		if (manager->supported_features & f->mask) {

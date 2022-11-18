@@ -2007,8 +2007,9 @@ static gboolean get_capabilities(const GDBusPropertyTable *property,
 	uint8_t *caps = codec->data;
 	DBusMessageIter array;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_BYTE_AS_STRING, &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_BYTE_AS_STRING, &array))
+		return FALSE;
 
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &caps,
 					service->length - sizeof(*codec));

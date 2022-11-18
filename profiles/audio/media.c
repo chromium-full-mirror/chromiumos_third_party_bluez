@@ -725,23 +725,28 @@ static bool endpoint_properties_exists(const char *uuid,
 static void append_endpoint(struct media_endpoint *endpoint,
 						DBusMessageIter *dict)
 {
-	DBusMessageIter entry, var, props;
+	DBusMessageIter entry = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter var = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter props = DBUS_MESSAGE_ITER_INIT_CLOSED;
 
-	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
-							NULL, &entry);
+	if (!dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
+							NULL, &entry))
+		goto error;
 
 	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
 						&endpoint->sender);
 
-	dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "a{sv}",
-								&var);
+	if (!dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT,
+							"a{sv}", &var))
+		goto error;
 
-	dbus_message_iter_open_container(&var, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(&var, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&props);
+					&props))
+		goto error;
 
 	dict_append_entry(&props, "Path", DBUS_TYPE_OBJECT_PATH,
 							&endpoint->path);
@@ -752,6 +757,11 @@ static void append_endpoint(struct media_endpoint *endpoint,
 	dbus_message_iter_close_container(&var, &props);
 	dbus_message_iter_close_container(&entry, &var);
 	dbus_message_iter_close_container(dict, &entry);
+	return;
+error:
+	dbus_message_iter_abandon_container_if_open(&var, &props);
+	dbus_message_iter_abandon_container_if_open(&entry, &var);
+	dbus_message_iter_abandon_container_if_open(dict, &entry);
 }
 
 static bool endpoint_properties_get(const char *uuid,
@@ -767,12 +777,13 @@ static bool endpoint_properties_get(const char *uuid,
 	if (adapter == NULL)
 		return false;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return false;
 
 	for (l = adapter->endpoints; l; l = l->next) {
 		struct media_endpoint *endpoint = l->data;
@@ -1104,9 +1115,11 @@ static void set_shuffle_setting(DBusMessageIter *iter, const char *value)
 	DBusMessageIter var;
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &key);
-	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
 						DBUS_TYPE_BOOLEAN_AS_STRING,
-						&var);
+						&var))
+		return;
+
 	val = strcasecmp(value, "off") != 0;
 	dbus_message_iter_append_basic(&var, DBUS_TYPE_BOOLEAN, &val);
 	dbus_message_iter_close_container(iter, &var);
@@ -1133,9 +1146,11 @@ static void set_repeat_setting(DBusMessageIter *iter, const char *value)
 	DBusMessageIter var;
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &key);
-	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
 						DBUS_TYPE_STRING_AS_STRING,
-						&var);
+						&var))
+		return;
+
 	val = repeat_to_loop_status(value);
 	dbus_message_iter_append_basic(&var, DBUS_TYPE_STRING, &val);
 	dbus_message_iter_close_container(iter, &var);

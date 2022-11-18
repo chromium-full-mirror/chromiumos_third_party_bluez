@@ -133,7 +133,9 @@ static void append_variant(DBusMessageIter *iter, int type, const void *val)
 	DBusMessageIter value;
 	char sig[2] = { type, '\0' };
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT, sig, &value);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT, sig,
+								&value))
+		return;
 
 	dbus_message_iter_append_basic(&value, type, val);
 
@@ -143,15 +145,18 @@ static void append_variant(DBusMessageIter *iter, int type, const void *val)
 static void append_array_variant(DBusMessageIter *iter, int type, void *val,
 							int n_elements)
 {
-	DBusMessageIter variant, array;
+	DBusMessageIter variant = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter array = DBUS_MESSAGE_ITER_INIT_CLOSED;
 	char type_sig[2] = { type, '\0' };
 	char array_sig[3] = { DBUS_TYPE_ARRAY, type, '\0' };
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
-						array_sig, &variant);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT,
+						array_sig, &variant))
+		goto error;
 
-	dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY,
-						type_sig, &array);
+	if (!dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY,
+						type_sig, &array))
+		goto error;
 
 	if (dbus_type_is_fixed(type) == TRUE) {
 		dbus_message_iter_append_fixed_array(&array, type, val,
@@ -168,6 +173,10 @@ static void append_array_variant(DBusMessageIter *iter, int type, void *val,
 	dbus_message_iter_close_container(&variant, &array);
 
 	dbus_message_iter_close_container(iter, &variant);
+	return;
+error:
+	dbus_message_iter_abandon_container_if_open(&variant, &array);
+	dbus_message_iter_abandon_container_if_open(iter, &variant);
 }
 
 static void dict_append_basic(DBusMessageIter *dict, int key_type,
@@ -181,8 +190,9 @@ static void dict_append_basic(DBusMessageIter *dict, int key_type,
 			return;
 	}
 
-	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
-							NULL, &entry);
+	if (!dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
+							NULL, &entry))
+		return;
 
 	dbus_message_iter_append_basic(&entry, key_type, key);
 
@@ -203,8 +213,9 @@ void g_dbus_dict_append_basic_array(DBusMessageIter *dict, int key_type,
 {
 	DBusMessageIter entry;
 
-	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
-						NULL, &entry);
+	if (!dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
+						NULL, &entry))
+		return;
 
 	dbus_message_iter_append_basic(&entry, key_type, key);
 
@@ -248,7 +259,9 @@ static void iter_append_iter(DBusMessageIter *base, DBusMessageIter *iter)
 			break;
 		}
 
-		dbus_message_iter_open_container(base, type, sig, &base_sub);
+		if (!dbus_message_iter_open_container(base, type, sig,
+								&base_sub))
+			return;
 
 		if (sig != NULL)
 			dbus_free(sig);

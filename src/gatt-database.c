@@ -2232,12 +2232,13 @@ static void read_setup_cb(DBusMessageIter *iter, void *user_data)
 	struct pending_op *op = user_data;
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return;
 
 	append_options(&dict, op);
 
@@ -2271,17 +2272,20 @@ static void write_setup_cb(DBusMessageIter *iter, void *user_data)
 	struct pending_op *op = user_data;
 	DBusMessageIter array, dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y", &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY, "y",
+								&array))
+		return;
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE,
 					&op->data.iov_base, op->data.iov_len);
 	dbus_message_iter_close_container(iter, &array);
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return;
 
 	append_options(&dict, op);
 
@@ -2516,12 +2520,13 @@ static void acquire_write_setup(DBusMessageIter *iter, void *user_data)
 	struct pending_op *op = user_data;
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return;
 
 	append_options(&dict, op);
 
@@ -2595,12 +2600,13 @@ static void acquire_notify_setup(DBusMessageIter *iter, void *user_data)
 	DBusMessageIter dict;
 	struct pending_op *op = user_data;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return;
 
 	append_options(&dict, op);
 
@@ -2627,12 +2633,14 @@ static void notify_setup_cb(DBusMessageIter *iter, void *user_data)
 	if (op->cccd_value > 0)
 		dbus_message_iter_append_basic(iter, DBUS_TYPE_BYTE,
 							&op->cccd_value);
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return;
+
 	append_options(&dict, op);
 	dbus_message_iter_close_container(iter, &dict);
 }

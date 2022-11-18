@@ -1272,8 +1272,10 @@ dev_property_get_flags(const GDBusPropertyTable *property,
 	uint8_t *flags = device->ad_flags;
 	DBusMessageIter array;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_BYTE_AS_STRING, &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_BYTE_AS_STRING, &array))
+		return FALSE;
+
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE,
 					&flags,	sizeof(device->ad_flags));
 	dbus_message_iter_close_container(iter, &array);
@@ -1414,8 +1416,9 @@ static gboolean dev_property_get_uuids(const GDBusPropertyTable *property,
 	DBusMessageIter entry;
 	GSList *l;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-				DBUS_TYPE_STRING_AS_STRING, &entry);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+				DBUS_TYPE_STRING_AS_STRING, &entry))
+		return FALSE;
 
 	if (dev->bredr_state.svc_resolved || dev->le_state.svc_resolved)
 		l = dev->uuids;
@@ -1483,12 +1486,13 @@ dev_property_get_manufacturer_data(const GDBusPropertyTable *property,
 	struct btd_device *device = data;
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_UINT16_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return FALSE;
 
 	bt_ad_foreach_manufacturer_data(device->ad, append_manufacturer_data,
 									&dict);
@@ -1525,12 +1529,13 @@ dev_property_get_service_data(const GDBusPropertyTable *property,
 	struct btd_device *device = data;
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_STRING_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return FALSE;
 
 	bt_ad_foreach_service_data(device->ad, append_service_data, &dict);
 
@@ -1561,8 +1566,11 @@ static gboolean dev_property_get_eir(const GDBusPropertyTable *property,
 	struct btd_device *dev = data;
 	uint8_t *eir = dev->eir;
 	DBusMessageIter array;
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_BYTE_AS_STRING, &array);
+
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_BYTE_AS_STRING, &array))
+		return FALSE;
+
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &eir,
 								dev->eir_len);
 	dbus_message_iter_close_container(iter, &array);
@@ -1602,12 +1610,13 @@ dev_property_get_advertising_data(const GDBusPropertyTable *property,
 	struct btd_device *device = data;
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 					DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 					DBUS_TYPE_BYTE_AS_STRING
 					DBUS_TYPE_VARIANT_AS_STRING
 					DBUS_DICT_ENTRY_END_CHAR_AS_STRING,
-					&dict);
+					&dict))
+		return FALSE;
 
 	bt_ad_foreach_data(device->ad, append_advertising_data, &dict);
 

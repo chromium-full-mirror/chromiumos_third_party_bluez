@@ -593,8 +593,9 @@ static gboolean get_configuration(const GDBusPropertyTable *property,
 	struct media_transport *transport = data;
 	DBusMessageIter array;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_BYTE_AS_STRING, &array);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_BYTE_AS_STRING, &array))
+		return FALSE;
 
 	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE,
 						&transport->configuration,

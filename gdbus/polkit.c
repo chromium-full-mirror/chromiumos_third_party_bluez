@@ -40,34 +40,45 @@ int polkit_check_authorization(DBusConnection *conn,
 static void add_dict_with_string_value(DBusMessageIter *iter,
 					const char *key, const char *str)
 {
-	DBusMessageIter dict, entry, value;
+	DBusMessageIter dict = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter entry = DBUS_MESSAGE_ITER_INIT_CLOSED;
+	DBusMessageIter value = DBUS_MESSAGE_ITER_INIT_CLOSED;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 			DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 			DBUS_TYPE_STRING_AS_STRING DBUS_TYPE_VARIANT_AS_STRING
-			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict);
-	dbus_message_iter_open_container(&dict, DBUS_TYPE_DICT_ENTRY,
-								NULL, &entry);
+			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict))
+		goto error;
+	if (!dbus_message_iter_open_container(&dict, DBUS_TYPE_DICT_ENTRY,
+								NULL, &entry))
+		goto error;
 
 	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
 
-	dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT,
-					DBUS_TYPE_STRING_AS_STRING, &value);
+	if (!dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT,
+					DBUS_TYPE_STRING_AS_STRING, &value))
+		goto error;
 	dbus_message_iter_append_basic(&value, DBUS_TYPE_STRING, &str);
 	dbus_message_iter_close_container(&entry, &value);
 
 	dbus_message_iter_close_container(&dict, &entry);
 	dbus_message_iter_close_container(iter, &dict);
+	return;
+error:
+	dbus_message_iter_abandon_container_if_open(&entry, &value);
+	dbus_message_iter_abandon_container_if_open(&dict, &entry);
+	dbus_message_iter_abandon_container_if_open(iter, &dict);
 }
 
 static void add_empty_string_dict(DBusMessageIter *iter)
 {
 	DBusMessageIter dict;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 			DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
 			DBUS_TYPE_STRING_AS_STRING DBUS_TYPE_STRING_AS_STRING
-			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict);
+			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict))
+		return;
 
 	dbus_message_iter_close_container(iter, &dict);
 }
@@ -80,8 +91,9 @@ static void add_arguments(DBusConnection *conn, DBusMessageIter *iter,
 	const char *cancel = "";
 	DBusMessageIter subject;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_STRUCT,
-							NULL, &subject);
+	if (!dbus_message_iter_open_container(iter, DBUS_TYPE_STRUCT,
+							NULL, &subject))
+		return;
 	dbus_message_iter_append_basic(&subject, DBUS_TYPE_STRING, &kind);
 	add_dict_with_string_value(&subject, "name", busname);
 	dbus_message_iter_close_container(iter, &subject);
