@@ -1549,7 +1549,17 @@ int input_device_register(struct btd_service *service)
 	}
 
 	btd_service_set_user_data(service, idev);
-	device_set_wake_support(device, true);
+
+	/* Limit wake to keyboard and pointing devices.
+	 * 0x500 gives you Major class - Peripheral.
+	 * 0xC0 gives you Minor class bits for Keyboard or Pointing device.
+	 */
+	uint32_t class = device ? btd_device_get_class(device) : 0;
+	bool is_peripheral = (class & 0x500) == 0x500;
+	bool is_keyboard_or_pointer = (class & 0xc0) != 0;
+
+	if (is_peripheral && is_keyboard_or_pointer)
+		device_set_wake_support(device, true);
 
 	return 0;
 }
