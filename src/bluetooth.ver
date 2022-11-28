@@ -7,6 +7,12 @@
 		debug;
 		baswap;
 		ba2str;
+		/* Sanitizer support */
+		__asan*;
+		__lsan*;
+		__msan*;
+		__sanitizer*;
+		__ubsan*;
 	local:
 		*;
 };
