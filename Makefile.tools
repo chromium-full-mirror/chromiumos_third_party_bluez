@@ -276,13 +276,11 @@ tools_ibeacon_LDADD = src/libshared-mainloop.la
 
 tools_btgatt_client_SOURCES = tools/btgatt-client.c src/uuid-helper.c
 tools_btgatt_client_LDADD = src/libshared-mainloop.la \
-					lib/libbluetooth-internal.la \
-					src/libshared-glib.la $(GLIB_LIBS)
+						lib/libbluetooth-internal.la
 
 tools_btgatt_server_SOURCES = tools/btgatt-server.c src/uuid-helper.c
 tools_btgatt_server_LDADD = src/libshared-mainloop.la \
-					lib/libbluetooth-internal.la \
-					src/libshared-glib.la $(GLIB_LIBS)
+						lib/libbluetooth-internal.la
 
 tools_rctest_LDADD = lib/libbluetooth-internal.la
 
