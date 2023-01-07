@@ -10,24 +10,32 @@
 #include <assert.h>
 #include <glib.h>
 
-/* We expect this library to be used with a small number of memory allocations.
- * So using linked list won't hurt performance while keeping this library
- * lightweight and simple.
- */
-static GSList *valid_allocs = NULL;
+static GHashTable *valid_allocs = NULL;
 
 void memtrack_assert_alloc_valid(void *p)
 {
+	assert(valid_allocs);
 	assert(g_slist_find(valid_allocs, p));
 }
 
 void memtrack_add_alloc(void *p)
 {
-	assert(!g_slist_find(valid_allocs, p));
-	valid_allocs = g_slist_append(valid_allocs, p);
+	if (!valid_allocs)
+		valid_allocs = g_hash_table_new(NULL, NULL);
+
+	assert(!g_hash_table_contains(valid_allocs, p));
+	g_hash_table_add(valid_allocs, p);
 }
 
 void memtrack_remove_alloc(void *p)
 {
-	valid_allocs = g_slist_remove(valid_allocs, p);
+	if (!p)
+		return;
+
+	assert(valid_allocs);
+	assert(g_hash_table_contains(valid_allocs, p));
+	g_hash_table_remove(valid_allocs, p);
+
+	// Don't destroy the hashtable when it is empty to avoid reallocation
+	// when it is reused.
 }
