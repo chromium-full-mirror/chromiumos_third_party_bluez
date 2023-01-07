@@ -84,6 +84,8 @@ static const char *services_to_reconnect[] = {
 		HSP_AG_UUID, HFP_AG_UUID, NULL };
 static GSList *retry_devices = NULL;
 
+static GSList *registered_devices = NULL;
+
 /* 15c0a148-c273-11ea-b3de-0242ac130004 */
 static const uint8_t ll_privacy_uuid[16] = {
 	0x04, 0x00, 0x13, 0xac, 0x42, 0x02, 0xde, 0xb3,
@@ -407,6 +409,8 @@ static gboolean on_device_added(struct btd_adapter *adapter,
 					device_path, DBUS_PLUGIN_DEVICE_INTERFACE,
 					device_methods, NULL, NULL, NULL, NULL);
 
+	registered_devices = g_slist_prepend(registered_devices, device);
+
 	return TRUE;
 }
 
@@ -417,6 +421,8 @@ static gboolean on_device_removed(struct btd_adapter *adapter,
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
 				device_path, DBUS_PLUGIN_DEVICE_INTERFACE);
+
+	registered_devices = g_slist_remove(registered_devices, device);
 
 	return TRUE;
 }
@@ -1158,7 +1164,12 @@ static int chromium_init(void)
 
 static void chromium_exit(void)
 {
+	struct btd_device *dev;
+
 	DBG("");
+
+	g_dbus_unregister_interface(btd_get_dbus_connection(),
+				    DBUS_PATH, DBUS_PLUGIN_INTERFACE);
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
 				    DEBUG_OBJECT_PATH, DEBUG_INTERFACE);
@@ -1171,6 +1182,15 @@ static void chromium_exit(void)
 
 	btd_service_remove_state_cb(service_id);
 	g_slist_free_full(retry_devices, destroy_retry_data);
+
+	// Unregister the interface for known devices. This needs to be done
+	// here because plugin is unregistered first before adapter is shut
+	// down, therefore on_device_removed is not called via plugin.
+	while (registered_devices) {
+		dev = (struct btd_device *) g_slist_nth_data(registered_devices,
+									0);
+		on_device_removed(device_get_adapter(dev), dev);
+	}
 
 	btd_unregister_adapter_driver(&chromium_driver);
 }
