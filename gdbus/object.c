@@ -32,7 +32,6 @@
 #include <dbus/dbus.h>
 
 #include "gdbus.h"
-#include "src/shared/memtrack.h"
 
 #define info(fmt...)
 #define error(fmt...)
@@ -200,7 +199,6 @@ static void generate_introspection_xml(DBusConnection *conn,
 	int i;
 
 	g_free(data->introspect);
-	memtrack_remove_alloc(data->introspect);
 
 	gstr = g_string_new(DBUS_INTROSPECT_1_0_XML_DOCTYPE_DECL_NODE);
 
@@ -230,7 +228,6 @@ done:
 	g_string_append_printf(gstr, "</node>");
 
 	data->introspect = g_string_free(gstr, FALSE);
-	memtrack_add_alloc(data->introspect);
 }
 
 static DBusMessage *introspect(DBusConnection *connection,
@@ -304,7 +301,6 @@ void g_dbus_pending_success(DBusConnection *connection,
 
 		dbus_message_unref(secdata->message);
 		g_free(secdata);
-		memtrack_remove_alloc(secdata);
 		return;
 	}
 }
@@ -328,7 +324,6 @@ void g_dbus_pending_error_valist(DBusConnection *connection,
 
 		dbus_message_unref(secdata->message);
 		g_free(secdata);
-		memtrack_remove_alloc(secdata);
 		return;
 	}
 }
@@ -368,7 +363,6 @@ static void builtin_security_result(dbus_bool_t authorized, void *user_data)
 						DBUS_ERROR_AUTH_FAILED, NULL);
 
 	g_free(data);
-	memtrack_remove_alloc(data);
 }
 
 static void builtin_security_function(DBusConnection *conn,
@@ -379,7 +373,6 @@ static void builtin_security_function(DBusConnection *conn,
 	struct builtin_security_data *data;
 
 	data = g_new0(struct builtin_security_data, 1);
-	memtrack_add_alloc(data);
 	data->conn = conn;
 	data->pending = pending;
 
@@ -402,7 +395,6 @@ static gboolean check_privilege(DBusConnection *conn, DBusMessage *msg,
 			continue;
 
 		secdata = g_new(struct security_data, 1);
-		memtrack_add_alloc(secdata);
 		secdata->pending = next_pending++;
 		secdata->message = dbus_message_ref(msg);
 		secdata->method = method;
@@ -466,7 +458,6 @@ void g_dbus_pending_property_success(GDBusPendingPropertySet id)
 							DBUS_TYPE_INVALID);
 	dbus_message_unref(propdata->message);
 	g_free(propdata);
-	memtrack_remove_alloc(propdata);
 }
 
 void g_dbus_pending_property_error_valist(GDBusPendingReply id,
@@ -484,7 +475,6 @@ void g_dbus_pending_property_error_valist(GDBusPendingReply id,
 
 	dbus_message_unref(propdata->message);
 	g_free(propdata);
-	memtrack_remove_alloc(propdata);
 }
 
 void g_dbus_pending_property_error(GDBusPendingReply id, const char *name,
@@ -705,23 +695,18 @@ static gboolean remove_interface(struct generic_data *data, const char *name)
 	if (g_slist_find(data->added, iface)) {
 		data->added = g_slist_remove(data->added, iface);
 		g_free(iface->name);
-		memtrack_remove_alloc(iface->name);
 		g_free(iface);
-		memtrack_remove_alloc(iface);
 		return TRUE;
 	}
 
 	if (data->parent == NULL) {
 		g_free(iface->name);
-		memtrack_remove_alloc(iface->name);
 		g_free(iface);
-		memtrack_remove_alloc(iface);
 		return TRUE;
 	}
 
 	data->removed = g_slist_prepend(data->removed, iface->name);
 	g_free(iface);
-	memtrack_remove_alloc(iface);
 
 	add_pending(data);
 
@@ -735,7 +720,6 @@ static struct generic_data *invalidate_parent_data(DBusConnection *conn,
 	char *parent_path, *slash;
 
 	parent_path = g_strdup(child_path);
-	memtrack_add_alloc(parent_path);
 	slash = strrchr(parent_path, '/');
 	if (slash == NULL)
 		goto done;
@@ -762,7 +746,6 @@ static struct generic_data *invalidate_parent_data(DBusConnection *conn,
 	}
 
 	g_free(data->introspect);
-	memtrack_remove_alloc(data->introspect);
 	data->introspect = NULL;
 
 	if (!dbus_connection_get_object_path_data(conn, child_path,
@@ -777,7 +760,6 @@ static struct generic_data *invalidate_parent_data(DBusConnection *conn,
 
 done:
 	g_free(parent_path);
-	memtrack_remove_alloc(parent_path);
 	return data;
 }
 
@@ -957,7 +939,6 @@ static DBusMessage *properties_set(DBusConnection *connection,
 					"Invalid signature for '%s'", name);
 
 	propdata = g_new(struct property_data, 1);
-	memtrack_add_alloc(propdata);
 	propdata->id = next_pending_property++;
 	propdata->message = dbus_message_ref(message);
 	propdata->conn = connection;
@@ -999,10 +980,6 @@ static void append_name(gpointer data, gpointer user_data)
 	DBusMessageIter *iter = user_data;
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &name);
-
-	// track memory free here because it is freed right after calling
-	// this function in its only caller, emit_interfaces_removed().
-	memtrack_remove_alloc(name);
 }
 
 static void emit_interfaces_removed(struct generic_data *data)
@@ -1089,11 +1066,8 @@ static void generic_unregister(DBusConnection *connection, void *user_data)
 
 	dbus_connection_unref(data->conn);
 	g_free(data->introspect);
-	memtrack_remove_alloc(data->introspect);
 	g_free(data->path);
-	memtrack_remove_alloc(data->path);
 	g_free(data);
-	memtrack_remove_alloc(data);
 }
 
 static DBusHandlerResult generic_message(DBusConnection *connection,
@@ -1276,10 +1250,7 @@ static gboolean add_interface(struct generic_data *data,
 
 done:
 	iface = g_new0(struct interface_data, 1);
-	memtrack_add_alloc(iface);
 	iface->name = g_strdup(name);
-	memtrack_add_alloc(iface->name);
-
 	iface->methods = methods;
 	iface->signals = signals;
 	iface->properties = properties;
@@ -1311,24 +1282,18 @@ static struct generic_data *object_path_ref(DBusConnection *connection,
 	}
 
 	data = g_new0(struct generic_data, 1);
-	memtrack_add_alloc(data);
 	data->conn = dbus_connection_ref(connection);
 	data->path = g_strdup(path);
-	memtrack_add_alloc(data->path);
 	data->refcount = 1;
 
 	data->introspect = g_strdup(DBUS_INTROSPECT_1_0_XML_DOCTYPE_DECL_NODE "<node></node>");
-	memtrack_add_alloc(data->introspect);
 
 	if (!dbus_connection_register_object_path(connection, path,
 						&generic_table, data)) {
 		dbus_connection_unref(data->conn);
 		g_free(data->path);
-		memtrack_remove_alloc(data->path);
 		g_free(data->introspect);
-		memtrack_remove_alloc(data->introspect);
 		g_free(data);
-		memtrack_remove_alloc(data);
 		return NULL;
 	}
 
@@ -1447,7 +1412,6 @@ gboolean g_dbus_register_interface(DBusConnection *connection,
 				data, NULL);
 
 	g_free(data->introspect);
-	memtrack_remove_alloc(data->introspect);
 	data->introspect = NULL;
 
 	return TRUE;
@@ -1472,7 +1436,6 @@ gboolean g_dbus_unregister_interface(DBusConnection *connection,
 		return FALSE;
 
 	g_free(data->introspect);
-	memtrack_remove_alloc(data->introspect);
 	data->introspect = NULL;
 
 	object_path_unref(connection, data->path);

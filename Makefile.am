@@ -94,8 +94,7 @@ noinst_LTLIBRARIES += gdbus/libgdbus-internal.la
 
 gdbus_libgdbus_internal_la_SOURCES = gdbus/gdbus.h \
 				gdbus/mainloop.c gdbus/watch.c \
-				gdbus/object.c gdbus/client.c gdbus/polkit.c \
-				src/shared/memtrack.h src/shared/memtrack.c
+				gdbus/object.c gdbus/client.c gdbus/polkit.c
 
 if EXTERNAL_ELL
 ell_cflags = @ELL_CFLAGS@
