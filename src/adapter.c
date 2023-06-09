@@ -1900,16 +1900,35 @@ static bool start_discovery_timeout(gpointer user_data)
 	struct btd_adapter *adapter = user_data;
 	struct mgmt_cp_start_service_discovery *sd_cp;
 	uint8_t new_type;
+	GSList *l;
+	bool no_scan_restart_delay = false;
 
 	DBG("");
 
 	adapter->discovery_idle_timeout = 0;
 
-	/* If we're doing filtered discovery, it must be quickly restarted */
-	adapter->no_scan_restart_delay = !!adapter->current_discovery_filter;
+	/* If we're doing filtered discovery, it must be quickly restarted.
+	 * ChromeOS only: Quickly restart, unless we have some bonded device
+	 * that is not connected. Otherwise the scanning will take all cycles
+	 * available and there is none left for device reconnection.
+	 */
+	if (adapter->current_discovery_filter) {
+		no_scan_restart_delay = true;
+		for (l = adapter->devices; l; l = l->next) {
+			struct btd_device *dev = l->data;
 
-	DBG("adapter->current_discovery_filter == %d",
-	    !!adapter->current_discovery_filter);
+			if (!btd_device_is_connected(dev) &&
+			    device_is_bonded(dev,
+					     btd_device_get_bdaddr_type(dev))) {
+				no_scan_restart_delay = false;
+				break;
+			}
+		}
+	}
+	adapter->no_scan_restart_delay = no_scan_restart_delay;
+
+	DBG("adapter->current_discovery_filter == %d, scan_restart_delay == %d",
+	    !!adapter->current_discovery_filter, !no_scan_restart_delay);
 
 	new_type = get_scan_type(adapter);
 
