@@ -1678,7 +1678,7 @@ static void adv_monitor_device_found_callback(uint16_t index, uint16_t length,
 	flags = btohl(ev->flags);
 
 	ba2str(&ev->addr.bdaddr, addr);
-	DBG("hci%u addr %s, rssi %d flags 0x%04x ad_data_len %u",
+	DBG_LVL(2, "hci%u addr %s, rssi %d flags 0x%04x ad_data_len %u",
 			index, addr, ev->rssi, flags, ad_data_len);
 
 	confirm_name = (flags & MGMT_DEV_FOUND_CONFIRM_NAME);

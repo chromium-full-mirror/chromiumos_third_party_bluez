@@ -7284,7 +7284,7 @@ void device_set_legacy(struct btd_device *device, bool legacy)
 	if (!device)
 		return;
 
-	DBG("legacy %d", legacy);
+	DBG_LVL(2, "legacy %d", legacy);
 
 	if (device->legacy == legacy)
 		return;
@@ -7402,7 +7402,7 @@ void device_set_rssi_with_delta(struct btd_device *device, int8_t rssi,
 		if (device->rssi == rssi)
 			return;
 
-		DBG("rssi %d", rssi);
+		DBG_LVL(2, "rssi %d", rssi);
 
 		device->rssi = rssi;
 	} else {
@@ -7417,7 +7417,7 @@ void device_set_rssi_with_delta(struct btd_device *device, int8_t rssi,
 		if (delta < delta_threshold)
 			return;
 
-		DBG("rssi %d delta %d", rssi, delta);
+		DBG_LVL(2, "rssi %d delta %d", rssi, delta);
 
 		device->rssi = rssi;
 	}
@@ -7452,7 +7452,7 @@ void device_set_flags(struct btd_device *device, uint8_t flags)
 	if (!device)
 		return;
 
-	DBG("flags %d", flags);
+	DBG_LVL(2, "flags %d", flags);
 
 	if (device->ad_flags[0] == flags)
 		return;
