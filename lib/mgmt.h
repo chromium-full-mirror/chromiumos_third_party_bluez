@@ -1048,7 +1048,9 @@ struct mgmt_ev_adv_monitor_device_lost {
 	struct mgmt_addr_info addr;
 } __packed;
 
-#define MGMT_EV_QUALITY_REPORT			0x0031
+
+/* CHROMIUM Only Events Start */
+#define MGMT_EV_QUALITY_REPORT			0x0070
 #define QUALITY_SPEC_NA				0x0
 #define QUALITY_SPEC_INTEL_TELEMETRY		0x1
 #define QUALITY_SPEC_AOSP_BQR			0x2
@@ -1057,6 +1059,7 @@ struct mgmt_ev_quality_report {
 	uint8_t report_len;
 	uint8_t report[0];
 } __packed;
+/* CHROMIUM Only Events End */
 
 static const char *mgmt_op[] = {
 	"<0x0000>",
