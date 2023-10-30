@@ -6250,17 +6250,30 @@ void adapter_auto_connect_remove(struct btd_adapter *adapter,
 	adapter->connect_list = g_slist_remove(adapter->connect_list, device);
 }
 
+static bool adapter_log_devices_info(gpointer *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	GSList *l;
+
+	for (l = adapter->devices; l != NULL; l = g_slist_next(l)) {
+		struct btd_device *device = l->data;
+
+		device_log_device_info(device);
+	}
+
+	return TRUE;
+}
+
 static void adapter_start(struct btd_adapter *adapter)
 {
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
 	metrics_adapter_state_changed(true);
 	if (adapter->log_dev_info_timer_id == 0) {
-		device_log_devices_info(adapter->devices);
+		adapter_log_devices_info(adapter);
 		adapter->log_dev_info_timer_id = timeout_add_seconds(
 				DEVICE_INFO_UPDATE_INTERVAL_SECS,
-				device_log_devices_info, adapter->devices,
-				NULL);
+				adapter_log_devices_info, adapter, NULL);
 	}
 
 	info("adapter %s has been enabled", adapter->path);

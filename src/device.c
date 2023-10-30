@@ -593,19 +593,6 @@ void device_log_device_info(struct btd_device *device)
 			product_id, version);
 }
 
-bool device_log_devices_info(gpointer user_data)
-{
-	GSList *l;
-
-	for (l = user_data; l != NULL; l = g_slist_next(l)) {
-		struct btd_device *device = l->data;
-
-		device_log_device_info(device);
-	}
-
-	return TRUE;
-}
-
 static void store_device_info(struct btd_device *device)
 {
 	if (device->temporary || device->store_id > 0)
