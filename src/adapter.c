@@ -9122,6 +9122,81 @@ static void store_link_key(struct btd_adapter *adapter,
 	g_key_file_free(key_file);
 }
 
+static void set_sco_quirk_complete(uint8_t status, uint16_t length,
+					const void *param, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+
+	if (status != MGMT_STATUS_SUCCESS) {
+		btd_error(adapter->dev_id,
+				"Failed to set sco quirk: %s (0x%02x)",
+				mgmt_errstr(status), status);
+		return;
+	}
+
+	DBG("set sco quirk complete success");
+}
+
+static void set_sco_quirk(struct btd_adapter *adapter,
+						struct btd_device *device)
+{
+	struct mgmt_cp_sco_force_retrans_effort cp;
+	char addr[18];
+
+	ba2str(device_get_address(device), addr);
+	info("applying sco quirk to device %s", addr);
+
+	memset(&cp, 0, sizeof(cp));
+	bacpy(&cp.addr.bdaddr, device_get_address(device));
+	cp.addr.type = btd_device_get_bdaddr_type(device);
+	/* Chose optimize for power consumption here.
+	 * Other options are No retransmission (0x00) and Don't care (0xFF).
+	 * All of the three won't cause BR/EDR mouse laggy.
+	 * We chose this one since it is only one retransmits packet which
+	 * sounds more reliable.
+	 */
+	cp.retrans_effort = 0x01;
+
+	mgmt_send(adapter->mgmt, MGMT_OP_CHROME_SCO_FORCE_RETRANS_EFFORT,
+				adapter->dev_id, sizeof(cp), &cp,
+				set_sco_quirk_complete, adapter, NULL);
+}
+
+static void apply_sco_quirk_if_necessary(struct btd_adapter *adapter)
+{
+	GSList *l;
+	bool found_cl_hid = false;
+
+	/* Only apply the quirk if there is a Classic HID bonded or connected */
+	for (l = adapter->devices; l; l = l->next) {
+		struct btd_device *dev = l->data;
+
+		uint8_t addr_type = btd_device_get_bdaddr_type(dev);
+		uint32_t major_class = (
+				btd_device_get_class(dev) & 0x001f00) >> 8;
+
+		if (addr_type == BDADDR_BREDR &&
+			major_class == 0x05 /* Peripheral */ &&
+			device_is_bonded(dev, BDADDR_BREDR)) {
+			found_cl_hid = true;
+		}
+	}
+
+	if (!found_cl_hid)
+		return;
+
+	for (l = adapter->devices; l; l = l->next) {
+		struct btd_device *dev = l->data;
+
+		/* Apply the sco quirk to Pixel buds pro */
+		if (btd_device_is_connected(dev) &&
+			btd_device_get_vendor(dev) == 0x00e0 &&
+			btd_device_get_product(dev) == 0x3004) {
+			set_sco_quirk(adapter, dev);
+		}
+	}
+}
+
 static void new_link_key_callback(uint16_t index, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -9169,6 +9244,13 @@ static void new_link_key_callback(uint16_t index, uint16_t length,
 		return;
 
 	bonding_complete(adapter, &addr->bdaddr, addr->type, 0);
+
+	/* CHROMIUM ONLY: Special quirk for pixel buds pro to mitigate the
+	 * HID latency issue. Context: b/310031878
+	 * TODO(b/311147120): Remove this quirk once pixel buds pro updated
+	 * their firmware or we find other solutions.
+	 */
+	apply_sco_quirk_if_necessary(adapter);
 }
 
 static void store_ltk_group(struct btd_adapter *adapter, const bdaddr_t *peer,
@@ -10070,6 +10152,13 @@ static void connected_callback(uint16_t index, uint16_t length,
 		adapter_msd_notify(adapter, device, eir_data.msd_list);
 
 	eir_data_free(&eir_data);
+
+	/* CHROMIUM ONLY: Special quirk for pixel buds pro to mitigate the
+	 * HID latency issue. Context: b/310031878
+	 * TODO(b/311147120): Remove this quirk once pixel buds pro updated
+	 * their firmware or we find other solutions.
+	 */
+	apply_sco_quirk_if_necessary(adapter);
 }
 
 static void controller_resume_notify(struct btd_adapter *adapter)

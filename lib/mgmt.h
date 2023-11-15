@@ -771,6 +771,16 @@ struct mgmt_cp_add_adv_patterns_monitor_rssi {
 	struct mgmt_adv_pattern patterns[0];
 } __packed;
 
+/* CHROMIUM Only Commands Start */
+#define MGMT_OP_CHROME_SCO_FORCE_RETRANS_EFFORT	0x0200
+struct mgmt_cp_sco_force_retrans_effort {
+	struct mgmt_addr_info	addr;
+	uint8_t	retrans_effort;
+} __packed;
+#define MGMT_OP_CHROME_SCO_FORCE_RETRANS_EFFORT_SIZE \
+						(MGMT_ADDR_INFO_SIZE + 1)
+/* CHROMIUM Only Commands End */
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
