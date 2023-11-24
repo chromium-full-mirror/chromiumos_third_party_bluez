@@ -1882,6 +1882,11 @@ static void read_adv_monitor_features_cb(uint8_t status, uint16_t length,
 	manager->max_num_monitors = le16_to_cpu(rp->max_num_handles);
 	manager->max_num_patterns = rp->max_num_patterns;
 
+	g_dbus_emit_property_changed(btd_get_dbus_connection(),
+				     adapter_get_path(manager->adapter),
+				     ADV_MONITOR_MGR_INTERFACE,
+				     "SupportedFeatures");
+
 	btd_info(manager->adapter_id, "Adv Monitor Manager created with "
 			"supported features:0x%08x, enabled features:0x%08x, "
 			"max number of supported monitors:%d, "
