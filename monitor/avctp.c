@@ -1052,6 +1052,8 @@ response:
 		for (; len > 0; len--) {
 			uint8_t c;
 
+			if (packet_get_zero_data_filter() && frame->size > 0)
+				memset(frame->data, '0', sizeof(c));
 			if (!l2cap_frame_get_u8(frame, &c))
 				return false;
 
@@ -1128,6 +1130,8 @@ response:
 		for (; len > 0; len--) {
 			uint8_t c;
 
+			if (packet_get_zero_data_filter() && frame->size > 0)
+				memset(frame->data, '0', sizeof(c));
 			if (!l2cap_frame_get_u8(frame, &c))
 				return false;
 
@@ -1233,6 +1237,10 @@ response:
 			for (idx = 0; size > 0; idx++, size--) {
 				uint8_t c;
 
+				if (packet_get_zero_data_filter() &&
+							frame->size > 0) {
+					memset(frame->data, '0', sizeof(c));
+				}
 				if (!l2cap_frame_get_u8(frame, &c))
 					goto failed;
 
@@ -1279,6 +1287,8 @@ response:
 		for (idx = 0; attrlen > 0 && len > 0; idx++, attrlen--, len--) {
 			uint8_t c;
 
+			if (packet_get_zero_data_filter() && frame->size > 0)
+				memset(frame->data, '0', sizeof(c));
 			if (!l2cap_frame_get_u8(frame, &c))
 				goto failed;
 
@@ -1901,6 +1911,8 @@ static bool avrcp_media_player_item(struct avctp_frame *avctp_frame,
 	for (; namelen > 0; namelen--) {
 		uint8_t c;
 
+		if (packet_get_zero_data_filter() && frame->size > 0)
+			memset(frame->data, '0', sizeof(c));
 		if (!l2cap_frame_get_u8(frame, &c))
 			return false;
 		printf("%1c", isprint(c) ? c : '.');
@@ -1956,6 +1968,8 @@ static bool avrcp_folder_item(struct avctp_frame *avctp_frame,
 	printf("%*cName: ", indent+8, ' ');
 	for (; namelen > 0; namelen--) {
 		uint8_t c;
+		if (packet_get_zero_data_filter() && frame->size > 0)
+			memset(frame->data, '0', sizeof(c));
 		if (!l2cap_frame_get_u8(frame, &c))
 			return false;
 
@@ -1997,6 +2011,8 @@ static bool avrcp_attribute_entry_list(struct avctp_frame *avctp_frame,
 		for (; len > 0; len--) {
 			uint8_t c;
 
+			if (packet_get_zero_data_filter() && frame->size > 0)
+				memset(frame->data, '0', sizeof(c));
 			if (!l2cap_frame_get_u8(frame, &c))
 				return false;
 
@@ -2043,6 +2059,8 @@ static bool avrcp_media_element_item(struct avctp_frame *avctp_frame,
 	printf("%*cName: ", indent+8, ' ');
 	for (; namelen > 0; namelen--) {
 		uint8_t c;
+		if (packet_get_zero_data_filter() && frame->size > 0)
+			memset(frame->data, '0', sizeof(c));
 		if (!l2cap_frame_get_u8(frame, &c))
 			return false;
 
@@ -2165,6 +2183,8 @@ static bool avrcp_search_item(struct avctp_frame *avctp_frame)
 	for (; namelen > 0; namelen--) {
 		uint8_t c;
 
+		if (packet_get_zero_data_filter() && frame->size > 0)
+			memset(frame->data, '0', sizeof(c));
 		if (!l2cap_frame_get_u8(frame, &c))
 			return false;
 
@@ -2429,6 +2449,8 @@ response:
 		for (; len > 0; len--) {
 			uint8_t c;
 
+			if (packet_get_zero_data_filter() && frame->size > 0)
+				memset(frame->data, '0', sizeof(c));
 			if (!l2cap_frame_get_u8(frame, &c))
 				return false;
 
