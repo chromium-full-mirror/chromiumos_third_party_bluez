@@ -1772,6 +1772,9 @@ static void print_hex_field(const char *label, const uint8_t *data,
 
 static void print_key(const char *label, const uint8_t *link_key)
 {
+	if (packet_get_zero_data_filter())
+		memset(link_key, 0, 16);
+
 	print_hex_field(label, link_key, 16);
 }
 
@@ -1784,6 +1787,9 @@ static void print_pin_code(const uint8_t *pin_code, uint8_t pin_len)
 {
 	char str[pin_len + 1];
 	uint8_t i;
+
+	if (packet_get_zero_data_filter())
+		memset(pin_code, '0', pin_len);
 
 	for (i = 0; i < pin_len; i++)
 		sprintf(str + i, "%c", (const char) pin_code[i]);
@@ -12217,6 +12223,10 @@ static void mgmt_print_long_term_key(const void *data)
 	print_field("Encryption size: %u", enc_size);
 	print_hex_field("Diversifier", data + 10, 2);
 	print_hex_field("Randomizer", data + 12, 8);
+
+	if (packet_get_zero_data_filter())
+		memset(data + 20, 0, 16);
+
 	print_hex_field("Key", data + 20, 16);
 }
 

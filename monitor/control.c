@@ -291,6 +291,9 @@ static void mgmt_new_link_key(uint16_t len, const void *buf)
 	buf += sizeof(*ev);
 	len -= sizeof(*ev);
 
+	if (packet_get_zero_data_filter())
+		memset(buf, 0, len);
+
 	packet_hexdump(buf, len);
 }
 
@@ -340,6 +343,9 @@ static void mgmt_new_long_term_key(uint16_t len, const void *buf)
 
 	buf += sizeof(*ev);
 	len -= sizeof(*ev);
+
+	if (packet_get_zero_data_filter())
+		memset(buf, 0, len);
 
 	packet_hexdump(buf, len);
 }

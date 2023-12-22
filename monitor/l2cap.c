@@ -2957,6 +2957,9 @@ static void smp_encrypt_info(const struct l2cap_frame *frame)
 {
 	const struct bt_l2cap_smp_encrypt_info *pdu = frame->data;
 
+	if (packet_get_zero_data_filter())
+		memset(pdu->ltk, 0, 16);
+
 	print_hex_field("Long term key", pdu->ltk, 16);
 }
 
