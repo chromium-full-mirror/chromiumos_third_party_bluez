@@ -97,8 +97,10 @@ struct btsnoop {
 };
 
 /*
- * The struct ctrl_data exists for handling log file rotation, so that any
- * single file can be read separately, independent from the other log.
+ * The struct rotation_carryover exists for handling log file rotation, so that
+ * any single file can be read separately, independent from the other log.
+ *
+ * An example of carryover data is Ctrl data.
  * Using btmon, the content of the data is presented like this:
  *      @ MGMT Open: bluetoothd (privileged) version 1.14     {0x0002} 0.985864
  *      @ MGMT Open: bluetoothd (privileged) version 1.14     {0x0001} 0.985865
@@ -129,15 +131,35 @@ struct btsnoop {
  * transfer the 'Open' data to the new log file when during log rotation.
  * Specifically, we shall maintain a list of 'Open' data, appending new 'Open'
  * data to the list and deleting 'Closed' data from the list.
+ *
+ * In order to be able to remove the data, we need to extract some information
+ * that serves as an identification to the data. That is the purpose of the
+ * carryover_ident struct. For example, Ctrl data can be identified by the
+ * 'cookie' field, which is located on the first 4 bytes of data.
  */
-struct ctrl_data {
+
+enum rotation_carryover_type {
+	CARRYOVER_CTRL,
+};
+typedef struct carryover_ident* (*create_ident_func) (const void *);
+typedef bool (*match_ident_func) (const void *, const void *);
+struct carryover_ident {
+	enum rotation_carryover_type type;
+	void *data;
+	int len;
+};
+struct rotation_carryover {
 	struct btsnoop_pkt pkt;
-	uint32_t cookie;
+	struct carryover_ident *ident;
 	void *data;
 };
 
+struct ident_ctrl {
+	uint32_t cookie;
+};
+
 /*
- * These are lists of ctrl_data. The reason we have two lists is to support
+ * These are lists of carryovers. The reason we have two lists is to support
  * compression mode while log rotation is enabled.
  * Take a look at this example of event sequence:
  * 1) btmon logging is started with compression enabled
@@ -147,9 +169,9 @@ struct ctrl_data {
  * 5) However, this will cause log #1 to exceed its size limit. Therefore,
  *    write to log #2 instead.
  *
- * On rotation in (5), we need to write some ctrl_data on log #2. However, the
- * data that we should write is NOT the ctrl_data state in the beginning of (5),
- * instead we should write the ctrl_data state in the beginning of (4), because
+ * On rotation in (5), we need to write some carryovers on log #2. However, the
+ * data that we should write is NOT the carryover state in the beginning of (5),
+ * instead we should write the carryover state in the beginning of (4), because
  * that is what is contained in log #1.
  *
  * Therefore, we need two lists: One to keep track the latest state (5), and one
@@ -157,8 +179,10 @@ struct ctrl_data {
  * when log rotation is enabled, while the latter is used only when log rotation
  * is enabled AND compression is also enabled.
  */
-struct queue *ctrl_list = NULL;
-struct queue *ctrl_list_since_last_write_to_file = NULL;
+struct queue *carryover_list;
+struct queue *carryover_list_since_last_write;
+
+const char carryover_marker_data[] = "=== END OF CARRYOVER SECTION ===";
 
 /*
  * To guarantee that the compressed data will fit, COMPRESS_DST_MAX is 1% larger
@@ -170,84 +194,128 @@ static size_t compress_src_size = 0;
 static char compress_src[COMPRESS_SRC_MAX];
 static char compress_dst[COMPRESS_DST_MAX];
 
-static bool ctrl_help_compare_to_cookie(const void *ctrl_ptr,
-							const void *cookie_ptr)
+static struct carryover_ident *create_ident_ctrl(const void *data)
 {
-	if (!ctrl_ptr || !cookie_ptr)
+	struct carryover_ident *ident = malloc(sizeof(struct carryover_ident));
+	struct ident_ctrl *ident_data = malloc0(sizeof(struct ident_ctrl));
+
+	ident_data->cookie = get_le32(data);
+	ident->type = CARRYOVER_CTRL;
+	ident->len = sizeof(*ident_data);
+	ident->data = ident_data;
+	return ident;
+}
+
+static bool match_ident_ctrl(const void *carry, const void *ident)
+{
+	const struct rotation_carryover *carryover = carry;
+
+	if (carryover->ident->type != CARRYOVER_CTRL)
 		return false;
 
-	const struct ctrl_data *ctrl_data = ctrl_ptr;
-	const uint32_t cookie = *((uint32_t*) cookie_ptr);
-	return ctrl_data->cookie == cookie;
+	const struct ident_ctrl *a = carryover->ident->data;
+	const struct ident_ctrl *b = ident;
+
+	return a->cookie == b->cookie;
 }
 
-static void ctrl_help_data_free(void *data)
+static void carryover_free_ident(struct carryover_ident *ident)
+{
+	free(ident->data);
+	free(ident);
+}
+
+static void carryover_free_data(void *data)
 {
 	if (!data)
 		return;
 
-	struct ctrl_data *ctrl_data = data;
-	free(ctrl_data->data);
-	ctrl_data->data = NULL;
+	struct rotation_carryover *carryover = data;
+
+	free(carryover->data);
+	carryover->data = NULL;
+	carryover_free_ident(carryover->ident);
+	carryover->ident = NULL;
 }
 
-static struct queue *ctrl_store(struct queue *ctrls, struct btsnoop_pkt *pkt,
-							const void *data)
+static struct queue *carryover_append(struct queue *carryovers,
+					struct btsnoop_pkt *pkt,
+					struct carryover_ident *ident,
+					const void *data)
 {
-	if (!data || !pkt)
-		return ctrls;
-	if (!ctrls)
-		ctrls = queue_new();
+	if (!data || !pkt || !ident)
+		return carryovers;
+	if (!carryovers)
+		carryovers = queue_new();
 
-	uint32_t cookie = get_le32(data);
-	struct ctrl_data *ctrl_data = malloc(sizeof(struct ctrl_data));
-	if (!ctrl_data)
-		return ctrls;
+	struct rotation_carryover *carryover =
+				malloc(sizeof(struct rotation_carryover));
+	if (!carryover)
+		return carryovers;
 
-	ctrl_data->cookie = cookie;
-	ctrl_data->pkt = *pkt;
+	carryover->pkt = *pkt;
+	carryover->ident = ident;
 
 	uint16_t size = be32toh(pkt->size);
-	ctrl_data->data = malloc(size);
-	if (!ctrl_data->data) {
-		free(ctrl_data);
-		return ctrls;
+	carryover->data = malloc(size);
+	if (!carryover->data) {
+		free(carryover);
+		return carryovers;
 	}
 
-	memcpy(ctrl_data->data, data, size);
-	queue_push_tail(ctrls, ctrl_data);
-	return ctrls;
+	memcpy(carryover->data, data, size);
+	queue_push_tail(carryovers, carryover);
+	return carryovers;
 }
 
-static void ctrl_release(struct queue *ctrls, const void *data)
+static void carryover_create(struct btsnoop_pkt *pkt,
+					create_ident_func create_func,
+					const void *data)
 {
-	if (!data)
-		return;
+	struct carryover_ident *ident = create_func(data);
 
-	uint32_t cookie = get_le32(data);
-	queue_remove_all(ctrls, ctrl_help_compare_to_cookie, &cookie,
-							ctrl_help_data_free);
+	carryover_list = carryover_append(carryover_list, pkt, ident, data);
 }
 
-static void ctrl_release_all(struct queue *ctrls)
+static void carryover_release(create_ident_func create_func,
+					match_ident_func match_func,
+					const void *data)
 {
-	queue_destroy(ctrls, ctrl_help_data_free);
+	if (create_func) {
+		struct carryover_ident *ident = create_func(data);
+
+		queue_remove_all(carryover_list, match_func, ident->data,
+						carryover_free_data);
+		carryover_free_ident(ident);
+	} else {
+		queue_remove_all(carryover_list, match_func, NULL,
+						carryover_free_data);
+	}
 }
 
-static struct queue *ctrl_copy_list(struct queue *ctrls_to,
-						struct queue *ctrls_from)
+static void carryover_release_all(struct queue *carryovers)
 {
-	queue_remove_all(ctrls_to, NULL, NULL, ctrl_help_data_free);
-	ctrls_to = NULL;
+	queue_destroy(carryovers, carryover_free_data);
+}
 
+static struct queue *carryover_copy_list(struct queue *from)
+{
+	struct queue *to = NULL;
 	const struct queue_entry *entry;
-	for (entry = queue_get_entries(ctrls_from); entry; entry = entry->next)
+
+	for (entry = queue_get_entries(from); entry; entry = entry->next)
 	{
-		struct ctrl_data *from = entry->data;
-		ctrls_to = ctrl_store(ctrls_to, &from->pkt, from->data);
+		struct rotation_carryover *from = entry->data;
+		struct carryover_ident *ident =
+					malloc(sizeof(struct carryover_ident));
+		ident->type = from->ident->type;
+		ident->len = from->ident->len;
+		ident->data = malloc(ident->len);
+		memcpy(ident->data, from->ident->data, ident->len);
+		to = carryover_append(to, &from->pkt, ident, from->data);
 	}
 
-	return ctrls_to;
+	return to;
 }
 
 static struct btsnoop *btsnoop_alloc()
@@ -272,12 +340,12 @@ static void btsnoop_free(struct btsnoop *btsnoop)
 		btsnoop->log_path = NULL;
 	}
 	if (btsnoop->rotate) {
-		ctrl_release_all(ctrl_list);
-		ctrl_list = NULL;
+		carryover_release_all(carryover_list);
+		carryover_list = NULL;
 
 		if (btsnoop->compress) {
-			ctrl_release_all(ctrl_list_since_last_write_to_file);
-			ctrl_list_since_last_write_to_file = NULL;
+			carryover_release_all(carryover_list_since_last_write);
+			carryover_list_since_last_write = NULL;
 		}
 	}
 	if (btsnoop->flush_timer) {
@@ -329,7 +397,7 @@ static void btsnoop_append_to_compress(const void *data, size_t size)
 	compress_src_size += size;
 }
 
-static ssize_t write_header_and_ctrls(struct btsnoop *btsnoop)
+static ssize_t write_header_and_carryovers(struct btsnoop *btsnoop)
 {
 	if (!btsnoop)
 		return -EINVAL;
@@ -340,40 +408,67 @@ static ssize_t write_header_and_ctrls(struct btsnoop *btsnoop)
 	hdr.type = htobe32(btsnoop->format);
 
 	const struct queue_entry *entry;
-	struct queue *ctrls = btsnoop->compress ?
-				ctrl_list_since_last_write_to_file : ctrl_list;
-	size_t header_ctrl_total_size = BTSNOOP_HDR_SIZE;
-	for (entry = queue_get_entries(ctrls); entry; entry = entry->next) {
-		const struct ctrl_data *ctrl_data = entry->data;
-		uint16_t pkt_size = be32toh(ctrl_data->pkt.size);
-		header_ctrl_total_size += BTSNOOP_PKT_SIZE + pkt_size;
+	struct queue *list = btsnoop->compress ?
+			carryover_list_since_last_write : carryover_list;
+	size_t header_carryover_total_size = BTSNOOP_HDR_SIZE;
+
+	struct btsnoop_pkt carryover_marker_pkt = {
+		.size = htobe32(sizeof(carryover_marker_data)),
+		.len = htobe32(sizeof(carryover_marker_data)),
+		// flags = (adapterId: invalid, opcode: 12 (system note))
+		.flags = htobe32(0xffff000C),
+		.drops = 0,
+		.ts = 0,
+	};
+
+	for (entry = queue_get_entries(list); entry; entry = entry->next) {
+		const struct rotation_carryover *carryover = entry->data;
+		size_t pkt_size = be32toh(carryover->pkt.size);
+		// always update ts to latest, otherwise it messes up display.
+		carryover_marker_pkt.ts = carryover->pkt.ts;
+
+		header_carryover_total_size += BTSNOOP_PKT_SIZE + pkt_size;
 	}
 
-	/* copy file header and active ctrl packets to buffer */
-	void *buffer = malloc(header_ctrl_total_size);
+	if (!queue_isempty(list)) {
+		header_carryover_total_size +=
+			BTSNOOP_PKT_SIZE + sizeof(carryover_marker_data);
+	}
+
+	/* copy file header and carryover packets to buffer */
+	void *buffer = malloc(header_carryover_total_size);
 	if (!buffer)
 		return -ENOMEM;
 	memcpy(buffer, &hdr, BTSNOOP_HDR_SIZE);
 
 	size_t offset = BTSNOOP_HDR_SIZE;
-	for (entry = queue_get_entries(ctrls); entry; entry = entry->next) {
-		const struct ctrl_data *ctrl_data = entry->data;
-		uint16_t pkt_size = be32toh(ctrl_data->pkt.size);
-		memcpy(buffer + offset, &ctrl_data->pkt, BTSNOOP_PKT_SIZE);
-		memcpy(buffer + offset + BTSNOOP_PKT_SIZE, ctrl_data->data,
+	for (entry = queue_get_entries(list); entry; entry = entry->next) {
+		const struct rotation_carryover *carryover = entry->data;
+		size_t pkt_size = be32toh(carryover->pkt.size);
+
+		memcpy(buffer + offset, &carryover->pkt, BTSNOOP_PKT_SIZE);
+		memcpy(buffer + offset + BTSNOOP_PKT_SIZE, carryover->data,
 								pkt_size);
 		offset += BTSNOOP_PKT_SIZE + pkt_size;
+	}
+
+	if (!queue_isempty(list)) {
+		memcpy(buffer + offset, &carryover_marker_pkt,
+							BTSNOOP_PKT_SIZE);
+		memcpy(buffer + offset + BTSNOOP_PKT_SIZE,
+			carryover_marker_data, sizeof(carryover_marker_data));
 	}
 
 	ssize_t written;
 	if (btsnoop->compress) {
 		size_t compressed_size;
 
-		btsnoop_append_to_compress(buffer, header_ctrl_total_size);
+		btsnoop_append_to_compress(buffer, header_carryover_total_size);
 		compressed_size = btsnoop_compress();
 		written = write(btsnoop->fd, compress_dst, compressed_size);
 	} else {
-		written = write(btsnoop->fd, buffer, header_ctrl_total_size);
+		written = write(btsnoop->fd, buffer,
+						header_carryover_total_size);
 	}
 	free(buffer);
 
@@ -426,7 +521,7 @@ static ssize_t btsnoop_write_to_log(struct btsnoop *btsnoop, const void *data,
 		if (!btsnoop_rotate_logs(btsnoop))
 			return -errno;
 
-		written = write_header_and_ctrls(btsnoop);
+		written = write_header_and_carryovers(btsnoop);
 		if (written < 0)
 			return written;
 	}
@@ -435,8 +530,9 @@ check_file_size_limit_done:
 	written += write(fd, data, size);
 
 	if (btsnoop->rotate && btsnoop->compress) {
-		ctrl_list_since_last_write_to_file = ctrl_copy_list(
-				ctrl_list_since_last_write_to_file, ctrl_list);
+		carryover_release_all(carryover_list_since_last_write);
+		carryover_list_since_last_write =
+					carryover_copy_list(carryover_list);
 	}
 
 	return written;
@@ -590,7 +686,7 @@ struct btsnoop *btsnoop_create(const char *path, size_t max_size,
 	btsnoop->file_size_limit = file_size_limit;
 	btsnoop->rotate = rotate;
 
-	written = write_header_and_ctrls(btsnoop);
+	written = write_header_and_carryovers(btsnoop);
 	if (written < 0)
 		goto failed;
 
@@ -785,11 +881,21 @@ bool btsnoop_write_hci(struct btsnoop *btsnoop, struct timeval *tv,
 	struct btsnoop_pkt pkt = create_btsnoop_pkt(tv, flags, drops, size);
 	bool result = btsnoop_write_pkt(btsnoop, &pkt, data);
 
-	if (btsnoop->rotate) {
-		if (opcode == BTSNOOP_OPCODE_CTRL_OPEN)
-			ctrl_list = ctrl_store(ctrl_list, &pkt, data);
-		else if (opcode == BTSNOOP_OPCODE_CTRL_CLOSE)
-			ctrl_release(ctrl_list, data);
+	if (!btsnoop->rotate)
+		return result;
+
+	// Here we update the state for btsnoop rotation.
+	switch (opcode) {
+	case BTSNOOP_OPCODE_CTRL_OPEN:
+		if (pkt.size >= 4)
+			carryover_create(&pkt, create_ident_ctrl, data);
+		break;
+	case BTSNOOP_OPCODE_CTRL_CLOSE:
+		if (pkt.size >= 4) {
+			carryover_release(create_ident_ctrl, match_ident_ctrl,
+									data);
+		}
+		break;
 	}
 
 	return result;
