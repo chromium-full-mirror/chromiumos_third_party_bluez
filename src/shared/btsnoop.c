@@ -140,6 +140,8 @@ struct btsnoop {
 
 enum rotation_carryover_type {
 	CARRYOVER_CTRL,
+	CARRYOVER_HCI_CONN,
+	CARRYOVER_L2CAP_CONN,
 };
 typedef struct carryover_ident* (*create_ident_func) (const void *);
 typedef bool (*match_ident_func) (const void *, const void *);
@@ -156,6 +158,14 @@ struct rotation_carryover {
 
 struct ident_ctrl {
 	uint32_t cookie;
+};
+struct ident_hci_conn {
+	uint16_t handle;
+};
+struct ident_l2cap_conn {
+	uint16_t handle;
+	uint16_t local_cid;
+	uint16_t remote_cid;
 };
 
 /*
@@ -206,6 +216,99 @@ static struct carryover_ident *create_ident_ctrl(const void *data)
 	return ident;
 }
 
+static struct carryover_ident *create_ident_hci_conn(const void *data,
+							uint16_t handle)
+{
+	struct carryover_ident *ident = malloc(sizeof(struct carryover_ident));
+	struct ident_hci_conn *ident_data =
+					malloc0(sizeof(struct ident_hci_conn));
+
+	ident_data->handle = handle;
+	ident->type = CARRYOVER_HCI_CONN;
+	ident->len = sizeof(*ident_data);
+	ident->data = ident_data;
+	return ident;
+}
+
+static struct carryover_ident *create_ident_hci_conn_ev(const void *data)
+{
+	return create_ident_hci_conn(data, get_le16(data + 3));
+}
+
+static struct carryover_ident *create_ident_hci_le_conn_ev(const void *data)
+{
+	return create_ident_hci_conn(data, get_le16(data + 4));
+}
+
+static struct carryover_ident *create_ident_hci_disconn_ev(const void *data)
+{
+	return create_ident_hci_conn(data, get_le16(data + 3));
+}
+
+static struct carryover_ident *create_ident_hci_disconn_cmd(const void *data)
+{
+	return create_ident_hci_conn(data, get_le16(data + 3));
+}
+
+static struct carryover_ident *create_ident_l2cap_conn(const void *data,
+							uint16_t local_cid,
+							uint16_t remote_cid)
+{
+	struct carryover_ident *ident = malloc(sizeof(struct carryover_ident));
+	struct ident_l2cap_conn *ident_data =
+				malloc0(sizeof(struct ident_l2cap_conn));
+	// Handle offset is always zero.
+	// The handle comes with flags in the first 4 bits - remove them.
+	ident_data->handle = get_le16(data);
+	ident_data->handle &= 0x0fff;
+
+	// For connection request, we won't know either one of the CIDs.
+	// Mark the unknown CID with zero (invalid).
+	ident_data->local_cid = local_cid;
+	ident_data->remote_cid = remote_cid;
+
+	ident->type = CARRYOVER_L2CAP_CONN;
+	ident->len = sizeof(*ident_data);
+	ident->data = ident_data;
+	return ident;
+}
+
+static struct carryover_ident *create_ident_l2cap_conn_req_tx(const void *data)
+{
+	return create_ident_l2cap_conn(data, get_le16(data + 14), 0);
+}
+
+static struct carryover_ident *create_ident_l2cap_conn_req_rx(const void *data)
+{
+	return create_ident_l2cap_conn(data, 0, get_le16(data + 14));
+}
+
+static struct carryover_ident *create_ident_l2cap_conn_rsp_tx(const void *data)
+{
+	return create_ident_l2cap_conn(data, get_le16(data + 12),
+							get_le16(data + 14));
+}
+
+static struct carryover_ident *create_ident_l2cap_conn_rsp_rx(const void *data)
+{
+	return create_ident_l2cap_conn(data, get_le16(data + 14),
+							get_le16(data + 12));
+}
+
+static struct carryover_ident *create_ident_l2cap_disconn_rsp_tx(
+							const void *data)
+{
+	return create_ident_l2cap_conn(data, get_le16(data + 12),
+							get_le16(data + 14));
+}
+
+static struct carryover_ident *create_ident_l2cap_disconn_rsp_rx(
+							const void *data)
+{
+	return create_ident_l2cap_conn(data, get_le16(data + 14),
+							get_le16(data + 12));
+}
+
 static bool match_ident_ctrl(const void *carry, const void *ident)
 {
 	const struct rotation_carryover *carryover = carry;
@@ -217,6 +320,46 @@ static bool match_ident_ctrl(const void *carry, const void *ident)
 	const struct ident_ctrl *b = ident;
 
 	return a->cookie == b->cookie;
+}
+
+static bool match_ident_hci_disconn(const void *carry, const void *ident)
+{
+	const struct rotation_carryover *carryover = carry;
+	const struct ident_hci_conn *b = ident;
+
+	if (carryover->ident->type == CARRYOVER_HCI_CONN) {
+		const struct ident_hci_conn *a = carryover->ident->data;
+
+		return a->handle == b->handle;
+	} else if (carryover->ident->type == CARRYOVER_L2CAP_CONN) {
+		const struct ident_l2cap_conn *a = carryover->ident->data;
+
+		return a->handle == b->handle;
+	}
+
+	return false;
+}
+
+static bool match_ident_l2cap_disconn(const void *carry, const void *ident)
+{
+	const struct rotation_carryover *carryover = carry;
+
+	if (carryover->ident->type != CARRYOVER_L2CAP_CONN)
+		return false;
+
+	const struct ident_l2cap_conn *a = carryover->ident->data;
+	const struct ident_l2cap_conn *b = ident;
+
+	// Zero (invalid) CID never matches with anything
+	return (a->local_cid == b->local_cid && b->local_cid != 0) ||
+		(a->remote_cid == b->remote_cid && b->remote_cid != 0);
+}
+
+static bool match_ident_reset(const void *carry, const void *null)
+{
+	const struct rotation_carryover *carryover = carry;
+
+	return carryover->ident->type != CARRYOVER_CTRL;
 }
 
 static void carryover_free_ident(struct carryover_ident *ident)
@@ -848,6 +991,110 @@ static uint32_t get_flags_from_opcode(uint16_t opcode)
 	return 0xff;
 }
 
+static void carryover_process_hci_cmd(struct btsnoop_pkt *pkt, const void *data)
+{
+	if (pkt->size < 2)
+		return;
+
+	switch (get_le16(data)) { // opcode
+	case 0x0c03: // Reset
+		carryover_release(NULL, match_ident_reset, NULL);
+		break;
+	case 0x0406: // Disconnect
+		// Disconnect cmd is needed on top of disconn ev because
+		// sometimes the controller doesn't wait for the event.
+		if (pkt->size < 5)
+			return;
+		carryover_create(pkt, create_ident_hci_disconn_cmd, data);
+		break;
+	}
+}
+
+static void carryover_process_hci_ev(struct btsnoop_pkt *pkt, const void *data)
+{
+	if (pkt->size < 1)
+		return;
+
+	switch (get_u8(data)) { // ev code
+	case 0x03: // Connection Complete
+	case 0x2c: // Synchronous Connection Complete
+		if (pkt->size < 5)
+			return;
+		if (get_u8(data + 2) == 0x00) // status
+			carryover_create(pkt, create_ident_hci_conn_ev, data);
+		break;
+	case 0x05: // Disconnection Complete
+		if (pkt->size < 5)
+			return;
+		carryover_release(create_ident_hci_disconn_ev,
+						match_ident_hci_disconn, data);
+		break;
+	case 0x3e: // LE Meta
+		if (pkt->size < 6)
+			return;
+		switch (get_u8(data + 2)) { // subevent code
+		case 0x01: // LE Connection Complete
+		case 0x0a: // LE Enhanced Connection Complete v1
+		case 0x29: // LE Enhanced Connection Complete v2
+			if (get_u8(data + 3) == 0x00) { // status
+				carryover_create(pkt,
+					create_ident_hci_le_conn_ev, data);
+			}
+			break;
+		}
+		break;
+	}
+}
+
+static void carryover_process_acl(struct btsnoop_pkt *pkt, const void *data,
+								bool is_tx)
+{
+	if (pkt->size < 9)
+		return;
+
+	// Only interested in L2CAP signalling channel
+	if (get_le16(data + 6) != 0x0001)
+		return;
+
+	create_ident_func create_func;
+
+	switch (get_u8(data + 8)) { // Command code
+	case 0x02: // Connection Request
+		if (pkt->size < 16)
+			return;
+		create_func = is_tx ? create_ident_l2cap_conn_req_tx :
+					create_ident_l2cap_conn_req_rx;
+		carryover_create(pkt, create_func, data);
+		break;
+	case 0x03: // Connection Response
+		if (pkt->size < 18)
+			return;
+		switch (get_le16(data + 16)) { // result
+		case 0x0000: // success
+			create_func = is_tx ? create_ident_l2cap_conn_rsp_tx :
+						create_ident_l2cap_conn_rsp_rx;
+			carryover_create(pkt, create_func, data);
+			break;
+		case 0x0001: // pending
+			break;
+		default: // error
+			create_func = is_tx ? create_ident_l2cap_conn_rsp_tx :
+						create_ident_l2cap_conn_rsp_rx;
+			carryover_release(create_func,
+					match_ident_l2cap_disconn, data);
+			break;
+		}
+		break;
+	case 0x07: // Disconnection Response
+		if (pkt->size < 16)
+			return;
+		create_func = is_tx ? create_ident_l2cap_disconn_rsp_tx :
+					create_ident_l2cap_disconn_rsp_rx;
+		carryover_release(create_func, match_ident_l2cap_disconn, data);
+		break;
+	}
+}
+
 bool btsnoop_write_hci(struct btsnoop *btsnoop, struct timeval *tv,
 			uint16_t index, uint16_t opcode, uint32_t drops,
 			const void *data, uint16_t size)
@@ -895,6 +1142,18 @@ bool btsnoop_write_hci(struct btsnoop *btsnoop, struct timeval *tv,
 			carryover_release(create_ident_ctrl, match_ident_ctrl,
 									data);
 		}
+		break;
+	case BTSNOOP_OPCODE_COMMAND_PKT:
+		carryover_process_hci_cmd(&pkt, data);
+		break;
+	case BTSNOOP_OPCODE_EVENT_PKT:
+		carryover_process_hci_ev(&pkt, data);
+		break;
+	case BTSNOOP_OPCODE_ACL_TX_PKT:
+		carryover_process_acl(&pkt, data, true);
+		break;
+	case BTSNOOP_OPCODE_ACL_RX_PKT:
+		carryover_process_acl(&pkt, data, false);
 		break;
 	}
 
