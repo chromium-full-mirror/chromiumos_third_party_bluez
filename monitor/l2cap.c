@@ -2545,6 +2545,10 @@ static void att_handle_value_notify(const struct l2cap_frame *frame)
 	const struct bt_l2cap_att_handle_value_notify *pdu = frame->data;
 
 	print_field("Handle: 0x%4.4x", le16_to_cpu(pdu->handle));
+
+	if (packet_get_zero_data_filter())
+		memset(frame->data + 2, 0, frame->size - 2);
+
 	print_hex_field("  Data", frame->data + 2, frame->size - 2);
 }
 
@@ -3269,6 +3273,11 @@ void l2cap_frame(uint16_t index, bool in, uint16_t handle, uint16_t cid,
 			if (packet_get_zero_data_filter() && frame.seq_num > 1)
 				memset(data, 0, size);
 			avdtp_packet(&frame);
+			break;
+		// HID Interrupt
+		case 0x0013:
+			if (packet_get_zero_data_filter())
+				memset(data, 0, size);
 			break;
 		default:
 			packet_hexdump(data, size);
