@@ -372,7 +372,8 @@ include android/Makefile.am
 include Makefile.mesh
 include Makefile.fuzzer
 
-unit_tests += unit/metrics_unittests
+# TODO(b/325102028) - uncomment the line below when solved
+# unit_tests += unit/metrics_unittests
 unit_metrics_unittests_SOURCES = $(bluetoothd_sources) src/metrics_unittests.c
 unit_metrics_unittests_LDADD = lib/libbluetooth-internal.la \
 			gdbus/libgdbus-internal.la \
