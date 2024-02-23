@@ -570,7 +570,7 @@ void device_log_device_info(struct btd_device *device)
 	if (!device || device->temporary || device_address_is_private(device))
 		return;
 
-	DBG("Log device info: %s", device->name);
+	DBG("Log device info: %s", device->path);
 
 	ba2str(&device->bdaddr, addr);
 
