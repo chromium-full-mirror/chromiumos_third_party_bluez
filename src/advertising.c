@@ -846,8 +846,7 @@ static int get_adv_flags(struct btd_adv_client *client)
 }
 
 static int refresh_legacy_adv(struct btd_adv_client *client,
-				mgmt_request_func_t func,
-				unsigned int *mgmt_id)
+				mgmt_request_func_t func)
 {
 	struct mgmt_cp_add_advertising *cp;
 	uint8_t param_len;
@@ -912,8 +911,8 @@ static int refresh_legacy_adv(struct btd_adv_client *client,
 		free(cp);
 		return -EINVAL;
 	}
-	if (mgmt_id)
-		*mgmt_id = mgmt_ret;
+	if (func)
+		client->add_adv_id = mgmt_ret;
 
 	free(cp);
 
@@ -924,7 +923,7 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 				    const void *param, void *user_data);
 
 static int refresh_extended_adv(struct btd_adv_client *client,
-				mgmt_request_func_t func, unsigned int *mgmt_id)
+				mgmt_request_func_t func)
 {
 	struct mgmt_cp_add_ext_adv_params cp;
 	uint32_t flags = 0;
@@ -979,21 +978,18 @@ static int refresh_extended_adv(struct btd_adv_client *client,
 
 	/* Store callback, called after we set advertising data */
 	client->refresh_done_func = func;
-
-	if (mgmt_id)
-		*mgmt_id = mgmt_ret;
-
+	client->add_adv_id = mgmt_ret;
 
 	return 0;
 }
 
 static int refresh_advertisement(struct btd_adv_client *client,
-			mgmt_request_func_t func, unsigned int *mgmt_id)
+					mgmt_request_func_t func)
 {
 	if (client->manager->extended_add_cmds)
-		return refresh_extended_adv(client, func, mgmt_id);
+		return refresh_extended_adv(client, func);
 
-	return refresh_legacy_adv(client, func, mgmt_id);
+	return refresh_legacy_adv(client, func);
 }
 
 static bool client_discoverable_timeout(void *user_data)
@@ -1006,7 +1002,7 @@ static bool client_discoverable_timeout(void *user_data)
 
 	bt_ad_clear_flags(client->data);
 
-	refresh_advertisement(client, NULL, NULL);
+	refresh_advertisement(client, NULL);
 
 	return FALSE;
 }
@@ -1203,7 +1199,7 @@ static void properties_changed(GDBusProxy *proxy, const char *name,
 			continue;
 
 		if (parser->func(iter, client)) {
-			refresh_advertisement(client, NULL, NULL);
+			refresh_advertisement(client, NULL);
 
 			break;
 		}
@@ -1258,8 +1254,7 @@ static void add_adv_callback(uint8_t status, uint16_t length,
 		} else {
 			/* Not yet retried, reschedule the tasks and return. */
 			client->add_adv_retried = true;
-			err = refresh_advertisement(client, add_adv_callback,
-						    &client->add_adv_id);
+			err = refresh_advertisement(client, add_adv_callback);
 			if (!err)
 				return;
 		}
@@ -1308,6 +1303,8 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 	uint32_t flags = 0;
 	unsigned int mgmt_ret;
 	dbus_int16_t tx_power;
+
+	client->add_adv_id = 0;
 
 	if (status)
 		goto fail;
@@ -1371,6 +1368,9 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 			     client->manager->mgmt_index, param_len, cp,
 			     client->refresh_done_func, client, NULL);
 
+	if (mgmt_ret && client->refresh_done_func)
+		client->add_adv_id = mgmt_ret;
+
 	/* Clear the callback */
 	client->refresh_done_func = NULL;
 
@@ -1380,9 +1380,6 @@ static void add_adv_params_callback(uint8_t status, uint16_t length,
 				  false);
 		goto fail;
 	}
-
-	if (client->add_adv_id)
-		client->add_adv_id = mgmt_ret;
 
 	free(cp);
 	cp = NULL;
@@ -1463,8 +1460,7 @@ static DBusMessage *parse_advertisement(struct btd_adv_client *client)
 		goto fail;
 	}
 
-	err = refresh_advertisement(client, add_adv_callback,
-					&client->add_adv_id);
+	err = refresh_advertisement(client, add_adv_callback);
 
 	if (!err)
 		return NULL;
@@ -2130,7 +2126,7 @@ static void manager_refresh(void *data, void *user_data)
 {
 	struct btd_adv_client *client = data;
 
-	refresh_advertisement(client, user_data, NULL);
+	refresh_advertisement(client, NULL);
 }
 
 void btd_adv_manager_refresh(struct btd_adv_manager *manager)
