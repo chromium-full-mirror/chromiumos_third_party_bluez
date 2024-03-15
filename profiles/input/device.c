@@ -313,7 +313,7 @@ static bool uhid_send_input_report(struct input_device *idev,
 		return false;
 	}
 
-	DBG("HID report (%zu bytes)", size);
+	DBG_LVL(2, "HID report (%zu bytes)", size);
 
 	return true;
 }
@@ -866,6 +866,34 @@ static int extract_hid_record(sdp_record_t *rec, struct hidp_connadd_req *req)
 	return 0;
 }
 
+// CHROMIUM only
+static bool floss_extract_hid_record(struct hidp_connadd_req *req,
+								char *filename)
+{
+	unsigned int i;
+	char *base64_descriptor = NULL;
+	GKeyFile *key_file;
+
+	key_file = g_key_file_new();
+	g_key_file_load_from_file(key_file, filename, 0, NULL);
+	base64_descriptor = g_key_file_get_string(key_file, "ReportMap",
+						"report_map", NULL);
+	g_key_file_free(key_file);
+
+	if (!base64_descriptor)
+		return false;
+
+	req->parser = 0x0100;
+	req->subclass = 0;
+	req->country = 0;
+	req->rd_data = g_base64_decode(base64_descriptor, &req->rd_size);
+	g_free(base64_descriptor);
+
+	epox_endian_quirk(req->rd_data, req->rd_size);
+
+	return true;
+}
+
 static int ioctl_connadd(struct hidp_connadd_req *req)
 {
 	int ctl, err = 0;
@@ -1075,6 +1103,13 @@ static int hidp_add_connection(struct input_device *idev)
 	g_key_file_free(key_file);
 
 	if (!str) {
+		// CHROMIUM: Devices migrated from floss don't have SDP records
+		// so we add special extraction as a workaround.
+		snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/hog-uhid-cache",
+							src_addr, dst_addr);
+		if (floss_extract_hid_record(req, filename))
+			goto record_ok;
+
 		error("Rejected connection from unknown device %s", dst_addr);
 		err = -EPERM;
 		goto cleanup;
@@ -1091,6 +1126,7 @@ static int hidp_add_connection(struct input_device *idev)
 		goto cleanup;
 	}
 
+record_ok:
 	req->vendor = btd_device_get_vendor(idev->device);
 	req->product = btd_device_get_product(idev->device);
 	req->version = btd_device_get_version(idev->device);
@@ -1479,8 +1515,8 @@ static struct input_device *input_device_new(struct btd_service *service)
 	struct btd_adapter *adapter = device_get_adapter(device);
 	struct input_device *idev;
 
-	if (!rec)
-		return NULL;
+	// CHROMIUM: allow rec = NULL. This just means this device is migrated
+	// from Floss -> BlueZ, and missing the SDP cache
 
 	idev = g_new0(struct input_device, 1);
 	bacpy(&idev->src, btd_adapter_get_address(adapter));
@@ -1488,11 +1524,19 @@ static struct input_device *input_device_new(struct btd_service *service)
 	idev->service = btd_service_ref(service);
 	idev->device = btd_device_ref(device);
 	idev->path = g_strdup(path);
-	idev->handle = rec->handle;
-	idev->disable_sdp = is_device_sdp_disable(rec);
 
-	/* Initialize device properties */
-	extract_hid_props(idev, rec);
+	// CHROMIUM: Since we're missing the SDP cache, we need to infer some
+	// parameters. Here we choose to maximize compatibility.
+	if (!rec) {
+		idev->disable_sdp = true;
+		idev->reconnect_mode = RECONNECT_DEVICE;
+	} else {
+		idev->handle = rec->handle;
+		idev->disable_sdp = is_device_sdp_disable(rec);
+
+		/* Initialize device properties */
+		extract_hid_props(idev, rec);
+	}
 
 	if (idev->disable_sdp)
 		device_set_refresh_discovery(device, false);
