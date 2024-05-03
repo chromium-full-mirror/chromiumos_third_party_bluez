@@ -80,11 +80,14 @@
 #include "metrics.h"
 
 /* Timer units are in seconds */
-#define DISCONNECT_TIMER		2
 #define DELAY_DISCONNECT_TIMER		1
 #define DELAY_DISCONNECT_TIMEOUT_COUNT	10
 
 #define DISCOVERY_TIMER		1
+
+/* Timer unit is in milliseconds */
+#define DISCONNECT_TIMER		1500
+
 #define INVALID_FLAGS		0xff
 
 #ifndef MIN
@@ -1949,9 +1952,8 @@ void device_request_disconnect(struct btd_device *device, DBusMessage *msg)
 		return;
 	}
 
-	device->disconn_timer = timeout_add_seconds(DISCONNECT_TIMER,
-							disconnect_all,
-							device, NULL);
+	device->disconn_timer = timeout_add(DISCONNECT_TIMER, disconnect_all,
+								device, NULL);
 }
 
 bool device_is_disconnecting(struct btd_device *device)
