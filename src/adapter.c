@@ -97,6 +97,7 @@
 #define TEMP_DEV_TIMEOUT (3 * 60)
 #define BONDING_TIMEOUT (2 * 60)
 #define UNPAIR_TIMEOUT (2)
+#define DISCONNECT_TIMEOUT (15)
 
 #define SCAN_TYPE_BREDR (1 << BDADDR_BREDR)
 #define SCAN_TYPE_LE ((1 << BDADDR_LE_PUBLIC) | (1 << BDADDR_LE_RANDOM))
@@ -9052,9 +9053,15 @@ int btd_adapter_disconnect_device(struct btd_adapter *adapter,
 	bacpy(&cp.addr.bdaddr, bdaddr);
 	cp.addr.type = bdaddr_type;
 
-	if (mgmt_send(adapter->mgmt, MGMT_OP_DISCONNECT,
+	/* It has been observed that the kernel may have a state inconsistency
+	 * issue that could prevent the MGMT event from being generated for
+	 * the command, causing the MGMT queue to become stuck.
+	 * A timeout is set to mitigate this issue.
+	 */
+	if (mgmt_send_timeout(adapter->mgmt, MGMT_OP_DISCONNECT,
 				adapter->dev_id, sizeof(cp), &cp,
-				disconnect_complete, adapter, NULL) > 0)
+				disconnect_complete, adapter, NULL,
+				DISCONNECT_TIMEOUT) > 0)
 		return 0;
 
 	return -EIO;
