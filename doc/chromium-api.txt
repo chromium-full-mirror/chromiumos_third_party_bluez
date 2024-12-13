@@ -52,14 +52,6 @@ Methods		void SetLevels(byte bluezLevel, byte kernelLevel)
 					 org.bluez.Error.InvalidArguments
 					 org.bluez.Error.NoSuchAdapter
 
-		void SetDevCoredump(boolean coredump_enabled)
-
-			This method enables or disables the bluetooth
-			devcoredump feature per the coredump_enabled
-			parameter. It affects all available adapters.
-
-			Possible errors: org.bluez.Error.InvalidArguments
-
 Properties	byte BluezLevel
 
 			Get the Bluez debug Level
